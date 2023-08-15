@@ -188,6 +188,7 @@ def main(**extra_args):
           author_email=info.AUTHOR_EMAIL,
           platforms=info.PLATFORMS,
           version=versioneer.get_version(),
+          install_requires=['pybind11'],
           requires=info.REQUIRES,
           provides=info.PROVIDES,
           packages     = ['glmnet'],
