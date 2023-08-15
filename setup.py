@@ -3,14 +3,10 @@ import pybind11
 import os
 
 
-eigendir = os.path.abspath(os.path.join('.', 'eigen'))
+# find eigen source directory of submodule
 
-print(eigendir, 'eigen dir')
-print(os.listdir(eigendir))
-print(__file__)
-print(os.listdir('.'))
-print(os.listdir(os.path.join(eigendir, '..')))
-print(os.listdir(os.path.join(eigendir, '..', 'eigen')))
+dirname = os.path.abspath(os.path.dirname(__file__))
+eigendir = os.path.abspath(os.path.join(dirname, 'eigen'))
 
 module = Extension(
     'glmnetpp',
