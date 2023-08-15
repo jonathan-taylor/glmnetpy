@@ -44,5 +44,5 @@ jobs:
 
     - name: Test pyglmnet
       run: |
-        python test_glmnetpp.py
+        python tests/test_glmnetpp.py
 
