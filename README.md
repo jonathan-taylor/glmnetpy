@@ -15,20 +15,23 @@ Python bindings to glmnet base source
 
 Assuming Xcode with command line tools is installed already.
 
-0. Create a new virtual env, say `pyg`.
-
-1. Install [`pybind11`](https://pybind11.readthedocs.io).
-
-2. Install the [Eigen
-   library](https://eigen.tuxfamily.org/index.php). Easily done with
-   homebrew.
-   ```
-   brew install eigen
-   ```
-3. If all pre-reqs are met,  the following should build the module.
+### Create a new virtual env, say `pyg`.
 
 ```
-./build.sh
+conda create -n pyg python=3.10 -y
+```
+
+### Install requirements
+
+```
+pip install -r requirements.txt
+git submodule update --init # fetches Eigen as a git submodule
+```
+
+### Build the package
+
+```
+python setup.py build_ext --inplace
 ```
 
 This will produce a shared library in the current directory, after which one should be able to load the module:
