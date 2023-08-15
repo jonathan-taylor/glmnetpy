@@ -39,7 +39,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-        git submodule update --init
+        git clone https://github.com/libigl/eigen.git --depth 5
         pip install .
 
     - name: Test pyglmnet

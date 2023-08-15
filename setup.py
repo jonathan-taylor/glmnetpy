@@ -158,7 +158,7 @@ eigendir = os.path.abspath(os.path.join(dirname, 'eigen'))
 if 'EIGEN_LIBRARY_PATH' in os.environ:
     eigendir = os.path.abspath(os.environ['EIGEN_LIBRARY_PATH'])
 
-print('eigendir', eigendir, os.listdir(eigendir), os.abspath(eigendir), os.path.abspath('.'), dirname)
+#print('eigendir', eigendir, os.listdir(eigendir), os.abspath(eigendir), os.path.abspath('.'), dirname)
 
 cmdclass = versioneer.get_cmdclass()
 
