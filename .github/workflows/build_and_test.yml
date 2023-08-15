@@ -3,8 +3,30 @@ name: Testing pyglmnet
 on: [push]
 
 jobs:
+
   build-mac:
     runs-on: macos-latest
+    strategy:
+      max-parallel: 5
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        git submodule update --init
+        python setup.py build_ext --inplace
+
+    - name: Test pyglmnet
+      run: |
+        python test_glmnetpp.py
+
+  build-linux:
+    runs-on: ubuntu-latest
     strategy:
       max-parallel: 5
 
