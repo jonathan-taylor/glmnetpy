@@ -1,3 +1,21 @@
 [build-system]
 requires = ["setuptools>=42", "wheel", "pybind11~=2.6.1", "versioneer"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "glmnet"
+classifiers = ["Development Status :: 3 - Alpha",
+               "Environment :: Console",
+               "Intended Audience :: Science/Research",
+               "License :: OSI Approved :: BSD License",
+               "Operating System :: OS Independent",
+               "Programming Language :: Python",
+               "Topic :: Scientific/Engineering"]
+description  = 'GlmNet (Python)'
+requires = ["numpy >= 1.7.1", "scipy >= 0.9", "matplotlib >= 3.3.3"]
+maintaner          = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
+URL                 = "http://github.com/intro-stat-learning/glmnet"
+license             = "BSD license"
+author              = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
+platforms           = "OS Independent"
+provides            = ["glmnet"]
