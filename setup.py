@@ -155,7 +155,12 @@ SetupDependency('matplotlib', info.MATPLOTLIB_MIN_VERSION,
 dirname = os.path.abspath(os.path.dirname(__file__))
 eigendir = os.path.abspath(os.path.join(dirname, 'eigen'))
 
-cmdclass=versioneer.get_cmdclass()
+if 'EIGEN_LIBRARY_PATH' in os.environ:
+    eigendir = os.path.abspath(os.environ['EIGEN_LIBRARY_PATH'])
+
+print('eigendir', eigendir, os.listdir(eigendir), os.abspath(eigendir), os.path.abspath('.'), dirname)
+
+cmdclass = versioneer.get_cmdclass()
 
 # get long_description
 
@@ -188,7 +193,7 @@ def main(**extra_args):
           author_email=info.AUTHOR_EMAIL,
           platforms=info.PLATFORMS,
           version=versioneer.get_version(),
-          install_requires=['pybind11'],
+          #install_requires=['pybind11'],
           requires=info.REQUIRES,
           provides=info.PROVIDES,
           packages     = ['glmnet'],
