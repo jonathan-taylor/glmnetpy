@@ -1,0 +1,3 @@
+include versioneer.py
+include glmnet/_version.py
+
