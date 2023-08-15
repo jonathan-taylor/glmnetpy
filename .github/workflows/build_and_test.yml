@@ -19,7 +19,7 @@ jobs:
       run: |
         pip install -r requirements.txt
         git submodule update --init
-        python setup.py build_ext --inplace
+        pip install .
 
     - name: Test pyglmnet
       run: |
