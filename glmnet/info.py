@@ -34,5 +34,6 @@ PROVIDES            = []
 REQUIRES            = ["numpy (>=%s)" % NUMPY_MIN_VERSION,
                        "scipy (>=%s)" % SCIPY_MIN_VERSION,
                        "matplotlib (>=%s)" % MATPLOTLIB_MIN_VERSION,
+                       "pybind11"
                        ]
 
