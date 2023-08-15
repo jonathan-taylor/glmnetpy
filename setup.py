@@ -1,11 +1,22 @@
 from setuptools import setup, Extension
 import pybind11
+import os
+
+
+eigendir = os.path.abspath(os.path.join('.', 'eigen'))
+
+print(eigendir, 'eigen dir')
+print(os.listdir(eigendir))
+print(__file__)
+print(os.listdir('.'))
+print(os.listdir(os.path.join(eigendir, '..')))
+print(os.listdir(os.path.join(eigendir, '..', 'eigen')))
 
 module = Extension(
     'glmnetpp',
     sources=['src/wls_exp.cpp'],
     include_dirs=[pybind11.get_include(),
-                  '/usr/local/include/eigen3',
+                  eigendir,
                   'src/glmnetpp/include',
                   'src/glmnetpp/src',
                   'src/glmnetpp/test'],
