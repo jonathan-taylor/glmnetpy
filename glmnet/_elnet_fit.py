@@ -107,27 +107,29 @@ def _elnet_fit(X,
                internal_params={'big':1e10},
                from_glmnet_fit=False):
     
-    args = _elnet_args(X,
-                       y,
-                       weights,
-                       lambda_val,
-                       alpha=alpha,
-                       intercept=intercept,
-                       thresh=thresh,
-                       maxit=maxit,
-                       penalty_factor=penalty_factor,
-                       exclude=exclude,
-                       lower_limits=lower_limits,
-                       upper_limits=upper_limits,
-                       warm=warm,
-                       save_fit=save_fit,
-                       internal_params=internal_params,
-                       from_glmnet_fit=from_glmnet_fit)
+    args, nulldev = _elnet_args(X,
+                                y,
+                                weights,
+                                lambda_val,
+                                alpha=alpha,
+                                intercept=intercept,
+                                thresh=thresh,
+                                maxit=maxit,
+                                penalty_factor=penalty_factor,
+                                exclude=exclude,
+                                lower_limits=lower_limits,
+                                upper_limits=upper_limits,
+                                warm=warm,
+                                save_fit=save_fit,
+                                internal_params=internal_params,
+                                from_glmnet_fit=from_glmnet_fit)
 
     if scipy.sparse.issparse(X):
         wls_fit = sparse_wls(**args)
     else:
         wls_fit = dense_wls(**args)
+
+    nobs, nvars = X.shape
 
     # if error code > 0, fatal error occurred: stop immediately
     # if error code < 0, non-fatal error occurred: return error code
@@ -143,7 +145,7 @@ def _elnet_fit(X,
                 "rsqc", "nlp"]:
             warm_fit[key] = wls_fit[key]
 
-    warm_fit['m'] = m
+    warm_fit['m'] = args['m'] # isn't this always 1?
     warm_fit['no'] = nobs
     warm_fit['ni'] = nvars
 
@@ -161,6 +163,7 @@ def _elnet_fit(X,
            'offset':False,
            'nobs':nobs,
            'warm_fit':warm_fit}
+
     if not save_fit:
         del(out['warm_fit'])
 
@@ -186,7 +189,9 @@ def _elnet_args(X,
     
     if scipy.sparse.issparse(X):
         X = X.tocsc()
-
+    else:
+        X = np.asfortranarray(X)
+        
     exclude = np.asarray(exclude, np.int32)
 
     nobs, nvars = X.shape
@@ -273,8 +278,8 @@ def _elnet_args(X,
         lower_limits[lower_limits == -np.inf] = -internal_params['big']
         upper_limits[upper_limits == np.inf] = internal_params['big']
         
-        cl = np.asarray([lower_limits,
-                         upper_limits], float)
+        cl = np.asfortranarray([lower_limits,
+                                upper_limits], float)
 
         nx = nvars #  as.integer(nvars)
 
@@ -332,7 +337,7 @@ def _elnet_args(X,
         indices_array = X.indices
         indptr_array = X.indptr
 
-        return {'alm0':alm0,
+        args = {'alm0':alm0,
                 'almc':almc,
                 'alpha':alpha,
                 'm':m,
@@ -363,7 +368,7 @@ def _elnet_args(X,
                 'nlp':nlp,
                 'jerr':jerr}
     else:
-        return {'alm0':alm0,
+        args = {'alm0':alm0,
                 'almc':almc,
                 'alpha':alpha,
                 'm':m,
@@ -391,6 +396,8 @@ def _elnet_args(X,
                 'rsqc':rsqc,
                 'nlp':nlp,
                 'jerr':jerr}
+
+    return args, nulldev
 
 def _jerr_glmnetfit(n, maxit, k=None):
     if n == 0:
