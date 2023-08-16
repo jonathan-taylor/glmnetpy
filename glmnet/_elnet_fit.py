@@ -139,7 +139,7 @@ def _elnet_fit(X,
         iz = warm['iz']
         ju = warm['ju'].reshape((-1,1))
         m = warm['m']
-        mm = warm['mm']
+        mm = warm['mm'].reshape((-1,1))
         nino = warm['nino']
         nobs = warm['no']
         nvars = warm['ni']
@@ -210,7 +210,7 @@ def _elnet_fit(X,
         iy = np.zeros((nvars, 1), int)   # integer(nvars)     
         iz = 0                           # integer(1) -- mismatch?
         m = 1                            # as.integer(1)
-        mm = np.zeros(nvars, int)        # integer(nvars)
+        mm = np.zeros((nvars, 1), int)   # integer(nvars) -- mismatch?
         nino = int(0)                    # integer(1)
         nlp = 0                          # integer(1) -- mismatch?
         r =  (weights * y).reshape((-1,1))
