@@ -107,10 +107,87 @@ def _elnet_fit(X,
                internal_params={'big':1e10},
                from_glmnet_fit=False):
     
+    args = _elnet_args(X,
+                       y,
+                       weights,
+                       lambda_val,
+                       alpha=alpha,
+                       intercept=intercept,
+                       thresh=thresh,
+                       maxit=maxit,
+                       penalty_factor=penalty_factor,
+                       exclude=exclude,
+                       lower_limits=lower_limits,
+                       upper_limits=upper_limits,
+                       warm=warm,
+                       save_fit=save_fit,
+                       internal_params=internal_params,
+                       from_glmnet_fit=from_glmnet_fit)
+
+    if scipy.sparse.issparse(X):
+        wls_fit = sparse_wls(**args)
+    else:
+        wls_fit = dense_wls(**args)
+
+    # if error code > 0, fatal error occurred: stop immediately
+    # if error code < 0, non-fatal error occurred: return error code
+
+    if wls_fit['jerr'] != 0:
+        errmsg = _jerr_glmnetfit(wls_fit['jerr'], maxit)
+        raise ValueError(errmsg['msg'])
+
+    warm_fit = {}
+    for key in ["almc", "r", "xv", "ju", "vp",
+                "cl", "nx", "a", "aint", "g",
+                "ia", "iy", "iz", "mm", "nino",
+                "rsqc", "nlp"]:
+            warm_fit[key] = wls_fit[key]
+
+    warm_fit['m'] = m
+    warm_fit['no'] = nobs
+    warm_fit['ni'] = nvars
+
+    beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
+
+    out = {'a0':wls_fit['aint'],
+           'beta':beta,
+           'df':np.sum(np.abs(beta) > 0),
+           'dim':beta.shape,
+           'lambda_val':lambda_val,
+           'dev.ratio':wls_fit['rsqc'],
+           'nulldev':nulldev,
+           'npasses':wls_fit['nlp'],
+           'jerr':wls_fit['jerr'],
+           'offset':False,
+           'nobs':nobs,
+           'warm_fit':warm_fit}
+    if not save_fit:
+        del(out['warm_fit'])
+
+    return out
+
+
+def _elnet_args(X,
+                y,
+                weights,
+                lambda_val,
+                alpha=1.0,
+                intercept=True,
+                thresh=1e-7,
+                maxit=100000,
+                penalty_factor=None, 
+                exclude=[],
+                lower_limits=-np.inf,
+                upper_limits=np.inf,
+                warm=None,
+                save_fit=False,
+                internal_params={'big':1e10},
+                from_glmnet_fit=False):
+    
     if scipy.sparse.issparse(X):
         X = X.tocsc()
 
-    exclude = np.asarray(exclude, int)
+    exclude = np.asarray(exclude, np.int32)
 
     nobs, nvars = X.shape
 
@@ -175,7 +252,7 @@ def _elnet_fit(X,
 
         # compute ju
         # assume that there are no constant variables
-        ju = np.ones((nvars, 1), int)
+        ju = np.ones((nvars, 1), np.int32)
         ju[exclude] = 0
 
         # compute cl from upper and lower limits
@@ -206,16 +283,18 @@ def _elnet_fit(X,
         aint = 0.                        # double(1) -- mismatch?
         alm0  = 0.                       # double(1) -- mismatch?
         g = np.zeros((nvars, 1))         # double(nvars) -- mismatch?
-        ia = np.zeros((nx, 1), int)      # integer(nx)
-        iy = np.zeros((nvars, 1), int)   # integer(nvars)     
+        ia = np.zeros((nx, 1), np.int32) # integer(nx)
+        iy = np.zeros((nvars, 1), np.int32)   # integer(nvars)     
         iz = 0                           # integer(1) -- mismatch?
         m = 1                            # as.integer(1)
-        mm = np.zeros((nvars, 1), int)   # integer(nvars) -- mismatch?
+        mm = np.zeros((nvars, 1), np.int32)   # integer(nvars) -- mismatch?
         nino = int(0)                    # integer(1)
         nlp = 0                          # integer(1) -- mismatch?
         r =  (weights * y).reshape((-1,1))
         rsqc = 0.                        # double(1) -- mismatch?
         xv = np.zeros((nvars, 1))        # double(nvars)
+
+        
 
         # check if coefs were provided as warmstart: if so, use them
 
@@ -253,103 +332,65 @@ def _elnet_fit(X,
         indices_array = X.indices
         indptr_array = X.indptr
 
-        wls_fit = sparse_wls(alm0=alm0,
-                             almc=almc,
-                             alpha=alpha,
-                             m=m,
-                             no=nobs,
-                             ni=nvars,
-                             x=X,
-                             xm=xm,
-                             xs=xs,
-                             r=r,
-                             xv=xv,
-                             v=v,
-                             intr=intr,
-                             ju=ju,
-                             vp=vp,
-                             cl=cl,
-                             nx=nx,
-                             thr=thr,
-                             maxit=maxit,
-                             a=a_new,
-                             aint=aint,
-                             g=g,
-                             ia=ia,
-                             iy=iy,
-                             iz=iz,
-                             mm=mm,
-                             nino=nino,
-                             rsqc=rsqc,
-                             nlp=nlp,
-                             jerr=jerr)
+        return {'alm0':alm0,
+                'almc':almc,
+                'alpha':alpha,
+                'm':m,
+                'no':nobs,
+                'ni':nvars,
+                'x':X,
+                'xm':xm,
+                'xs':xs,
+                'r':r,
+                'xv':xv,
+                'v':v,
+                'intr':intr,
+                'ju':ju,
+                'vp':vp,
+                'cl':cl,
+                'nx':nx,
+                'thr':thr,
+                'maxit':maxit,
+                'a':a_new,
+                'aint':aint,
+                'g':g,
+                'ia':ia,
+                'iy':iy,
+                'iz':iz,
+                'mm':mm,
+                'nino':nino,
+                'rsqc':rsqc,
+                'nlp':nlp,
+                'jerr':jerr}
     else:
-        wls_fit = dense_wls(alm0=alm0,
-                            almc=almc,
-                            alpha=alpha,
-                            m=m,
-                            no=nobs,
-                            ni=nvars,
-                            x=X,
-                            r=r,
-                            xv=xv,
-                            v=v,
-                            intr=intr,
-                            ju=ju,
-                            vp=vp,
-                            cl=cl,
-                            nx=nx,
-                            thr=thr,
-                            maxit=maxit,
-                            a=a_new,
-                            aint=aint,
-                            g=g,
-                            ia=ia,
-                            iy=iy,
-                            iz=iz,
-                            mm=mm,
-                            nino=nino,
-                            rsqc=rsqc,
-                            nlp=nlp,
-                            jerr=jerr)
-
-
-    # if error code > 0, fatal error occurred: stop immediately
-    # if error code < 0, non-fatal error occurred: return error code
-
-    if wls_fit['jerr'] != 0:
-        errmsg = _jerr_glmnetfit(wls_fit['jerr'], maxit)
-        raise ValueError(errmsg['msg'])
-
-    warm_fit = {}
-    for key in ["almc", "r", "xv", "ju", "vp",
-                "cl", "nx", "a", "aint", "g",
-                "ia", "iy", "iz", "mm", "nino",
-                "rsqc", "nlp"]:
-            warm_fit[key] = wls_fit[key]
-
-    warm_fit['m'] = m
-    warm_fit['no'] = nobs
-    warm_fit['ni'] = nvars
-
-    beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
-
-    out = {'a0':wls_fit['aint'],
-           'beta':beta,
-           'df':np.sum(np.abs(beta) > 0),
-           'dim':beta.shape,
-           'lambda_val':lambda_val,
-           'dev.ratio':wls_fit['rsqc'],
-           'nulldev':nulldev,
-           'npasses':wls_fit['nlp'],
-           'jerr':wls_fit['jerr'],
-           'offset':False,
-           'nobs':nobs,
-           'warm_fit':warm_fit}
-    if not save_fit:
-        del(out['warm_fit'])
-
-    return out
+        return {'alm0':alm0,
+                'almc':almc,
+                'alpha':alpha,
+                'm':m,
+                'no':nobs,
+                'ni':nvars,
+                'x':X,
+                'r':r,
+                'xv':xv,
+                'v':v,
+                'intr':intr,
+                'ju':ju,
+                'vp':vp,
+                'cl':cl,
+                'nx':nx,
+                'thr':thr,
+                'maxit':maxit,
+                'a':a_new,
+                'aint':aint,
+                'g':g,
+                'ia':ia,
+                'iy':iy,
+                'iz':iz,
+                'mm':mm,
+                'nino':nino,
+                'rsqc':rsqc,
+                'nlp':nlp,
+                'jerr':jerr}
 
 def _jerr_glmnetfit(n, maxit, k=None):
     if n == 0:
