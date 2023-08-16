@@ -330,7 +330,7 @@ def _elnet_args(X,
     if scipy.sparse.issparse(X):
 
         xm = X.T @ weights
-        xm2 = (X*X) @ weights
+        xm2 = (X*X).T @ weights
         xs = xm2 - xm**2
         
         data_array = X.data
@@ -343,7 +343,9 @@ def _elnet_args(X,
                 'm':m,
                 'no':nobs,
                 'ni':nvars,
-                'x':X,
+                'x_data_array':X.data,
+                'x_indices_array':X.indices,
+                'x_indptr_array':X.indptr,
                 'xm':xm,
                 'xs':xs,
                 'r':r,
