@@ -133,7 +133,7 @@ def _elnet_fit(X,
         aint = warm['aint']
         alm0 = warm['almc']
         cl = warm['cl']
-        g = warm['g']
+        g = warm['g'].reshape((-1,1))
         ia = warm['ia']
         iy = warm['iy']
         iz = warm['iz']
@@ -205,7 +205,7 @@ def _elnet_fit(X,
         a  = np.zeros((nvars, 1))        # double(nvars)
         aint = 0.                        # double(1) -- mismatch?
         alm0  = 0.                       # double(1) -- mismatch?
-        g = np.zeros(nvars)              # double(nvars)
+        g = np.zeros((nvars, 1))         # double(nvars) -- mismatch?
         ia = np.zeros((nx, 1), int)      # integer(nx)
         iy = np.zeros((nvars, 1), int)   # integer(nvars)     
         iz = 0                           # integer(1) -- mismatch?
