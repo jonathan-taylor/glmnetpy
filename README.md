@@ -45,10 +45,10 @@ the appropriate path.
 ### Build the package
 
 ```
-python setup.py build_ext --inplace
+pip install .
 ```
 
-This will produce a shared library in the current directory, after which one should be able to load the module:
+Load the module:
 
 ```
 import glmnet.glmnetpp as gpp
@@ -59,11 +59,12 @@ This provides two functions:
 - `gpp.wls_exp` for dense $x$
 - `gpp.spwls_exp` for sparse $x$
 
-4. Example invocations can be seen in `tests/test_pyglmnet.py`. So one can
-   run all the tests via:
+### Testing
+
+Example invocations can be seen in `tests/test_pyglmnet.py`. So one can run all the tests via:
    
 ```
-pytest tests/test_pyglmnet.py
+pytest tests
 ```
 
 No error messages mean all is well.
