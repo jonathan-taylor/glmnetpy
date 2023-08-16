@@ -23,6 +23,7 @@ jobs:
 
     - name: Test pyglmnet
       run: |
+        pip install pytest
         pytest tests/test_glmnetpp.py
 
   build-linux:
@@ -44,5 +45,6 @@ jobs:
 
     - name: Test pyglmnet
       run: |
+        pip install pytest
         pytest tests/test_glmnetpp.py
 
