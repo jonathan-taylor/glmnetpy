@@ -83,7 +83,7 @@ def main(**extra_args):
           version=versioneer.get_version(),
           packages = ['glmnet'],
           ext_modules = EXTS,
-          package_data = {},
+          package_data = {'glmnet':['test_data/*']},
           include_package_data=True,
           data_files=[],
           scripts=[],

@@ -23,7 +23,7 @@ jobs:
 
     - name: Test pyglmnet
       run: |
-        python tests/test_glmnetpp.py
+        pytest tests/test_glmnetpp.py
 
   build-linux:
     runs-on: ubuntu-latest
@@ -44,5 +44,5 @@ jobs:
 
     - name: Test pyglmnet
       run: |
-        python tests/test_glmnetpp.py
+        pytest tests/test_glmnetpp.py
 
