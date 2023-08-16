@@ -13,20 +13,34 @@ Python bindings to glmnet base source
 
 ## Steps to build
 
-Assuming Xcode with command line tools is installed already.
+- Assuming Xcode with command line tools is installed already.
+
+- Also probably a good idee to test in a new virtual env
 
 ### Create a new virtual env, say `pyg`.
 
 ```
 conda create -n pyg python=3.10 -y
+conda activate pyg
 ```
 
 ### Install requirements
 
 ```
 pip install -r requirements.txt
-git submodule update --init # fetches Eigen as a git submodule
 ```
+
+#### Specifying `Eigen`
+
+By default, build assumes the top level directory contains a directory `eigen` with the `Eigen` headers. This
+can be achieved with
+
+```
+git clone https://github.com/libigl/eigen.git --depth 5
+```
+
+Alternatively, if you have `Eigen` installed elsewhere, set the environment variable `EIGEN_LIBRARY_PATH` to
+the appropriate path.
 
 ### Build the package
 
@@ -37,19 +51,19 @@ python setup.py build_ext --inplace
 This will produce a shared library in the current directory, after which one should be able to load the module:
 
 ```
-import glmnetpp as gpp
+import glmnet.glmnetpp as gpp
 ```
 
 This provides two functions:
 
-- `gp.wls_exp` for dense $x$
-- `gp.spwls_exp` for sparse $x$
+- `gpp.wls_exp` for dense $x$
+- `gpp.spwls_exp` for sparse $x$
 
-4. Example invocations can be seen in `test_pyglmnet.py`. So one can
+4. Example invocations can be seen in `tests/test_pyglmnet.py`. So one can
    run all the tests via:
    
 ```
-python test_pyglmnet.py
+pytest tests/test_pyglmnet.py
 ```
 
 No error messages mean all is well.
