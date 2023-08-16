@@ -18,12 +18,13 @@ jobs:
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-        git submodule update --init
-        python setup.py build_ext --inplace
+        git clone https://github.com/libigl/eigen.git --depth 5
+        pip install .
 
     - name: Test pyglmnet
       run: |
-        python test_glmnetpp.py
+        pip install pytest
+        pytest tests/test_glmnetpp.py
 
   build-linux:
     runs-on: ubuntu-latest
@@ -39,10 +40,11 @@ jobs:
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-        git submodule update --init
-        python setup.py build_ext --inplace
+        git clone https://github.com/libigl/eigen.git --depth 5
+        pip install .
 
     - name: Test pyglmnet
       run: |
-        python test_glmnetpp.py
+        pip install pytest
+        pytest tests/test_glmnetpp.py
 
