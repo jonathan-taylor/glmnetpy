@@ -6,6 +6,12 @@ import scipy.sparse
 from statsmodels.genmod.families import family as sm_family
 import statsmodels.api as sm
 
+from ._utils import (_get_limits,
+                     _get_vp,
+                     _get_eta,
+                     _jerr_elnetfit,
+                     _obj_function)
+
 def glmnet_fit(X,
                y,
                weights,
@@ -125,13 +131,13 @@ def glmnet_fit(X,
     Returns
     -------
 
-    result: ElnetResult
+    result: GLMnetResult
 
     '''
 
     # get the relevant family functions
 
-    if type(family) == type('Gaussian'):
+    if type(family) == str:
         family = getattr(sm_family, family)
                 
     control = {'big':9.9e35,
@@ -144,44 +150,32 @@ def glmnet_fit(X,
     # and penalty_factor arguments as they have been prepared by glmnet_path()
 
     if not from_glmnet_path:
-
-        # check and standardize penalty factors (to sum to nvars)
-        _isinf_penalty = np.isinf(penalty_factor)
-        if np.any(_isinf_penalty):
-            exclude.extend(np.nonzero(_isinf_penalty)[0])
-            exclude = np.unique(exclude)
-
-        if exclude.shape[0] > 0:
-            if exclude.max() >= nvars:
-                raise ValueError("Some excluded variables out of range")
-            penalty_factor[exclude] = 1 # now can change penalty_factor
-
-        vp = np.maximum(0, penalty_factor).reshape((-1,1))
-        vp = (vp * nvars / vp.sum())
-
+        vp, exclude = _get_vp(penalty_factor,
+                              exclude,
+                              nvars)
     else:
         vp = np.asarray(penalty_factor, float)
 
-    if lower_limits == -np.inf:
-        lower_limits = -np.inf * np.ones(nvars)
+    lower_limits, upper_limits = _get_limits(lower_limits,
+                                             upper_limits,
+                                             nvars,
+                                             internal_params['big'])
 
-    if upper_limits == np.inf:
-        upper_limits = np.inf * np.ones(nvars)
-
-    lower_limits = lower_limits[:nvars]
-    upper_limits = upper_limits[:nvars]
-
-    if lower_limits.shape[0] < nvars:
-        raise ValueError('lower_limits should have shape X.shape[1]')
-    if upper_limits.shape[0] < nvars:
-        raise ValueError('upper_limits should have shape X.shape[1]')
-    lower_limits[lower_limits == -np.inf] = -internal_params['big']
-    upper_limits[upper_limits == np.inf] = internal_params['big']
 
     # computation of null deviance (get mu in the process)
 
+    if scipy.sparse.issparse(X):
+        X = X.tocsc()
+        xm = X.T @ weights
+        xm2 = (X*X).T @ weights
+        xs = xm2 - xm**2
+        X_scale = (xm, xs)
+    else:
+        X_scale = None
+
     if not warm:
         start_val = _get_start(X,
+                               X_scale,
                                y,
                                weights,
                                fam_,
@@ -200,171 +194,152 @@ def glmnet_fit(X,
         intold = (eta - offset)[0]
 
     else:
+        fit = warm
         if 'warm_fit' in warm:
-            fit = warm
             nulldev = fit['nulldev']
             coefold = fit['warm_fit']['a']   # prev value for coefficients
             intold = fit['warm_fit']['aint']    # prev value for intercept
-            eta = get_eta(x, coefold, intold)
-            mu <- linkinv(eta <- eta + offset)
-        } else if (inherits(warm,"list") && "a0" %in% names(warm) &&
-                   "beta" %in% names(warm)) {
-            nulldev <- _get_start(x,
-                                  y,
-                                  weights,
-                                  family,
-                                  intercept,
-                                  is_offset,
-                                  offset,
-                                  exclude,
-                                  vp,
-                                  alpha)$nulldev
-            fit <- warm
-            coefold <- fit$beta   # prev value for coefficients
-            intold <- fit$a0    # prev value for intercept
-            eta <- get_eta(x, coefold, intold)
-            mu <- linkinv(eta <- eta + offset)
-        } else {
-            stop("Invalid warm start object")
-        }
-    }
+            eta = _get_eta(X,
+                           X_scale,
+                           coefold,
+                           intold)
+            mu = family.link.inverse(eta + offset)
 
-    start <- NULL     # current value for coefficients
-    start_int <- NULL # current value for intercept
-    obj_val_old <- obj_function(y, mu, weights, family, lambda, alpha, coefold, vp)
-    if (trace.it == 2) {
-        cat("Warm Start Objective:", obj_val_old, fill = TRUE)
-    }
-    conv <- FALSE      # converged?
+        elif 'a0' in warm and 'beta' in warm:
+            nulldev = _get_start(X,
+                                 X_scale,
+                                 y,
+                                 weights,
+                                 family,
+                                 intercept,
+                                 is_offset,
+                                 offset,
+                                 exclude,
+                                 vp,
+                                 alpha)['nulldev']
 
+            coefold = warm['beta']   # prev value for coefficients
+            intold = warm['a0']      # prev value for intercept
+            eta = _get_eta(X,
+                           X_scale,
+                           coefold,
+                           intold)
+            mu = family.link.inverse(eta + offset)
+        else:
+            raise ValueError("Invalid warm start object")
 
+    # IRLS 
 
-    args, nulldev = _elnet_args(X,
-                                y,
+    start = None     # current value for coefficients
+    start_int = None # current value for intercept
+
+    obj_val_old = _obj_function(y,
+                                mu,
                                 weights,
+                                family,
                                 lambda_val,
-                                alpha=alpha,
-                                intercept=intercept,
-                                thresh=thresh,
-                                maxit=maxit,
-                                penalty_factor=penalty_factor,
-                                exclude=exclude,
-                                lower_limits=lower_limits,
-                                upper_limits=upper_limits,
-                                warm=warm,
-                                save_fit=save_fit,
-                                internal_params=internal_params,
-                                from_glmnet_fit=from_glmnet_fit)
+                                alpha,
+                                coefold,
+                                vp)
 
-    if scipy.sparse.issparse(X):
-        wls_fit = sparse_wls(**args)
-    else:
-        wls_fit = dense_wls(**args)
+    conv = False      # converged?
 
-    nobs, nvars = X.shape
+    for iter in range(control['mxitnr']):
 
-    # if error code > 0, fatal error occurred: stop immediately
-    # if error code < 0, non-fatal error occurred: return error code
-
-    if wls_fit['jerr'] != 0:
-        errmsg = _jerr_glmnetfit(wls_fit['jerr'], maxit)
-        raise ValueError(errmsg['msg'])
-
-    warm_fit = {}
-    for key in ["almc", "r", "xv", "ju", "vp",
-                "cl", "nx", "a", "aint", "g",
-                "ia", "iy", "iz", "mm", "nino",
-                "rsqc", "nlp"]:
-            warm_fit[key] = wls_fit[key]
-
-    warm_fit['m'] = args['m'] # isn't this always 1?
-    warm_fit['no'] = nobs
-    warm_fit['ni'] = nvars
-
-    beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
-
-    out = ElnetResult(a0=wls_fit['aint'],
-                      beta=beta,
-                      df=np.sum(np.abs(beta) > 0),
-                      dim=beta.shape,
-                      lambda_val=lambda_val,
-                      dev_ratio=wls_fit['rsqc'],
-                      nulldev=nulldev,
-                      npasses=wls_fit['nlp'],
-                      jerr=wls_fit['jerr'],
-                      nobs=nobs,
-                      warm_fit=warm_fit)
-
-    if not save_fit:
-        out.warm_fit = {}
-
-    return out
-
-
-
-
-    # IRLS loop
-    for (iter in 1L:control$mxitnr) {
         # some checks for NAs/zeros
-        varmu <- variance(mu)
-        if (anyNA(varmu)) stop("NAs in V(mu)")
-        if (any(varmu == 0)) stop("0s in V(mu)")
-        mu.eta.val <- mu.eta(eta)
-        if (any(is.na(mu.eta.val))) stop("NAs in d(mu)/d(eta)")
+        varmu = family.variance(mu)
+        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+
+        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+
+        dmu_deta = family.link.inverse_deriv(eta)
+        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
 
         # compute working response and weights
-        z <- (eta - offset) + (y - mu)/mu.eta.val
-        w <- (weights * mu.eta.val^2)/variance(mu)
+        z = (eta - offset) + (y - mu) / dmu_deta
+        w = (weights * dmu_deta**2)/varmu
 
         # have to update the weighted residual in our fit object
         # (in theory g and iy should be updated too, but we actually recompute g
         # and iy anyway in wls.f)
-        if (!is.null(fit)) {
-            fit$warm_fit$r <- w * (z - eta + offset)
-        }
+        if fit is not None:
+            fit['warm_fit']['r'] = w * (z - eta + offset)
 
         # do WLS with warmstart from previous iteration
-        fit <- elnet.fit(x, z, w, lambda, alpha, intercept,
-                         thresh = thresh, maxit = maxit, penalty.factor = vp,
-                         exclude = exclude, lower.limits = lower.limits,
-                         upper.limits = upper.limits, warm = fit,
-                         from.glmnet.fit = TRUE, save.fit = TRUE)
-        if (fit$jerr != 0) return(list(jerr = fit$jerr))
+        fit = elnet_fit(X=X,
+                        y=z,
+                        weights=w,
+                        lambda_val=lambda_val,
+                        alpha=alpha,
+                        intercept=intercept,
+                        thresh=thresh,
+                        maxit=maxit,
+                        penalty_factor=vp,
+                        exclude=exclude,
+                        lower_limits=lower_limits,
+                        upper_limits=upper_limits,
+                        warm=fit,
+                        from_glmnet_fit=True,
+                        save_fit=True)
+
+        if fit['jerr'] != 0:
+            errmsg = _jerr_elnetfit(fit['jerr'], maxit)
+            raise ValueError(errmsg['msg'])
 
         # update coefficients, eta, mu and obj_val
-        start <- fit$warm_fit$a
-        start_int <- fit$warm_fit$aint
-        eta <- get_eta(x, start, start_int)
-        mu <- linkinv(eta <- eta + offset)
-        obj_val <- obj_function(y, mu, weights, family, lambda, alpha, start, vp)
-        if (trace.it == 2) cat("Iteration", iter, "Objective:", obj_val, fill = TRUE)
+        start = fit['warm_fit']['a']
+        start_int = fit['warm_fit']['aint']
+        eta = _get_eta(X,
+                       X_scale,
+                       start,
+                       start_int)
 
-        boundary <- FALSE
-        halved <- FALSE  # did we have to halve the step size?
+        mu = family.link.inverse(eta + offset)
+        obj_val = _obj_function(y,
+                                mu,
+                                weights,
+                                family,
+                                lambda_val,
+                                alpha,
+                                start,
+                                vp)
+
+        boundary = False
+        halved = False  # did we have to halve the step size?
         # if objective function is not finite, keep halving the stepsize until it is finite
         # for the halving step, we probably have to adjust fit$g as well?
-        if (!is.finite(obj_val) || obj_val > control$big) {
-            warning("Infinite objective function!", call. = FALSE)
-            if (is.null(coefold) || is.null(intold))
-                stop("no valid set of coefficients has been found: please supply starting values",
-                     call. = FALSE)
-            warning("step size truncated due to divergence", call. = FALSE)
-            ii <- 1
-            while (!is.finite(obj_val) || obj_val > control$big) {
-                if (ii > control$mxitnr)
-                    stop("inner loop 1; cannot correct step size", call. = FALSE)
-                ii <- ii + 1
-                start <- (start + coefold)/2
-                start_int <- (start_int + intold)/2
-                eta <- get_eta(x, start, start_int)
-                mu <- linkinv(eta <- eta + offset)
-                obj_val <- obj_function(y, mu, weights, family, lambda, alpha, start, vp)
-                if (trace.it == 2) cat("Iteration", iter, " Halved step 1, Objective:",
-                               obj_val, fill = TRUE)
-            }
-            boundary <- TRUE
-            halved <- TRUE
-        }
+        if not np.isfinite(obj_val) or obj_val > control['big']:
+            warnings.warn("Non finite objective function!")
+            if np.any(np.isnan(coefold)) or np.isnan(intold):
+                raise ValueError("no valid set of coefficients has been found: please supply starting values")
+
+            warnings.warn("step size truncated due to divergence")
+
+            ii = 1
+            while (not np.isfinite(obj_val) or obj_val > control['big']):
+                if ii > control['mxitnr']:
+                    raise ValueError("inner loop 1; cannot correct step size")
+                ii += 1
+                start = (start + coefold)/2
+                start_int = (start_int + intold)/2
+
+                eta = _get_eta(X,
+                               X_scale,
+                               start,
+                               start_int)
+
+                mu = family.link.inverse(eta + offset)
+                obj_val = _obj_function(y,
+                                        mu,
+                                        weights,
+                                        family,
+                                        lambda_val,
+                                        alpha,
+                                        start,
+                                        vp)
+            boundary = True
+            halved = True
+
         # if some of the new eta or mu are invalid, keep halving stepsize until valid
         if (!(valideta(eta) && validmu(mu))) {
             warning("Invalid eta/mu!", call. = FALSE)
@@ -499,6 +474,7 @@ def glmnet_fit(X,
 #' @param alpha The elasticnet mixing parameter, with \eqn{0 \le \alpha \le 1}.
 
 def _get_start(X,
+               X_scale,
                y,
                weights,
                family,
@@ -562,13 +538,8 @@ def _get_start(X,
     rv = r / v * m_e * weights
 
     if scipy.sparse.issparse(X):
-
-        xm = X.T @ weights
-        xm2 = (X*X).T @ weights
-        xs = xm2 - xm**2
-
+        xm, xs = X_scale
         g = np.abs(t(X) @ rv - np.sum(rv) * xm / xs)
-
     else:
         g = np.abs(t(X) @ rv)
 
@@ -578,47 +549,5 @@ def _get_start(X,
     return {'nulldev':nulldev,
             'mu':mu,
             'lambda_max':lambda_max}
-}
 
-#' Elastic net objective function value
-#'
-#' Returns the elastic net objective function value.
-#'
-#' @param y Quantitative response variable.
-#' @param mu Model's predictions for \code{y}.
-#' @param weights Observation weights.
-#' @param family A description of the error distribution and link function to be
-#' used in the model. This is the result of a call to a family function.
-#' @param lambda A single value for the \code{lambda} hyperparameter.
-#' @param alpha The elasticnet mixing parameter, with \eqn{0 \le \alpha \le 1}.
-#' @param coefficients The model's coefficients (excluding intercept).
-#' @param vp Penalty factors for each of the coefficients.
-obj_function <- function(y, mu, weights, family,
-                         lambda, alpha, coefficients, vp) {
-    dev_function(y, mu, weights, family) / 2 +
-        lambda * pen_function(coefficients, alpha, vp)
-}
 
-#' Elastic net penalty value
-#'
-#' Returns the elastic net penalty value without the \code{lambda} factor.
-#'
-#' The penalty is defined as
-#' \deqn{(1-\alpha)/2 \sum vp_j \beta_j^2 + \alpha \sum vp_j |\beta|.}
-#' Note the omission of the multiplicative \code{lambda} factor.
-#'
-#' @param alpha The elasticnet mixing parameter, with \eqn{0 \le \alpha \le 1}.
-#' @param coefficients The model's coefficients (excluding intercept).
-#' @param vp Penalty factors for each of the coefficients.
-pen_function <- function(coefficients, alpha = 1.0, vp = 1.0) {
-    sum(vp * (alpha * abs(coefficients) + (1-alpha)/2 * coefficients^2))
-}
-
-#' Elastic net deviance value
-#'
-#' Returns the elastic net deviance value.
-#'
-#' @param y Quantitative response variable.
-#' @param mu Model's predictions for \code{y}.
-#' @param weights Observation weights.
-#' @param family A description of the error distribution and link functio
