@@ -11,7 +11,7 @@ from ._utils import (_get_limits,
                      _jerr_elnetfit)
 
 @dataclass
-class ElnetResult(object):
+class ElNetResult(object):
 
     '''a0: Intercept value
 
@@ -223,7 +223,7 @@ def elnet_fit(X,
 
     beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
 
-    out = ElnetResult(a0=wls_fit['aint'],
+    out = ElNetResult(a0=wls_fit['aint'],
                       beta=beta,
                       df=np.sum(np.abs(beta) > 0),
                       dim=beta.shape,
