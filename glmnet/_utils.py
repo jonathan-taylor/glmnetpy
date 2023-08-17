@@ -138,7 +138,7 @@ def _dev_function(y,
                   mu,
                   weights,
                   family):
-    return np.sum(family.resid_dev(y, mu, weights))
+    return np.sum(family.resid_dev(y, mu, weights)**2)
 
 def _get_start(X,
                X_scale,
