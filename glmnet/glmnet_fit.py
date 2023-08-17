@@ -370,10 +370,11 @@ def glmnet_fit(X,
                           (valid,
                            "Invalid eta/mu! Step size truncated: out of bounds."),
                           (decreased_obj,
-                           "foo")]:
+                           "")]:
 
             if not test(state)[0]:
-                warnings.warn(msg)
+                if msg:
+                    warnings.warn(msg)
                 if np.any(np.isnan(coefold)) or np.isnan(intold):
                     raise ValueError("No valid set of coefficients has been found: please supply starting values")
 
