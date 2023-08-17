@@ -43,8 +43,7 @@ def test_compare_glmnet_elnet():
         except:
             elnet_v = glmnet_v = 0
         if not np.allclose(elnet_v, glmnet_v):
-            print(f'field {k} differs: {elnet_v}, {glmnet_v}')
-            #raise ValueError(f'field {k} differs')
+            raise ValueError(f'field {k} differs')
 
 def test_compare_sparse_elnet():
 
@@ -98,4 +97,41 @@ def test_compare_sparse_glmnet():
         raise ValueError('intercepts not close')
     if not np.allclose(glmnet.beta.toarray(), glmnet_s.beta.toarray()):
         raise ValueError('coefs not close')
+    
+def test_logistic():
+
+    n, p = 30, 10
+    rng = np.random.default_rng(0)
+
+    X = rng.normal(size=(n,p))
+    y = rng.choice([0,1], size=n, replace=True)
+    lambda_val = 0.5 / np.sqrt(n)
+    weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
+    weights /= weights.sum()
+
+    glmnet = glmnet_fit(X, 
+                        y,
+                        weights,
+                        lambda_val,
+                        family='Binomial')
+    print(glmnet.beta.toarray())
+
+def test_probit():
+
+    n, p = 30, 10
+    rng = np.random.default_rng(0)
+
+    X = rng.normal(size=(n,p))
+    y = rng.choice([0,1], size=n, replace=True)
+    lambda_val = 0.5 / np.sqrt(n)
+    weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
+    weights /= weights.sum()
+
+    glmnet = glmnet_fit(X, 
+                        y,
+                        weights,
+                        lambda_val,
+                        family='Binomial',
+                        link='Probit')
+    print(glmnet.beta.toarray())
     
