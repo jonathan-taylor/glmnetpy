@@ -6,6 +6,9 @@ import scipy.sparse
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 
+from ._utils import (_get_limits,
+                     _get_vp,
+                     _jerr_elnetfit)
 
 @dataclass
 class ElnetResult(object):
@@ -204,7 +207,7 @@ def elnet_fit(X,
     # if error code < 0, non-fatal error occurred: return error code
 
     if wls_fit['jerr'] != 0:
-        errmsg = _jerr_glmnetfit(wls_fit['jerr'], maxit)
+        errmsg = _jerr_elnetfit(wls_fit['jerr'], maxit)
         raise ValueError(errmsg['msg'])
 
     warm_fit = {}
@@ -305,21 +308,9 @@ def _elnet_args(X,
         # and penalty.factor arguments as they have been prepared by glmnet.fit()
         # Also exclude will include variance 0 columns
         if not from_glmnet_fit:
-
-            # check and standardize penalty factors (to sum to nvars)
-            _isinf_penalty = np.isinf(penalty_factor)
-            if np.any(_isinf_penalty):
-                exclude.extend(np.nonzero(_isinf_penalty)[0])
-                exclude = np.unique(exclude)
-
-            if exclude.shape[0] > 0:
-                if exclude.max() >= nvars:
-                    raise ValueError("Some excluded variables out of range")
-                penalty_factor[exclude] = 1 # now can change penalty_factor
-
-            vp = np.maximum(0, penalty_factor).reshape((-1,1))
-            vp = (vp * nvars / vp.sum())
-
+            vp, exclude = _get_vp(penalty_factor,
+                                  exclude,
+                                  nvars)
         else:
             vp = np.asarray(penalty_factor, float)
 
@@ -330,22 +321,11 @@ def _elnet_args(X,
 
         # compute cl from upper and lower limits
 
-        if lower_limits == -np.inf:
-            lower_limits = -np.inf * np.ones(nvars)
+        lower_limits, upper_limits = _get_limits(lower_limits,
+                                                 upper_limits,
+                                                 nvars,
+                                                 internal_params['big'])
 
-        if upper_limits == np.inf:
-            upper_limits = np.inf * np.ones(nvars)
-
-        lower_limits = lower_limits[:nvars]
-        upper_limits = upper_limits[:nvars]
-
-        if lower_limits.shape[0] < nvars:
-            raise ValueError('lower_limits should have shape X.shape[1]')
-        if upper_limits.shape[0] < nvars:
-            raise ValueError('upper_limits should have shape X.shape[1]')
-        lower_limits[lower_limits == -np.inf] = -internal_params['big']
-        upper_limits[upper_limits == np.inf] = internal_params['big']
-        
         cl = np.asfortranarray([lower_limits,
                                 upper_limits], float)
 
@@ -469,19 +449,3 @@ def _elnet_args(X,
 
     return args, nulldev
 
-def _jerr_glmnetfit(n, maxit, k=None):
-    if n == 0:
-        fatal = False
-        msg = ''
-    elif n > 0:
-        # fatal error
-        fatal = True
-        msg =(f"Memory allocation error; contact package maintainer" if n < 7777 else
-              "Unknown error")
-    else:
-        fatal = False
-        msg = (f"Convergence for {k}-th lambda value not reached after maxit={maxit}" +
-               " iterations; solutions for larger lambdas returned")
-    return {'n':n,
-            'fatal':fatal,
-            'msg':f"Error code {n}:" + msg}
