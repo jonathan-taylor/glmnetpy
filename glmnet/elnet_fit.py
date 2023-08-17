@@ -1,112 +1,181 @@
-#' WARNING: Users should not call \code{elnet.fit} directly. Higher-level functions
-#' in this package call \code{elnet.fit} as a subroutine. If a warm start object
-#' is provided, some of the other arguments in the function may be overriden.
-#'
-#' \code{elnet.fit} is essentially a wrapper around a C++ subroutine which
-#' minimizes
-#'
-#' \deqn{1/2 \sum w_i (y_i - X_i^T \beta)^2 + \sum \lambda \gamma_j
-#' [(1-\alpha)/2 \beta^2+\alpha|\beta|],}
-#'
-#' over \eqn{\beta}, where \eqn{\gamma_j} is the relative penalty factor on the
-#' jth variable. If \code{intercept = TRUE}, then the term in the first sum is
-#' \eqn{w_i (y_i - \beta_0 - X_i^T \beta)^2}, and we are minimizing over both
-#' \eqn{\beta_0} and \eqn{\beta}.
-#'
-#' None of the inputs are standardized except for \code{penalty.factor}, which
-#' is standardized so that they sum up to \code{nvars}.
-#'
-#' @param x Input matrix, of dimension \code{nobs x nvars}; each row is an
-#' observation vector. If it is a sparse matrix, it is assumed to be unstandardized.
-#' It should have attributes \code{xm} and \code{xs}, where \code{xm(j)} and
-#' \code{xs(j)} are the centering and scaling factors for variable j respsectively.
-#' If it is not a sparse matrix, it is assumed that any standardization needed
-#' has already been done.
-#' @param y Quantitative response variable.
-#' @param weights Observation weights. \code{elnet.fit} does NOT standardize
-#' these weights.
-#' @param lambda A single value for the \code{lambda} hyperparameter.
-#' @param alpha The elasticnet mixing parameter, with \eqn{0 \le \alpha \le 1}.
-#' The penalty is defined as \deqn{(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.}
-#' \code{alpha=1} is the lasso penalty, and \code{alpha=0} the ridge penalty.
-#' @param intercept Should intercept be fitted (default=TRUE) or set to zero (FALSE)?
-#' @param thresh Convergence threshold for coordinate descent. Each inner
-#' coordinate-descent loop continues until the maximum change in the objective
-#' after any coefficient update is less than thresh times the null deviance.
-#' Default value is \code{1e-7}.
-#' @param maxit Maximum number of passes over the data; default is \code{10^5}.
-#' (If a warm start object is provided, the number of passes the warm start object
-#' performed is included.)
-#' @param penalty.factor Separate penalty factors can be applied to each
-#' coefficient. This is a number that multiplies \code{lambda} to allow differential
-#' shrinkage. Can be 0 for some variables, which implies no shrinkage, and that
-#' variable is always included in the model. Default is 1 for all variables (and
-#' implicitly infinity for variables listed in exclude). Note: the penalty
-#' factors are internally rescaled to sum to \code{nvars}.
-#' @param exclude Indices of variables to be excluded from the model. Default is
-#' none. Equivalent to an infinite penalty factor.
-#' @param lower.limits Vector of lower limits for each coefficient; default
-#' \code{-Inf}. Each of these must be non-positive. Can be presented as a single
-#' value (which will then be replicated), else a vector of length \code{nvars}.
-#' @param upper.limits Vector of upper limits for each coefficient; default
-#' \code{Inf}. See \code{lower.limits}.
-#' @param warm Either a \code{glmnetfit} object or a list (with names \code{beta}
-#' and \code{a0} containing coefficients and intercept respectively) which can
-#' be used as a warm start. Default is \code{NULL}, indicating no warm start.
-#' For internal use only.
-#' @param from.glmnet.fit Was \code{elnet.fit()} called from \code{glmnet.fit()}?
-#' Default is FALSE.This has implications for computation of the penalty factors.
-#' @param save.fit Return the warm start object? Default is FALSE.
-#'
-#' @return An object with class "glmnetfit" and "glmnet". The list returned has
-#' the same keys as that of a \code{glmnet} object, except that it might have an
-#' additional \code{warm_fit} key.
-#' \item{a0}{Intercept value.}
-#' \item{beta}{A \code{nvars x 1} matrix of coefficients, stored in sparse matrix
-#' format.}
-#' \item{df}{The number of nonzero coefficients.}
-#' \item{dim}{Dimension of coefficient matrix.}
-#' \item{lambda}{Lambda value used.}
-#' \item{dev.ratio}{The fraction of (null) deviance explained. The deviance
-#' calculations incorporate weights if present in the model. The deviance is
-#' defined to be 2*(loglike_sat - loglike), where loglike_sat is the log-likelihood
-#' for the saturated model (a model with a free parameter per observation).
-#' Hence dev.ratio=1-dev/nulldev.}
-#' \item{nulldev}{Null deviance (per observation). This is defined to be
-#' 2*(loglike_sat -loglike(Null)). The null model refers to the intercept model.}
-#' \item{npasses}{Total passes over the data.}
-#' \item{jerr}{Error flag, for warnings and errors (largely for internal
-#' debugging).}
-#' \item{offset}{Always FALSE, since offsets do not appear in the WLS problem.
-#' Included for compability with glmnet output.}
-#' \item{call}{The call that produced this object.}
-#' \item{nobs}{Number of observations.}
-#' \item{warm_fit}{If \code{save.fit=TRUE}, output of C++ routine, used for
-#' warm star
-
+from dataclasses import dataclass
+   
 import numpy as np
 import scipy.sparse
 
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 
-def _elnet_fit(X,
-               y,
-               weights,
-               lambda_val,
-               alpha=1.0,
-               intercept=True,
-               thresh=1e-7,
-               maxit=100000,
-               penalty_factor=None, 
-               exclude=[],
-               lower_limits=-np.inf,
-               upper_limits=np.inf,
-               warm=None,
-               save_fit=False,
-               internal_params={'big':1e10},
-               from_glmnet_fit=False):
+
+@dataclass
+class ElnetResult(object):
+
+    '''a0: Intercept value
+
+    beta: matrix of coefficients, stored in sparse matrix format
+
+    df: The number of nonzero coefficients.
+
+    dim: Dimension of coefficient matrix.
+
+    lambda_val: Lambda value used.
+
+    dev_ratio: The fraction of (null) deviance explained.
+
+        The deviance calculations incorporate weights if present in the model. The deviance is
+        defined to be 2*(loglike_sat - loglike), where loglike_sat is the log-likelihood
+        for the saturated model (a model with a free parameter per observation).
+        Hence dev_ratio=1-dev/nulldev.
+
+    nulldev: Null deviance (per observation).
+
+        This is defined to be 2*(loglike_sat -loglike(Null)). The null
+         model refers to the intercept model.}
+
+    npasses: Total passes over the data.
+
+    jerr: Error flag, for warnings and errors (largely for internal debugging).
+
+    nobs: Number of observations.
+
+    warm_fit: Used for warm starts.
+
+    '''
+
+    a0: float 
+    beta: scipy.sparse._csc.csc_array 
+    df: int
+    dim: tuple
+    lambda_val: float
+    dev_ratio: float
+    nulldev: float
+    npasses: int
+    jerr: int
+    nobs: int
+    warm_fit: dict
+
+def elnet_fit(X,
+              y,
+              weights,
+              lambda_val,
+              alpha=1.0,
+              intercept=True,
+              thresh=1e-7,
+              maxit=100000,
+              penalty_factor=None, 
+              exclude=[],
+              lower_limits=-np.inf,
+              upper_limits=np.inf,
+              warm=None,
+              save_fit=False,
+              internal_params={'big':1e30},
+              from_glmnet_fit=False):
+
+    '''A wrapper around a C++ subroutine which minimizes
+
+    .. math::
     
+        1/2 \sum w_i (y_i - X_i^T \beta)^2 + \sum \lambda \gamma_j [(1-\alpha)/2 \beta^2+\alpha|\beta|]
+
+    over $\beta$, where $\gamma_j$ is the relative penalty factor on the
+    j-th variable. If `intercept`, then the term in the first sum is
+    $w_i (y_i - \beta_0 - X_i^T \beta)^2$, and we are minimizing over both
+    $\beta_0$ and $\beta$.
+
+    None of the inputs are standardized except for `penalty_factor`, which
+    is standardized so that they sum up to `nvars`.
+
+    Parameters
+    ----------
+
+    X: Union[np.ndarray, scipy.sparse]
+        Input matrix, of shape `(nobs, nvars)`; each row is an
+        observation vector. If it is a sparse matrix, it is assumed to
+        be unstandardized.  If it is not a sparse matrix, it is
+        assumed that any standardization needed has already been done.
+
+    y: np.ndarray
+        Quantitative response variable.
+
+    weights: np.ndarray
+        Observation weights. `elnet_fit` does NOT standardize these weights.
+
+    lambda_val: float
+        A single value for the `lambda` hyperparameter.
+
+    alpha: float
+
+        The elasticnet mixing parameter in [0,1].  The penalty is
+        defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
+        `alpha=1` is the lasso penalty, and `alpha=0` the ridge
+        penalty.
+
+    intercept: bool
+        Should intercept be fitted (default=`True`) or set to zero (`False`)?
+
+    thresh: float
+
+        Convergence threshold for coordinate descent. Each inner
+        coordinate-descent loop continues until the maximum change in the
+        objective after any coefficient update is less than thresh times
+        the null deviance.  Default value is `1e-7`.
+
+    maxit: int
+
+        Maximum number of passes over the data; default is
+        `10^5`.  (If a warm start object is provided, the number
+        of passes the warm start object performed is included.)
+
+    penalty_factor: np.ndarray (optional)
+
+        Separate penalty factors can be applied to each
+        coefficient. This is a number that multiplies `lambda_val` to
+        allow differential shrinkage. Can be 0 for some variables,
+        which implies no shrinkage, and that variable is always
+        included in the model. Default is 1 for all variables (and
+        implicitly infinity for variables listed in `exclude`). Note:
+        the penalty factors are internally rescaled to sum to
+        `nvars=X.shape[1]`.
+
+    exclude: list
+
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+
+    lower_limits: Union[List[float, np.ndarray]]
+
+        Vector of lower limits for each coefficient; default
+        `-np.inf`. Each of these must be non-positive. Can be
+        presented as a single value (which will then be replicated),
+        else a vector of length `nvars`.
+
+    upper_limits: Union[List[float, np.ndarray]]
+
+        Vector of upper limits for each coefficient; default
+        `np.inf`. See `lower_limits`.
+
+    warm: dict(optional)
+
+        A dict-like with keys `beta` and `a0` containing coefficients
+        and intercept respectively which can be used as a warm start.
+        For internal use only.
+
+    from_glmnet_fit: bool
+
+        Was `elnet_fit` called from `glmnet_fit`?
+        Default is `False`.This has implications for computation of the penalty factors.
+
+    save_fit: bool
+
+        Return the warm start object? Default is `False`.
+
+    Returns
+    -------
+
+    result: ElnetResult
+
+    '''
+
     args, nulldev = _elnet_args(X,
                                 y,
                                 weights,
@@ -151,21 +220,20 @@ def _elnet_fit(X,
 
     beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
 
-    out = {'a0':wls_fit['aint'],
-           'beta':beta,
-           'df':np.sum(np.abs(beta) > 0),
-           'dim':beta.shape,
-           'lambda_val':lambda_val,
-           'dev.ratio':wls_fit['rsqc'],
-           'nulldev':nulldev,
-           'npasses':wls_fit['nlp'],
-           'jerr':wls_fit['jerr'],
-           'offset':False,
-           'nobs':nobs,
-           'warm_fit':warm_fit}
+    out = ElnetResult(a0=wls_fit['aint'],
+                      beta=beta,
+                      df=np.sum(np.abs(beta) > 0),
+                      dim=beta.shape,
+                      lambda_val=lambda_val,
+                      dev_ratio=wls_fit['rsqc'],
+                      nulldev=nulldev,
+                      npasses=wls_fit['nlp'],
+                      jerr=wls_fit['jerr'],
+                      nobs=nobs,
+                      warm_fit=warm_fit)
 
     if not save_fit:
-        del(out['warm_fit'])
+        out.warm_fit = {}
 
     return out
 
