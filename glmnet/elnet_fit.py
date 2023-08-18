@@ -430,7 +430,7 @@ def elnet_fit(X,
                       jerr=wls_fit['jerr'],
                       nobs=nobs,
                       warm_fit=warm_fit)
-
+    print(out.dev_ratio, 'dev_ratio wls')
     if not save_fit:
         out.warm_fit = None
 
