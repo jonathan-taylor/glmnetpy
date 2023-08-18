@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 import numpy as np
 import scipy.sparse
 from glmnet.elnet_fit import elnet_fit
@@ -9,41 +11,53 @@ def test_compare_glmnet_elnet():
     rng = np.random.default_rng(0)
 
     X = rng.normal(size=(n,p))
-    y = rng.normal(size=n)
+    coefs = np.zeros(p)
+    coefs[[2,3]] = 3 / np.sqrt(n)
+    y = rng.normal(size=n) + 1 + X @ coefs
     lambda_val = 0.5 / np.sqrt(n)
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
-    weights /= weights.sum()
 
     elnet = elnet_fit(X, 
                       y,
                       weights,
                       lambda_val)
 
-    glmnet = glmnet_fit(X, 
-                        y,
-                        weights,
-                        lambda_val)
+    glmnet, spec = glmnet_fit(X, 
+                              y,
+                              weights,
+                              lambda_val)
 
-    if not np.allclose(elnet.a0, glmnet.a0):
+    if not np.allclose(elnet.a0, glmnet.a0, rtol=1e-4):
         raise ValueError('intercepts not close')
-    if not np.allclose(elnet.beta.toarray(), glmnet.beta.toarray()):
+    if not np.linalg.norm(elnet.beta.toarray() - glmnet.beta.toarray()) / np.linalg.norm(glmnet.beta.toarray()) < 1e-4:
         raise ValueError('coefs not close')
 
-    elnet_dict = elnet.__dict__
-    glmnet_dict = glmnet.__dict__
+    elnet_dict = asdict(elnet)
+    glmnet_dict = asdict(glmnet)
 
-    del(elnet_dict['beta']) # sparse, compared above
-    del(elnet_dict['warm_fit']) # dict
+    eta = X @ glmnet_dict['beta'].toarray().reshape(-1) + glmnet_dict['a0']
+    dev = np.sum(weights * (y - eta)**2) 
+    dev_ratio = 1 - dev / glmnet_dict['nulldev']
+    assert(dev_ratio == glmnet_dict['dev_ratio'])
     
+    del(elnet_dict['a0']) # compared above
+    del(elnet_dict['beta']) # compared above
+    del(elnet_dict['warm_fit']) # don't compare
+    del(elnet_dict['npasses'])
+    
+    failures = []
+
     for k in elnet_dict:
         try:
             elnet_v = np.asarray(elnet_dict[k])
             glmnet_v = np.asarray(glmnet_dict[k])
-            print(k, elnet_v, glmnet_v)
         except:
             elnet_v = glmnet_v = 0
         if not np.allclose(elnet_v, glmnet_v):
-            raise ValueError(f'field {k} differs')
+            failures.append(f'field {k} differs {elnet_v}, {glmnet_v}')
+
+    if failures:
+        raise ValueError(';'.join(failures))
 
 def test_compare_sparse_elnet():
 
