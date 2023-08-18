@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from typing import Union, List, Optional
+from dataclasses import dataclass, field
    
 import numpy as np
 import scipy.sparse
@@ -6,9 +7,201 @@ import scipy.sparse
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 
-from ._utils import (_get_limits,
-                     _get_vp,
-                     _jerr_elnetfit)
+from ._utils import _jerr_elnetfit
+
+@dataclass
+class DesignSpec(object):
+
+    X: Union[np.ndarray, scipy.sparse._csc.csc_array]
+
+    weights: np.ndarray
+    
+    def __post_init__(self):
+        if scipy.sparse.issparse(self.X):
+            self.X = self.X.tocsc()
+        else:
+            self.X = np.asfortranarray(self.X)
+        X, weights = self.X, self.weights
+        sum_w = weights.sum()
+        self.xm = X.T @ weights / sum_w
+        xm2 = (X*X).T @ weights / sum_w
+        self.xs = xm2 - self.xm**2
+
+    def get_eta(self,
+                beta,
+                a0):
+    
+        X = self.X
+        if scipy.sparse.issparse(X):
+            xm, xs = self.xm, self.xs
+            beta = beta / xs
+            eta = X @ beta - np.sum(beta * xm) + a0
+        else:
+            eta = X @ beta + a0
+        return eta
+
+    def wls_args(self):
+        if not scipy.sparse.issparse(self.X):
+            return {'x':self.X}
+        else:
+            return {'x_data_array':self.X.data,
+                    'x_indices_array':self.X.indices,
+                    'x_indptr_array':self.X.indptr,
+                    'xm':self.xm,
+                    'xs':self.xs}
+
+@dataclass
+class ElNetControl(object):
+
+    thresh: float = 1e-7
+    maxit: int = 100000
+    big: float = 9.9e35
+    
+@dataclass
+class ElNetSpec(object):
+
+    X: Union[np.ndarray, scipy.sparse._csc.csc_array]
+    y : np.ndarray
+    weights: np.ndarray
+    lambda_val: float
+    alpha: float = 1
+    penalty_factor: Union[np.ndarray, float] = None
+    intercept: bool = True
+    lower_limits: Union[float, np.ndarray] = -np.inf
+    upper_limits: Union[float, np.ndarray] = np.inf
+    exclude: list = field(default_factory=list)
+    control: ElNetControl = field(default_factory=ElNetControl)
+    
+    def __post_init__(self):
+
+        if self.control is None:
+            self.control = ElNetControl()
+        if self.exclude is None:
+            self.exclude = []
+            
+        if isinstance(self.X, DesignSpec):
+            design = self.X
+            # if already has a normalization computed,
+            # redo it with current weights if different
+            if not np.all(self.weights == design.weights):
+                self.design = DesignSpec(design.X, self.weights)
+            else:
+                self.design = design
+            self.X = self.design.X
+        else:
+            self.design = DesignSpec(self.X, self.weights)
+
+        self._get_limits()
+        self._get_vp()
+        
+    def wls_args(self,
+                 warm=None,
+                 save_fit=False,
+                 from_glmnet_fit=False):
+
+        return _elnet_args(self.design,
+                           self.y,
+                           self.weights,
+                           self.lambda_val,
+                           self.vp,
+                           alpha=self.alpha,
+                           intercept=self.intercept,
+                           penalty_factor=self.penalty_factor,
+                           exclude=self.exclude,
+                           lower_limits=self.lower_limits,
+                           upper_limits=self.upper_limits,
+                           thresh=self.control.thresh,
+                           maxit=self.control.maxit,
+                           warm=warm,
+                           save_fit=save_fit,
+                           from_glmnet_fit=from_glmnet_fit)
+
+
+    def _get_limits(self):
+        X = self.X
+        nobs, nvars = X.shape
+        
+        lower_limits = np.asarray(self.lower_limits)
+        upper_limits = np.asarray(self.upper_limits)
+
+        lower_limits = np.asarray(lower_limits)
+        upper_limits = np.asarray(upper_limits)
+    
+        if lower_limits.shape in [(), (1,)]:
+            lower_limits = -np.inf * np.ones(nvars)
+
+        if upper_limits.shape in [(), (1,)]:
+            upper_limits = np.inf * np.ones(nvars)
+
+        lower_limits = lower_limits[:nvars]
+        upper_limits = upper_limits[:nvars]
+
+        if lower_limits.shape[0] < nvars:
+            raise ValueError('lower_limits should have shape {0}, but has shape {1}'.format((nvars,),
+                                                                                            lower_limits.shape))
+        if upper_limits.shape[0] < nvars:
+            raise ValueError('upper_limits should have shape {0}, but has shape {1}'.format((nvars,),
+                                                                                            upper_limits.shape))
+        lower_limits[lower_limits == -np.inf] = -self.control.big
+        upper_limits[upper_limits == np.inf] = self.control.big
+
+        self.lower_limits = lower_limits
+        self.upper_limits = upper_limits
+
+    def _get_vp(self):
+
+        (penalty_factor,
+         exclude) = (self.penalty_factor,
+                     self.exclude)
+        _, nvars = self.X.shape
+
+        if penalty_factor is None:
+            penalty_factor = np.ones(nvars)
+
+        # check and standardize penalty factors (to sum to nvars)
+        _isinf_penalty = np.isinf(penalty_factor)
+
+        if np.any(_isinf_penalty):
+            exclude.extend(np.nonzero(_isinf_penalty)[0])
+            exclude = np.unique(exclude)
+
+        exclude = list(np.asarray(exclude, int))
+
+        if len(exclude) > 0:
+            if max(exclude) >= nvars:
+                raise ValueError("Some excluded variables out of range")
+            penalty_factor[exclude] = 1 # now can change penalty_factor
+
+        vp = np.maximum(0, penalty_factor).reshape((-1,1))
+        vp = (vp * nvars / vp.sum())
+
+        self.exclude = exclude
+        self.vp = vp
+
+
+@dataclass
+class ElNetWarmStart(object):
+
+    almc: float
+    r: np.ndarray
+    xv: np.ndarray
+    ju: np.ndarray
+    vp: np.ndarray
+    cl: np.ndarray
+    nx: int
+    a: np.ndarray
+    aint: float
+    g: np.ndarray
+    ia: np.ndarray
+    iy: np.ndarray
+    iz: int
+    mm: np.ndarray
+    nino: int
+    rsqc: float
+    nlp: int
+    m: int
+    no: int
+    ni: int
 
 @dataclass
 class ElNetResult(object):
@@ -63,15 +256,14 @@ def elnet_fit(X,
               lambda_val,
               alpha=1.0,
               intercept=True,
-              thresh=1e-7,
-              maxit=100000,
               penalty_factor=None, 
               exclude=[],
               lower_limits=-np.inf,
               upper_limits=np.inf,
+              thresh=1e-7,
+              maxit=100000,
               warm=None,
               save_fit=False,
-              internal_params={'big':1e30},
               from_glmnet_fit=False):
 
     '''A wrapper around a C++ subroutine which minimizes
@@ -157,7 +349,7 @@ def elnet_fit(X,
         Vector of upper limits for each coefficient; default
         `np.inf`. See `lower_limits`.
 
-    warm: dict(optional)
+    warm: ElNetWarmStart(optional)
 
         A dict-like with keys `beta` and `a0` containing coefficients
         and intercept respectively which can be used as a warm start.
@@ -175,33 +367,35 @@ def elnet_fit(X,
     Returns
     -------
 
-    result: ElnetResult
+    result: ElNetResult
 
     '''
 
-    args, nulldev = _elnet_args(X,
-                                y,
-                                weights,
-                                lambda_val,
-                                alpha=alpha,
-                                intercept=intercept,
-                                thresh=thresh,
-                                maxit=maxit,
-                                penalty_factor=penalty_factor,
-                                exclude=exclude,
-                                lower_limits=lower_limits,
-                                upper_limits=upper_limits,
-                                warm=warm,
-                                save_fit=save_fit,
-                                internal_params=internal_params,
-                                from_glmnet_fit=from_glmnet_fit)
+    control = ElNetControl(thresh=thresh,
+                           maxit=maxit)
+    
+    problem = ElNetSpec(X=X,
+                        y=y,
+                        weights=weights,
+                        lambda_val=lambda_val,
+                        alpha=alpha,
+                        intercept=intercept,
+                        penalty_factor=penalty_factor,
+                        lower_limits=lower_limits,
+                        upper_limits=upper_limits,
+                        exclude=exclude,
+                        control=control)
+    
+    args, nulldev = problem.wls_args(warm,
+                                     save_fit,
+                                     from_glmnet_fit)
 
     if scipy.sparse.issparse(X):
         wls_fit = sparse_wls(**args)
     else:
         wls_fit = dense_wls(**args)
 
-    nobs, nvars = X.shape
+    nobs, nvars = problem.X.shape
 
     # if error code > 0, fatal error occurred: stop immediately
     # if error code < 0, non-fatal error occurred: return error code
@@ -210,16 +404,18 @@ def elnet_fit(X,
         errmsg = _jerr_elnetfit(wls_fit['jerr'], maxit)
         raise ValueError(errmsg['msg'])
 
-    warm_fit = {}
+    warm_args = {}
     for key in ["almc", "r", "xv", "ju", "vp",
                 "cl", "nx", "a", "aint", "g",
                 "ia", "iy", "iz", "mm", "nino",
                 "rsqc", "nlp"]:
-            warm_fit[key] = wls_fit[key]
+            warm_args[key] = wls_fit[key]
 
-    warm_fit['m'] = args['m'] # isn't this always 1?
-    warm_fit['no'] = nobs
-    warm_fit['ni'] = nvars
+    warm_args['m'] = args['m'] # isn't this always 1?
+    warm_args['no'] = nobs
+    warm_args['ni'] = nvars
+
+    warm_fit = ElNetWarmStart(**warm_args)
 
     beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
 
@@ -236,15 +432,16 @@ def elnet_fit(X,
                       warm_fit=warm_fit)
 
     if not save_fit:
-        out.warm_fit = {}
+        out.warm_fit = None
 
     return out
 
 
-def _elnet_args(X,
+def _elnet_args(design,
                 y,
                 weights,
                 lambda_val,
+                vp, 
                 alpha=1.0,
                 intercept=True,
                 thresh=1e-7,
@@ -255,13 +452,9 @@ def _elnet_args(X,
                 upper_limits=np.inf,
                 warm=None,
                 save_fit=False,
-                internal_params={'big':1e10},
                 from_glmnet_fit=False):
     
-    if scipy.sparse.issparse(X):
-        X = X.tocsc()
-    else:
-        X = np.asfortranarray(X)
+    X = design.X
         
     exclude = np.asarray(exclude, np.int32)
 
@@ -271,7 +464,7 @@ def _elnet_args(X,
         penalty_factor = np.ones(nvars)
 
     # compute null deviance
-    weights = weights / weights.sum()
+    # weights = weights / weights.sum()
     
     ybar = np.sum(y * weights) / np.sum(weights)
     nulldev = np.sum(weights * (y - ybar)**2)
@@ -281,50 +474,37 @@ def _elnet_args(X,
     # (if only coefs are given as warmstart, we prepare the other arguments
     # as if no warmstart was provided)
 
-    if warm is not None: # assumes it is a dictionary like `warm_fit`
-        a = warm['a']
-        aint = warm['aint']
-        alm0 = warm['almc']
-        cl = warm['cl']
-        g = warm['g'].reshape((-1,1))
-        ia = warm['ia']
-        iy = warm['iy']
-        iz = warm['iz']
-        ju = warm['ju'].reshape((-1,1))
-        m = warm['m']
-        mm = warm['mm'].reshape((-1,1))
-        nino = warm['nino']
-        nobs = warm['no']
-        nvars = warm['ni']
-        nlp = warm['nlp']
-        nx = warm['nx']
-        r = warm['r'].reshape((-1,1))
-        rsqc = warm['rsqc']
-        xv = warm['xv'].reshape((-1,1))
-        vp = warm['vp'].reshape((-1,1))
+    if isinstance(warm, ElNetWarmStart): # assumes it is a dictionary like `warm_fit`
+        a = warm.a
+        aint = warm.aint
+        alm0 = warm.almc
+        cl = warm.cl
+        g = warm.g.reshape((-1,1))
+        ia = warm.ia
+        iy = warm.iy
+        iz = warm.iz
+        ju = warm.ju.reshape((-1,1))
+        m = warm.m
+        mm = warm.mm.reshape((-1,1))
+        nino = warm.nino
+        nobs = warm.no
+        nvars = warm.ni
+        nlp = warm.nlp
+        nx = warm.nx
+        r = warm.r.reshape((-1,1))
+        rsqc = warm.rsqc
+        xv = warm.xv.reshape((-1,1))
+        vp = warm.vp.reshape((-1,1))
     else:
         
         # if calling from glmnet.fit(), we do not need to check on exclude
         # and penalty.factor arguments as they have been prepared by glmnet.fit()
-        # Also exclude will include variance 0 columns
-        if not from_glmnet_fit:
-            vp, exclude = _get_vp(penalty_factor,
-                                  exclude,
-                                  nvars)
-        else:
-            vp = np.asarray(penalty_factor, float)
-
         # compute ju
         # assume that there are no constant variables
         ju = np.ones((nvars, 1), np.int32)
         ju[exclude] = 0
 
         # compute cl from upper and lower limits
-
-        lower_limits, upper_limits = _get_limits(lower_limits,
-                                                 upper_limits,
-                                                 nvars,
-                                                 internal_params['big'])
 
         cl = np.asfortranarray([lower_limits,
                                 upper_limits], float)
@@ -359,7 +539,7 @@ def _elnet_args(X,
                 r = (weights * (y - mu)).reshape((-1,1))
                 rsqc = 1 - np.sum(weights * (y - mu)**2) / nulldev
             else:
-                raise ValueError('warm start object should have "beta" and "a0"')
+                raise ValueError('if not an instance of ElNetWarmStart `warm` should be dict-like with keys "beta" and "a0"')
 
     # for the parameters here, we are overriding the values provided by the
     # warmstart object
@@ -375,77 +555,36 @@ def _elnet_args(X,
     a_new = a.copy()
 
     # take out components of x and run C++ subroutine
-    if scipy.sparse.issparse(X):
 
-        xm = X.T @ weights
-        xm2 = (X*X).T @ weights
-        xs = xm2 - xm**2
-        
-        data_array = X.data
-        indices_array = X.indices
-        indptr_array = X.indptr
+    _args = {'alm0':alm0,
+             'almc':almc,
+             'alpha':alpha,
+             'm':m,
+             'no':nobs,
+             'ni':nvars,
+             'r':r,
+             'xv':xv,
+             'v':v,
+             'intr':intr,
+             'ju':ju,
+             'vp':vp,
+             'cl':cl,
+             'nx':nx,
+             'thr':thr,
+             'maxit':maxit,
+             'a':a_new,
+             'aint':aint,
+             'g':g,
+             'ia':ia,
+             'iy':iy,
+             'iz':iz,
+             'mm':mm,
+             'nino':nino,
+             'rsqc':rsqc,
+             'nlp':nlp,
+             'jerr':jerr}
 
-        args = {'alm0':alm0,
-                'almc':almc,
-                'alpha':alpha,
-                'm':m,
-                'no':nobs,
-                'ni':nvars,
-                'x_data_array':X.data,
-                'x_indices_array':X.indices,
-                'x_indptr_array':X.indptr,
-                'xm':xm,
-                'xs':xs,
-                'r':r,
-                'xv':xv,
-                'v':v,
-                'intr':intr,
-                'ju':ju,
-                'vp':vp,
-                'cl':cl,
-                'nx':nx,
-                'thr':thr,
-                'maxit':maxit,
-                'a':a_new,
-                'aint':aint,
-                'g':g,
-                'ia':ia,
-                'iy':iy,
-                'iz':iz,
-                'mm':mm,
-                'nino':nino,
-                'rsqc':rsqc,
-                'nlp':nlp,
-                'jerr':jerr}
-    else:
-        args = {'alm0':alm0,
-                'almc':almc,
-                'alpha':alpha,
-                'm':m,
-                'no':nobs,
-                'ni':nvars,
-                'x':X,
-                'r':r,
-                'xv':xv,
-                'v':v,
-                'intr':intr,
-                'ju':ju,
-                'vp':vp,
-                'cl':cl,
-                'nx':nx,
-                'thr':thr,
-                'maxit':maxit,
-                'a':a_new,
-                'aint':aint,
-                'g':g,
-                'ia':ia,
-                'iy':iy,
-                'iz':iz,
-                'mm':mm,
-                'nino':nino,
-                'rsqc':rsqc,
-                'nlp':nlp,
-                'jerr':jerr}
+    _args.update(**design.wls_args())
 
-    return args, nulldev
+    return _args, nulldev
 
