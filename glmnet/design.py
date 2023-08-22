@@ -4,12 +4,16 @@ from dataclasses import dataclass
 import numpy as np
 import scipy.sparse
 
+from ._docstrings import _make_docstring
+
 @dataclass
 class DesignSpec(object):
 
     X: Union[np.ndarray, scipy.sparse._csc.csc_array]
     weights: np.ndarray
     
+    __doc__ = _make_docstring('X', 'weights')
+
     def __post_init__(self):
         if scipy.sparse.issparse(self.X):
             self.X = self.X.tocsc()
