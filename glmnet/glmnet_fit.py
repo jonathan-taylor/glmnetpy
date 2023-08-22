@@ -16,7 +16,10 @@ from .elnet_fit import (elnet_fit,
                         ElNetResult,
                         DesignSpec,
                         ElNetSpec,
-                        ElNetControl)
+                        ElNetControl,
+                        _set_limits,
+                        _set_vp,
+                        _set_design)
 
 @dataclass
 class GLMNetControl(ElNetControl):
@@ -32,14 +35,58 @@ class GLMNetSpec(ElNetSpec):
     control: GLMNetControl = field(default_factory=GLMNetControl)
 
     def __post_init__(self):
+
+        if self.control is None:
+            self.control = GLMNetControl()
+        elif type(self.control) == dict:
+            self.control = GLMNetControl(**self.control)
+
         ElNetSpec.__post_init__(self)
+
+        if self.exclude is None:
+            self.exclude = []
+            
         if self.offset is None:
             self.is_offset = False
             self.offset = np.zeros(self.y.shape)
         else:
             self.is_offset = True
 
-    def get_start(self):
+        _set_limits(self)
+        _set_vp(self)
+        _set_design(self)
+
+    def obj_function(self,
+                     mu,
+                     coefficients):
+
+        return _obj_function(self.y,
+                             mu,
+                             self.weights,
+                             self.family,
+                             self.lambda_val,
+                             self.alpha,
+                             coefficients,
+                             self.vp)
+
+    def dev_function(self,
+                     mu):
+
+        return _dev_function(self.y,
+                             mu,
+                             self.weights,
+                             self.family)
+
+    def fit(self,
+            warm=None):
+
+        state, nulldev = self._get_initial_state(warm)
+        return self._fit(state)
+    
+    # private methods
+
+    def _get_start(self):
+
         (design,
          y,
          weights,
@@ -121,31 +168,239 @@ class GLMNetSpec(ElNetSpec):
 
         g = g * ju / (vp + (vp <= 0))
         lambda_max = np.max(g) / max(alpha, 1e-3)
+
         print('lambda_max', lambda_max)
+
         return {'nulldev':nulldev,
                 'mu':mu,
                 'lambda_max':lambda_max}
 
-    def obj_function(self,
-                     mu,
-                     coefficients):
+    def _get_initial_state(self,
+                           warm=None):
 
-        return _obj_function(self.y,
-                             mu,
-                             self.weights,
-                             self.family,
-                             self.lambda_val,
-                             self.alpha,
-                             coefficients,
-                             self.vp)
+        nobs, nvars = self.X.shape
 
-    def dev_function(self,
-                     mu):
+        # get offset
 
-        return _dev_function(self.y,
-                             mu,
-                             self.weights,
-                             self.family)
+        is_offset = self.offset is not None
+
+        if not warm:
+            start_val = self._get_start()
+            nulldev = start_val['nulldev']
+            mu = start_val['mu']
+            fit = None
+            coefold = np.zeros(nvars)   # initial coefs = 0
+            eta = self.family.link(mu)
+            intold = (eta - self.offset)[0]
+
+        else:
+            fit = warm
+            if 'warm_fit' in warm:
+                nulldev = fit['nulldev']
+                coefold = fit.warm_fit.a   # prev value for coefficients
+                intold = fit.warm_fit.aint    # prev value for intercept
+            elif 'a0' in warm and 'beta' in warm:
+                nulldev = self._get_start()['nulldev']
+
+                coefold = warm['beta']   # prev value for coefficients
+                intold = warm['a0']      # prev value for intercept
+            else:
+                raise ValueError("Invalid warm start object")
+
+        state = glmnet_state(coef=coefold,
+                             intercept=intold)
+        state.update(self.design,
+                     self.family,
+                     self.offset)
+
+        return state, nulldev
+
+    def _quasi_newton_step(self,
+                           state,
+                           fit=None):
+
+        coefold, intold = state.coef, state.intercept
+        
+        # some checks for NAs/zeros
+        varmu = family.variance(state.mu)
+        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+
+        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+
+        dmu_deta = family.link.inverse_deriv(state.eta)
+        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
+
+        # compute working response and weights
+        z = (state.eta - self.offset) + (y - state.mu) / dmu_deta
+        w = (weights * dmu_deta**2)/varmu
+
+        # have to update the weighted residual in our fit object
+        # (in theory g and iy should be updated too, but we actually recompute g
+        # and iy anyway in wls.f)
+
+        if fit is not None:
+            fit.warm_fit.r = w * (z - state.eta + self.offset)
+            warm = fit.warm_fit
+        else:
+            warm = None
+
+        # do WLS with warmstart from previous iteration
+
+        elnet_ = _get_elnet_subproblem(self,
+                                       z,
+                                       w)
+        fit = elnet_.fit()
+
+        if fit.jerr != 0:
+            errmsg = _jerr_elnetfit(fit.jerr, self.control.maxit)
+            raise ValueError(errmsg['msg'])
+
+        # update coefficients, eta, mu and obj_val
+        # based on full quasi-newton step
+        
+        coefnew = fit.warm_fit.a
+        intnew = fit.warm_fit.aint
+        state = glmnet_state(coefnew,
+                             intnew)
+        state.update(self.design,
+                     self.family,
+                     self.offset)
+        state.obj_val = self.obj_function(state.mu,
+                                          start)
+
+        # check to make sure it is a feasible descent step
+
+        boundary = False
+        halved = False  # did we have to halve the step size?
+
+        # if objective function is not finite, keep halving the stepsize until it is finite
+        # for the halving step, we probably have to adjust fit$g as well?
+
+        # three checks we'll apply
+
+        # FIX THESE 
+        valideta = lambda eta: True
+        validmu = lambda mu: True
+
+        # not sure boundary / halved handled correctly
+
+        def finite_objective(state):
+            boundary = True
+            halved = True
+            return np.isfinite(state.obj_val) and state.obj_val < self.control.big, boundary, halved
+
+        def valid(state):
+            boundary = True
+            halved = True
+            return valideta(state.eta) and validmu(state.mu), boundary, halved
+            
+        def decreased_obj(state):
+            boundary = False
+            halved = True
+            return state.obj_val <= state.obj_val_old + 1e-7, boundary, halved
+
+        for test, msg in [(finite_objective,
+                           "Non finite objective function! Step size truncated due to divergence."),
+                          (valid,
+                           "Invalid eta/mu! Step size truncated: out of bounds."),
+                          (decreased_obj,
+                           "")]:
+
+            if not test(state)[0]:
+                if msg:
+                    warnings.warn(msg)
+                if np.any(np.isnan(coefold)) or np.isnan(intold):
+                    raise ValueError("No valid set of coefficients has been found: please supply starting values")
+
+                ii = 1
+                check, boundary_, halved_ = test(state)
+                if not check:
+                    boundary = boundary or boundary_
+                    halved = halved or halved_
+                
+                while not check:
+                    if ii > self.control.mxitnr:
+                        raise ValueError(f"inner loop {test}; cannot correct step size")
+                    ii += 1
+
+                    state = glmnet_state((state.coef + coefold)/2,
+                                         (state.intercept + intold)/2)
+                    state.update(self.design,
+                                 self.family,
+                                 self.offset)
+                    state.obj_val = self.obj_function(state.mu,
+                                                      start)
+                    check, boundary_, halved_ = test(state)
+
+        # if we did any halving, we have to update the coefficients, intercept
+        # and weighted residual in the warm_fit object
+        if halved:
+            fit.warm_fit.a = state.coef
+            fit.warm_fit.aint = state.intercept
+            fit.warm_fit.r =  w * (z - state.eta)
+
+        # test for convergence
+        if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < self.control.epsnr):
+            converged = True
+            break
+
+        else:
+            coefold = state.coef
+            intold = state.intercept
+            state.obj_val_old = state.obj_val
+
+        return state, fit, boundary
+
+    def _IRLS(self,
+              state):
+
+        coefold, intold = state.coef, state.intercept
+
+        state.obj_val_old = self.obj_function(state.mu,
+                                              coefold)
+        print(coefold, state.obj_val_old, 'huh')
+
+        converged = False
+
+        for iter in range(self.control.mxitnr):
+
+            (state,
+             fit,
+             boundary) = self._quasi_newton_step(state,
+                                                 fit)
+
+            # test for convergence
+            if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < self.control.epsnr):
+                converged = True
+                break
+                
+        return fit, converged, boundary, state
+
+    def _fit(self,
+             state):
+
+        fit, converged, boundary, state = self._IRLS(state)
+
+        # checks on convergence and fitted values
+        if not converged:
+            warnings.warn("fitting glmnet: algorithm did not converge")
+        if boundary:
+            warnings.warn("fitting glmnet: algorithm stopped at boundary value")
+
+        # create a GLMNetResult
+
+        args = asdict(fit)
+        args['offset'] = self.is_offset
+        args['nulldev'] = nulldev
+
+        args['dev_ratio'] = (1 - self.dev_function(state.mu) / nulldev)
+        args['family'] = self.family
+        args['converged'] = converged
+        args['boundary'] = boundary
+        args['obj_function'] = state.obj_val
+
+        return GLMNetResult(**args)
+
 
 @dataclass
 class GLMNetResult(ElNetResult):
@@ -159,11 +414,23 @@ class GLMNetResult(ElNetResult):
 @dataclass
 class glmnet_state(object):
 
+    coef: np.ndarray
+    intercept: np.ndarray
     mu: np.ndarray
     eta: np.ndarray
     obj_val: float
     obj_val_old: float
     
+    
+    def update(self,
+               design,
+               family,
+               offset):
+        '''pin the mu/eta values to coef/intercept'''
+        self.eta = design.get_eta(self.coef,
+                                  self.intercept)
+        self.mu = family.link.inverse(self.eta + offset)    
+
 def glmnet_fit(X,
                y,
                weights,
@@ -298,9 +565,6 @@ def glmnet_fit(X,
             family = F(L)
         else:
             family = F()
-        # FIX THESE 
-        valideta = lambda eta: True
-        validmu = lambda mu: True
         
     control = GLMNetControl(thresh=thresh,
                             maxit=maxit)
@@ -319,229 +583,15 @@ def glmnet_fit(X,
                          exclude=exclude,
                          control=control)
 
-    nobs, nvars = problem.X.shape
+    return problem.fit(warm)
 
-    # get offset
 
-    is_offset = offset is not None
+def _get_elnet_subproblem(glmnet_spec,
+                          y,
+                          W):
 
-    # if calling from glmnet_path(), we do not need to check on exclude
-    # and penalty_factor arguments as they have been prepared by glmnet_path()
-
-    # computation of null deviance (get mu in the process)
-
-    design = DesignSpec(X, weights)
-
-    if not warm:
-        start_val = problem.get_start()
-        
-        nulldev = start_val['nulldev']
-        mu = start_val['mu']
-        fit = None
-        coefold = np.zeros(nvars)   # initial coefs = 0
-        eta = family.link(mu)
-        intold = (eta - problem.offset)[0]
-
-    else:
-        fit = warm
-        if 'warm_fit' in warm:
-            nulldev = fit['nulldev']
-            coefold = fit.warm_fit.a   # prev value for coefficients
-            intold = fit.warm_fit.aint    # prev value for intercept
-            eta = design.get_eta(coefold,
-                                 intold)
-            mu = family.link.inverse(eta + problem.offset)
-
-        elif 'a0' in warm and 'beta' in warm:
-            nulldev = problem.get_start()['nulldev']
-
-            coefold = warm['beta']   # prev value for coefficients
-            intold = warm['a0']      # prev value for intercept
-            eta = design.get_eta(coefold,
-                                 intold)
-            mu = family.link.inverse(eta + problem.offset)
-        else:
-            raise ValueError("Invalid warm start object")
-
-    # IRLS 
-
-    start = None     # current value for coefficients
-    start_int = None # current value for intercept
-
-    obj_val_old = problem.obj_function(mu,
-                                       coefold)
-    print(coefold, obj_val_old, 'huh')
-    
-    state = glmnet_state(mu=mu,
-                         eta=eta,
-                         obj_val=np.inf,
-                         obj_val_old=obj_val_old)
-
-    converged = False
-
-    for iter in range(problem.control.mxitnr):
-
-        # some checks for NAs/zeros
-        varmu = family.variance(state.mu)
-        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
-
-        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
-
-        dmu_deta = family.link.inverse_deriv(state.eta)
-        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
-
-        # compute working response and weights
-        z = (state.eta - problem.offset) + (y - state.mu) / dmu_deta
-        w = (weights * dmu_deta**2)/varmu
-
-        # have to update the weighted residual in our fit object
-        # (in theory g and iy should be updated too, but we actually recompute g
-        # and iy anyway in wls.f)
-        if fit is not None:
-            fit.warm_fit.r = w * (z - state.eta + problem.offset)
-            warm = fit.warm_fit
-        else:
-            warm = None
-
-        # do WLS with warmstart from previous iteration
-        fit = elnet_fit(X=X,
-                        y=z,
-                        weights=w,
-                        lambda_val=lambda_val,
-                        alpha=alpha,
-                        intercept=intercept,
-                        thresh=thresh,
-                        maxit=maxit,
-                        penalty_factor=problem.vp,
-                        exclude=exclude,
-                        lower_limits=lower_limits,
-                        upper_limits=upper_limits,
-                        warm=warm,
-                        from_glmnet_fit=True,
-                        save_fit=True)
-
-        if fit.jerr != 0:
-            errmsg = _jerr_elnetfit(fit.jerr, maxit)
-            raise ValueError(errmsg['msg'])
-
-        # update coefficients, eta, mu and obj_val
-
-        start = fit.warm_fit.a
-        start_int = fit.warm_fit.aint
-        state.eta = design.get_eta(start,
-                                   start_int)
-
-        state.mu = family.link.inverse(state.eta + problem.offset)
-        state.obj_val = problem.obj_function(state.mu,
-                                             start)
-
-        boundary = False
-        halved = False  # did we have to halve the step size?
-
-        # if objective function is not finite, keep halving the stepsize until it is finite
-        # for the halving step, we probably have to adjust fit$g as well?
-
-        # three checks we'll apply
-
-        def finite_objective(state):
-            boundary = True
-            halved = True
-            return np.isfinite(state.obj_val) and state.obj_val < problem.control.big, boundary, halved
-
-        def valid(state):
-            boundary = True
-            halved = True
-            return valideta(state.eta) and validmu(state.mu), boundary, halved
-            
-        def decreased_obj(state):
-            boundary = False
-            halved = True
-            return state.obj_val <= state.obj_val_old + 1e-7, boundary, halved
-
-        for test, msg in [(finite_objective,
-                           "Non finite objective function! Step size truncated due to divergence."),
-                          (valid,
-                           "Invalid eta/mu! Step size truncated: out of bounds."),
-                          (decreased_obj,
-                           "")]:
-
-            if not test(state)[0]:
-                if msg:
-                    warnings.warn(msg)
-                if np.any(np.isnan(coefold)) or np.isnan(intold):
-                    raise ValueError("No valid set of coefficients has been found: please supply starting values")
-
-                ii = 1
-                check, boundary_, halved_ = test(state)
-                boundary = boundary or boundary_
-                halved = halved or halved_
-                
-                while not check:
-                    if ii > problem.control.mxitnr:
-                        raise ValueError(f"inner loop {test}; cannot correct step size")
-                    ii += 1
-                    start = (start + coefold)/2
-                    start_int = (start_int + intold)/2
-
-                    state.eta = design.get_eta(start,
-                                               start_int)
-
-                    state.mu = family.link.inverse(state.eta + problem.offset)
-                    state.obj_val = problem.obj_function(state.mu,
-                                                         start)
-                    check, boundary_, halved_ = test(state)
-
-        # if we did any halving, we have to update the coefficients, intercept
-        # and weighted residual in the warm_fit object
-        if halved:
-            fit.warm_fit.a = start
-            fit.warm_fit.aint = start_int
-            fit.warm_fit.r =  w * (z - state.eta)
-
-        # test for convergence
-        if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < problem.control.epsnr):
-            converged = True
-            break
-
-        else:
-            coefold = start
-            intold = start_int
-            state.obj_val_old = state.obj_val
-
-    # end of IRLS loop
-
-    # checks on convergence and fitted values
-    if not converged:
-        warnings.warn("glmnet_fit: algorithm did not converge")
-    if boundary:
-        warnings.warn("glmnet_fit: algorithm stopped at boundary value")
-
-    # # some extra warnings, printed only if trace.it == 2
-    # if (trace.it == 2) {
-    #     eps <- 10 * .Machine$double.eps
-    #     if ((family$family == "binomial") && (any(mu > 1 - eps) || any(mu < eps)))
-    #             warning("glm.fit: fitted probabilities numerically 0 or 1 occurred",
-    #                     call. = FALSE)
-    #     if ((family$family == "poisson") && (any(mu < eps)))
-    #             warning("glm.fit: fitted rates numerically 0 occurred",
-    #                     call. = FALSE)
-    # }
-
-    # prepare output object
-    if not save_fit:
-        fit.warm_fit = None
-
-    # create a GLMNetResult
-
-    args = asdict(fit)
-    args['offset'] = problem.is_offset
-    args['nulldev'] = nulldev
-
-    args['dev_ratio'] = (1 - problem.dev_function(state.mu) / nulldev)
-    args['family'] = problem.family
-    args['converged'] = converged
-    args['boundary'] = boundary
-    args['obj_function'] = state.obj_val
-
-    return GLMNetResult(**args), problem
-
+    glmnet_dict = asdict(glmnet_spec)
+    glmnet_dict['y'] = y
+    glmnet_dict['weights'] = W
+    glmnet_dict['X'] = glmnet_spec.design
+    return ElNetSpec(**glmnet_dict)
