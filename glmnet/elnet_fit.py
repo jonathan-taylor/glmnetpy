@@ -9,7 +9,7 @@ from .glmnetpp import spwls as sparse_wls
 
 from .design import DesignSpec
 from ._utils import _jerr_elnetfit
-
+from ._docstrings import _make_docstring
 
 @dataclass
 class ElNetControl(object):
@@ -21,11 +21,24 @@ class ElNetControl(object):
 @dataclass
 class BaseSpec(object):
     
+    __doc__ = _make_docstring('X', 'y')
+
     X: Union[np.ndarray, scipy.sparse._csc.csc_array, DesignSpec]
     y : np.ndarray
 
 @dataclass
 class ElNetSpec(BaseSpec):
+
+    __doc__ = _make_docstring('X',
+                              'y',
+                              'lambda_val',
+                              'alpha',
+                              'lower_limits',
+                              'upper_limits',
+                              'exclude',
+                              'penalty_factor',
+                              'weights',
+                              'intercept')
 
     lambda_val: float
     alpha: float = 1.0
