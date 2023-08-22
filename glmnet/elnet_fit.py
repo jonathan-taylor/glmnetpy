@@ -7,48 +7,9 @@ import scipy.sparse
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 
+from .design import DesignSpec
 from ._utils import _jerr_elnetfit
 
-@dataclass
-class DesignSpec(object):
-
-    X: Union[np.ndarray, scipy.sparse._csc.csc_array]
-
-    weights: np.ndarray
-    
-    def __post_init__(self):
-        if scipy.sparse.issparse(self.X):
-            self.X = self.X.tocsc()
-        else:
-            self.X = np.asfortranarray(self.X)
-        X, weights = self.X, self.weights
-        sum_w = weights.sum()
-        self.xm = X.T @ weights / sum_w
-        xm2 = (X*X).T @ weights / sum_w
-        self.xs = xm2 - self.xm**2
-
-    def get_eta(self,
-                beta,
-                a0):
-    
-        X = self.X
-        if scipy.sparse.issparse(X):
-            xm, xs = self.xm, self.xs
-            beta = beta / xs
-            eta = X @ beta - np.sum(beta * xm) + a0
-        else:
-            eta = X @ beta + a0
-        return eta
-
-    def wls_args(self):
-        if not scipy.sparse.issparse(self.X):
-            return {'x':self.X}
-        else:
-            return {'x_data_array':self.X.data,
-                    'x_indices_array':self.X.indices,
-                    'x_indptr_array':self.X.indptr,
-                    'xm':self.xm,
-                    'xs':self.xs}
 
 @dataclass
 class ElNetControl(object):
@@ -62,10 +23,10 @@ class ElNetSpec(object):
 
     X: Union[np.ndarray, scipy.sparse._csc.csc_array]
     y : np.ndarray
-    weights: np.ndarray
     lambda_val: float
+    weights: Optional[np.ndarray] = None
     alpha: float = 1
-    penalty_factor: Union[np.ndarray, float] = None
+    penalty_factor: Optional[Union[np.ndarray, float]] = None
     intercept: bool = True
     lower_limits: Union[float, np.ndarray] = -np.inf
     upper_limits: Union[float, np.ndarray] = np.inf
@@ -79,16 +40,16 @@ class ElNetSpec(object):
         if self.exclude is None:
             self.exclude = []
             
+        # DONT RENORMALIZE! FIX!
         if isinstance(self.X, DesignSpec):
             design = self.X
-            # if already has a normalization computed,
-            # redo it with current weights if different
-            if not np.all(self.weights == design.weights):
-                self.design = DesignSpec(design.X, self.weights)
-            else:
-                self.design = design
+            self.design = design
             self.X = self.design.X
+            if self.weights is None:
+                self.weights = np.ones(self.X.shape[0])
         else:
+            if self.weights is None:
+                self.weights = np.ones(self.X.shape[0])
             self.design = DesignSpec(self.X, self.weights)
 
         self._get_limits()
