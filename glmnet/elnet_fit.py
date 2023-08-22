@@ -14,6 +14,8 @@ from ._docstrings import _make_docstring
 @dataclass
 class ElNetControl(object):
 
+    __doc__ = _make_docstring('thresh', 'maxit', 'big')
+    
     thresh: float = 1e-7
     maxit: int = 100000
     big: float = 9.9e35
@@ -141,39 +143,17 @@ class ElNetWarmStart(object):
 @dataclass
 class ElNetResult(object):
 
-    '''
-    a0: Intercept value
-
-    beta: matrix of coefficients, stored in sparse matrix format
-
-    df: The number of nonzero coefficients.
-
-    dim: Dimension of coefficient matrix.
-
-    lambda_val: Lambda value used.
-
-    dev_ratio: The fraction of (null) deviance explained.
-
-        The deviance calculations incorporate weights if present in the model. The deviance is
-        defined to be 2*(loglike_sat - loglike), where loglike_sat is the log-likelihood
-        for the saturated model (a model with a free parameter per observation).
-        Hence dev_ratio=1-dev/nulldev.
-
-    nulldev: Null deviance (per observation).
-
-        This is defined to be 2*(loglike_sat -loglike(Null)). The null
-         model refers to the intercept model.}
-
-    npasses: Total passes over the data.
-
-    jerr: Error flag, for warnings and errors (largely for internal debugging).
-
-    nobs: Number of observations.
-
-    warm_fit: Used for warm starts.
-
-    '''
-
+    __doc__ = _make_docstring('a0',
+                              'beta',
+                              'df',
+                              'dim',
+                              'lambda_val',
+                              'dev_ratio',
+                              'nulldev',
+                              'npasses',
+                              'jerr',
+                              'nobs',
+                              'warm_fit')
     a0: float 
     beta: scipy.sparse._csc.csc_array 
     df: int
@@ -198,114 +178,7 @@ def elnet_fit(X,
               upper_limits=np.inf,
               thresh=1e-7,
               maxit=100000,
-              warm=None,
-              save_fit=False,
-              from_glmnet_fit=False):
-
-    '''A wrapper around a C++ subroutine which minimizes
-
-    .. math::
-    
-        1/2 \sum w_i (y_i - X_i^T \beta)^2 + \sum \lambda \gamma_j [(1-\alpha)/2 \beta^2+\alpha|\beta|]
-
-    over $\beta$, where $\gamma_j$ is the relative penalty factor on the
-    j-th variable. If `intercept`, then the term in the first sum is
-    $w_i (y_i - \beta_0 - X_i^T \beta)^2$, and we are minimizing over both
-    $\beta_0$ and $\beta$.
-
-    None of the inputs are standardized except for `penalty_factor`, which
-    is standardized so that they sum up to `nvars`.
-
-    Parameters
-    ----------
-
-    X: Union[np.ndarray, scipy.sparse]
-        Input matrix, of shape `(nobs, nvars)`; each row is an
-        observation vector. If it is a sparse matrix, it is assumed to
-        be unstandardized.  If it is not a sparse matrix, it is
-        assumed that any standardization needed has already been done.
-
-    y: np.ndarray
-        Quantitative response variable.
-
-    weights: np.ndarray
-        Observation weights. `elnet_fit` does NOT standardize these weights.
-
-    lambda_val: float
-        A single value for the `lambda` hyperparameter.
-
-    alpha: float
-
-        The elasticnet mixing parameter in [0,1].  The penalty is
-        defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
-        `alpha=1` is the lasso penalty, and `alpha=0` the ridge
-        penalty.
-
-    intercept: bool
-        Should intercept be fitted (default=`True`) or set to zero (`False`)?
-
-    thresh: float
-
-        Convergence threshold for coordinate descent. Each inner
-        coordinate-descent loop continues until the maximum change in the
-        objective after any coefficient update is less than thresh times
-        the null deviance.  Default value is `1e-7`.
-
-    maxit: int
-
-        Maximum number of passes over the data; default is
-        `10^5`.  (If a warm start object is provided, the number
-        of passes the warm start object performed is included.)
-
-    penalty_factor: np.ndarray (optional)
-
-        Separate penalty factors can be applied to each
-        coefficient. This is a number that multiplies `lambda_val` to
-        allow differential shrinkage. Can be 0 for some variables,
-        which implies no shrinkage, and that variable is always
-        included in the model. Default is 1 for all variables (and
-        implicitly infinity for variables listed in `exclude`). Note:
-        the penalty factors are internally rescaled to sum to
-        `nvars=X.shape[1]`.
-
-    exclude: list
-
-        Indices of variables to be excluded from the model. Default is
-        `[]`. Equivalent to an infinite penalty factor.
-
-    lower_limits: Union[List[float, np.ndarray]]
-
-        Vector of lower limits for each coefficient; default
-        `-np.inf`. Each of these must be non-positive. Can be
-        presented as a single value (which will then be replicated),
-        else a vector of length `nvars`.
-
-    upper_limits: Union[List[float, np.ndarray]]
-
-        Vector of upper limits for each coefficient; default
-        `np.inf`. See `lower_limits`.
-
-    warm: ElNetWarmStart(optional)
-
-        A dict-like with keys `beta` and `a0` containing coefficients
-        and intercept respectively which can be used as a warm start.
-        For internal use only.
-
-    from_glmnet_fit: bool
-
-        Was `elnet_fit` called from `glmnet_fit`?
-        Default is `False`.This has implications for computation of the penalty factors.
-
-    save_fit: bool
-
-        Return the warm start object? Default is `False`.
-
-    Returns
-    -------
-
-    result: ElNetResult
-
-    '''
+              warm=None):
 
     control = ElNetControl(thresh=thresh,
                            maxit=maxit)
@@ -324,6 +197,43 @@ def elnet_fit(X,
     
     return problem.fit()
 
+
+_elnet_fit_doc = r'''A wrapper around a C++ subroutine which minimizes
+
+.. math::
+
+    1/2 \sum w_i (y_i - X_i^T \beta)^2 + \sum \lambda \gamma_j [(1-\alpha)/2 \beta^2+\alpha|\beta|]
+
+over $\beta$, where $\gamma_j$ is the relative penalty factor on the
+j-th variable. If `intercept`, then the term in the first sum is
+$w_i (y_i - \beta_0 - X_i^T \beta)^2$, and we are minimizing over both
+$\beta_0$ and $\beta$.
+
+None of the inputs are standardized except for `penalty_factor`, which
+is standardized so that they sum up to `nvars`.
+
+{0}
+
+Returns
+-------
+
+result: ElNetResult
+
+'''.format(_make_docstring('X',
+                           'y',
+                           'weights',
+                           'lambda_val',
+                           'alpha',
+                           'intercept',
+                           'penalty_factor',
+                           'exclude',
+                           'lower_limits',
+                           'upper_limits',
+                           'thresh',
+                           'maxit',
+                           'warm'))
+
+elnet_fit.__doc__ = _elnet_fit_doc
 
 def _elnet_args(design,
                 y,
