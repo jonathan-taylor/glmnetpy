@@ -17,10 +17,21 @@ from .glmnet_fit import (glmnet_fit,
                          GLMNetSpec,
                          GLMNetControl)
 
+# setup the GLMNetPathSpec dataclass
+
+_glmnet_path_fields = ([(f.name, f.type, f) for
+                       f in fields(GLMNetSpec) if f.name != 'lambda_val'] +
+                       [('lambda_values', np.ndarray)])
+_glmnet_path_dict = {f[0]:f for f in _glmnet_path_fields}
+_final_fields = []
+_required = ['X', 'y', 'lambda_values']
+for k in _required:
+    _final_fields.append(_glmnet_path_dict[k])
+_final_fields = _final_fields + [_glmnet_path_dict[k[0]] for k in _glmnet_path_fields if
+                                 k[0] not in _required]
+
 GLMNetPathSpecBase = make_dataclass('GLMNetPathSpec',
-                                    [(f.name, f.type, f) for
-                                     f in field(GLMNetSpec) if f.name != 'lambda_val'] +
-                                    [('lambda_values', np.ndarray)])
+                                    _final_fields)
 
 @dataclass
 class GLMNetPathSpec(GLMNetPathSpecBase):
