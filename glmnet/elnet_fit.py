@@ -19,125 +19,86 @@ class ElNetControl(object):
     big: float = 9.9e35
     
 @dataclass
-class ElNetSpec(object):
-
-    X: Union[np.ndarray, scipy.sparse._csc.csc_array]
+class BaseSpec(object):
+    
+    X: Union[np.ndarray, scipy.sparse._csc.csc_array, DesignSpec]
     y : np.ndarray
+
+@dataclass
+class ElNetSpec(BaseSpec):
+
     lambda_val: float
-    weights: Optional[np.ndarray] = None
-    alpha: float = 1
-    penalty_factor: Optional[Union[np.ndarray, float]] = None
-    intercept: bool = True
+    alpha: float = 1.0
     lower_limits: Union[float, np.ndarray] = -np.inf
     upper_limits: Union[float, np.ndarray] = np.inf
     exclude: list = field(default_factory=list)
+    penalty_factor: Optional[Union[np.ndarray, float]] = None
+    weights: Optional[np.ndarray] = None
+    intercept: bool = True
     control: ElNetControl = field(default_factory=ElNetControl)
-    
+
     def __post_init__(self):
 
         if self.control is None:
             self.control = ElNetControl()
+        elif type(self.control) == dict:
+            self.control = ElNetControl(**self.control)
         if self.exclude is None:
             self.exclude = []
             
-        # DONT RENORMALIZE! FIX!
-        if isinstance(self.X, DesignSpec):
-            design = self.X
-            self.design = design
-            self.X = self.design.X
-            if self.weights is None:
-                self.weights = np.ones(self.X.shape[0])
+        _set_limits(self)
+        _set_vp(self)
+        _set_design(self)
+        
+    def fit(self, warm=None):
+
+        args, nulldev = self._wls_args(warm)
+
+        if scipy.sparse.issparse(self.X):
+            wls_fit = sparse_wls(**args)
         else:
-            if self.weights is None:
-                self.weights = np.ones(self.X.shape[0])
-            self.design = DesignSpec(self.X, self.weights)
+            wls_fit = dense_wls(**args)
 
-        self._get_limits()
-        self._get_vp()
-        
-    def wls_args(self,
-                 warm=None,
-                 save_fit=False,
-                 from_glmnet_fit=False):
+        nobs, nvars = self.X.shape
 
-        return _elnet_args(self.design,
-                           self.y,
-                           self.weights,
-                           self.lambda_val,
-                           self.vp,
-                           alpha=self.alpha,
-                           intercept=self.intercept,
-                           penalty_factor=self.penalty_factor,
-                           exclude=self.exclude,
-                           lower_limits=self.lower_limits,
-                           upper_limits=self.upper_limits,
-                           thresh=self.control.thresh,
-                           maxit=self.control.maxit,
-                           warm=warm,
-                           save_fit=save_fit,
-                           from_glmnet_fit=from_glmnet_fit)
+        # if error code > 0, fatal error occurred: stop immediately
+        # if error code < 0, non-fatal error occurred: return error code
 
+        if wls_fit['jerr'] != 0:
+            errmsg = _jerr_elnetfit(wls_fit['jerr'], self.control.maxit)
+            raise ValueError(errmsg['msg'])
 
-    def _get_limits(self):
-        X = self.X
-        nobs, nvars = X.shape
-        
-        lower_limits = np.asarray(self.lower_limits)
-        upper_limits = np.asarray(self.upper_limits)
+        warm_args = {}
+        for key in ["almc", "r", "xv", "ju", "vp",
+                    "cl", "nx", "a", "aint", "g",
+                    "ia", "iy", "iz", "mm", "nino",
+                    "rsqc", "nlp"]:
+                warm_args[key] = wls_fit[key]
 
-        lower_limits = np.asarray(lower_limits)
-        upper_limits = np.asarray(upper_limits)
-    
-        if lower_limits.shape in [(), (1,)]:
-            lower_limits = -np.inf * np.ones(nvars)
+        warm_args['m'] = args['m'] # isn't this always 1?
+        warm_args['no'] = nobs
+        warm_args['ni'] = nvars
 
-        if upper_limits.shape in [(), (1,)]:
-            upper_limits = np.inf * np.ones(nvars)
+        warm_fit = ElNetWarmStart(**warm_args)
 
-        lower_limits = lower_limits[:nvars]
-        upper_limits = upper_limits[:nvars]
+        beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
 
-        if lower_limits.shape[0] < nvars:
-            raise ValueError('lower_limits should have shape {0}, but has shape {1}'.format((nvars,),
-                                                                                            lower_limits.shape))
-        if upper_limits.shape[0] < nvars:
-            raise ValueError('upper_limits should have shape {0}, but has shape {1}'.format((nvars,),
-                                                                                            upper_limits.shape))
-        lower_limits[lower_limits == -np.inf] = -self.control.big
-        upper_limits[upper_limits == np.inf] = self.control.big
+        out = ElNetResult(a0=wls_fit['aint'],
+                          beta=beta,
+                          df=np.sum(np.abs(beta) > 0),
+                          dim=beta.shape,
+                          lambda_val=self.lambda_val,
+                          dev_ratio=wls_fit['rsqc'],
+                          nulldev=nulldev,
+                          npasses=wls_fit['nlp'],
+                          jerr=wls_fit['jerr'],
+                          nobs=nobs,
+                          warm_fit=warm_fit)
 
-        self.lower_limits = lower_limits
-        self.upper_limits = upper_limits
+        return out
 
-    def _get_vp(self):
-
-        (penalty_factor,
-         exclude) = (self.penalty_factor,
-                     self.exclude)
-        _, nvars = self.X.shape
-
-        if penalty_factor is None:
-            penalty_factor = np.ones(nvars)
-
-        # check and standardize penalty factors (to sum to nvars)
-        _isinf_penalty = np.isinf(penalty_factor)
-
-        if np.any(_isinf_penalty):
-            exclude.extend(np.nonzero(_isinf_penalty)[0])
-            exclude = np.unique(exclude)
-
-        exclude = list(np.asarray(exclude, int))
-
-        if len(exclude) > 0:
-            if max(exclude) >= nvars:
-                raise ValueError("Some excluded variables out of range")
-            penalty_factor[exclude] = 1 # now can change penalty_factor
-
-        vp = np.maximum(0, penalty_factor).reshape((-1,1))
-        vp = (vp * nvars / vp.sum())
-
-        self.exclude = exclude
-        self.vp = vp
+    def _wls_args(self, warm=None):
+        return _wls_args(self, warm)
 
 
 @dataclass
@@ -167,7 +128,8 @@ class ElNetWarmStart(object):
 @dataclass
 class ElNetResult(object):
 
-    '''a0: Intercept value
+    '''
+    a0: Intercept value
 
     beta: matrix of coefficients, stored in sparse matrix format
 
@@ -347,55 +309,7 @@ def elnet_fit(X,
                         exclude=exclude,
                         control=control)
     
-    args, nulldev = problem.wls_args(warm,
-                                     save_fit,
-                                     from_glmnet_fit)
-
-    if scipy.sparse.issparse(X):
-        wls_fit = sparse_wls(**args)
-    else:
-        wls_fit = dense_wls(**args)
-
-    nobs, nvars = problem.X.shape
-
-    # if error code > 0, fatal error occurred: stop immediately
-    # if error code < 0, non-fatal error occurred: return error code
-
-    if wls_fit['jerr'] != 0:
-        errmsg = _jerr_elnetfit(wls_fit['jerr'], maxit)
-        raise ValueError(errmsg['msg'])
-
-    warm_args = {}
-    for key in ["almc", "r", "xv", "ju", "vp",
-                "cl", "nx", "a", "aint", "g",
-                "ia", "iy", "iz", "mm", "nino",
-                "rsqc", "nlp"]:
-            warm_args[key] = wls_fit[key]
-
-    warm_args['m'] = args['m'] # isn't this always 1?
-    warm_args['no'] = nobs
-    warm_args['ni'] = nvars
-
-    warm_fit = ElNetWarmStart(**warm_args)
-
-    beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
-
-    out = ElNetResult(a0=wls_fit['aint'],
-                      beta=beta,
-                      df=np.sum(np.abs(beta) > 0),
-                      dim=beta.shape,
-                      lambda_val=lambda_val,
-                      dev_ratio=wls_fit['rsqc'],
-                      nulldev=nulldev,
-                      npasses=wls_fit['nlp'],
-                      jerr=wls_fit['jerr'],
-                      nobs=nobs,
-                      warm_fit=warm_fit)
-    print(out.dev_ratio, 'dev_ratio wls')
-    if not save_fit:
-        out.warm_fit = None
-
-    return out
+    return problem.fit()
 
 
 def _elnet_args(design,
@@ -549,3 +463,91 @@ def _elnet_args(design,
 
     return _args, nulldev
 
+def _set_limits(spec):
+    X = spec.X
+    nobs, nvars = X.shape
+
+    lower_limits = np.asarray(spec.lower_limits)
+    upper_limits = np.asarray(spec.upper_limits)
+
+    lower_limits = np.asarray(lower_limits)
+    upper_limits = np.asarray(upper_limits)
+
+    if lower_limits.shape in [(), (1,)]:
+        lower_limits = -np.inf * np.ones(nvars)
+
+    if upper_limits.shape in [(), (1,)]:
+        upper_limits = np.inf * np.ones(nvars)
+
+    lower_limits = lower_limits[:nvars]
+    upper_limits = upper_limits[:nvars]
+
+    if lower_limits.shape[0] < nvars:
+        raise ValueError('lower_limits should have shape {0}, but has shape {1}'.format((nvars,),
+                                                                                        lower_limits.shape))
+    if upper_limits.shape[0] < nvars:
+        raise ValueError('upper_limits should have shape {0}, but has shape {1}'.format((nvars,),
+                                                                                        upper_limits.shape))
+    lower_limits[lower_limits == -np.inf] = -spec.control.big
+    upper_limits[upper_limits == np.inf] = spec.control.big
+
+    spec.lower_limits, spec.upper_limits = lower_limits, upper_limits
+
+def _set_vp(spec):
+
+    (penalty_factor,
+     exclude) = (spec.penalty_factor,
+                 spec.exclude)
+    _, nvars = spec.X.shape
+
+    if penalty_factor is None:
+        penalty_factor = np.ones(nvars)
+
+    # check and standardize penalty factors (to sum to nvars)
+    _isinf_penalty = np.isinf(penalty_factor)
+
+    if np.any(_isinf_penalty):
+        exclude.extend(np.nonzero(_isinf_penalty)[0])
+        exclude = np.unique(exclude)
+
+    exclude = list(np.asarray(exclude, int))
+
+    if len(exclude) > 0:
+        if max(exclude) >= nvars:
+            raise ValueError("Some excluded variables out of range")
+        penalty_factor[exclude] = 1 # now can change penalty_factor
+
+    vp = np.maximum(0, penalty_factor).reshape((-1,1))
+    vp = (vp * nvars / vp.sum())
+
+    spec.exclude, spec.vp = exclude, vp
+
+def _set_design(spec):
+    if isinstance(spec.X, DesignSpec):
+        design = spec.X
+        spec.design = design
+        spec.X = spec.design.X
+        if spec.weights is None:
+            spec.weights = np.ones(spec.X.shape[0])
+    else:
+        if spec.weights is None:
+            spec.weights = np.ones(spec.X.shape[0])
+        spec.design = DesignSpec(spec.X, spec.weights)
+
+def _wls_args(spec,
+              warm=None):
+
+    return _elnet_args(spec.design,
+                       spec.y,
+                       spec.weights,
+                       spec.lambda_val,
+                       spec.vp,
+                       alpha=spec.alpha,
+                       intercept=spec.intercept,
+                       penalty_factor=spec.penalty_factor,
+                       exclude=spec.exclude,
+                       lower_limits=spec.lower_limits,
+                       upper_limits=spec.upper_limits,
+                       thresh=spec.control.thresh,
+                       maxit=spec.control.maxit,
+                       warm=warm)
