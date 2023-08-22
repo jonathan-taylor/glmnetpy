@@ -8,7 +8,7 @@ from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 
 from .design import DesignSpec
-from ._utils import _jerr_elnetfit
+from ._utils import _jerr_elnetfit, _dataclass_from_parent
 from ._docstrings import _make_docstring
 
 @dataclass
@@ -57,13 +57,14 @@ class ElNetSpec(BaseSpec):
         if self.control is None:
             self.control = ElNetControl()
         elif type(self.control) == dict:
-            self.control = ElNetControl(**self.control)
+            self.control = _dataclass_from_parent(ElNetControl,
+                                                  self.control)
         if self.exclude is None:
             self.exclude = []
             
+        _set_design(self)
         _set_limits(self)
         _set_vp(self)
-        _set_design(self)
         
     def fit(self, warm=None):
 

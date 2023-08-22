@@ -10,7 +10,8 @@ import statsmodels.api as sm
 
 from ._utils import (_jerr_elnetfit,
                      _obj_function,
-                     _dev_function)
+                     _dev_function,
+                     _dataclass_from_parent)
 
 from .elnet_fit import (elnet_fit,
                         ElNetResult,
@@ -22,7 +23,7 @@ from .elnet_fit import (elnet_fit,
                         _set_design)
 
 @dataclass
-class GLMNetControl(ElNetControl):
+class GLMControl(ElNetControl):
 
     mxitnr: int = 25
     epsnr: float = 1e-6
@@ -32,14 +33,14 @@ class GLMNetSpec(ElNetSpec):
 
     offset: np.ndarray = None
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
-    control: GLMNetControl = field(default_factory=GLMNetControl)
+    control: GLMControl = field(default_factory=GLMControl)
 
     def __post_init__(self):
 
         if self.control is None:
-            self.control = GLMNetControl()
+            self.control = GLMControl()
         elif type(self.control) == dict:
-            self.control = GLMNetControl(**self.control)
+            self.control = GLMControl(**self.control)
 
         ElNetSpec.__post_init__(self)
 
@@ -80,7 +81,7 @@ class GLMNetSpec(ElNetSpec):
     def fit(self,
             warm=None):
 
-        state, nulldev = self._get_initial_state(warm)
+        state, self.nulldev = self._get_initial_state(warm)
         return self._fit(state)
     
     # private methods
@@ -207,8 +208,8 @@ class GLMNetSpec(ElNetSpec):
             else:
                 raise ValueError("Invalid warm start object")
 
-        state = glmnet_state(coef=coefold,
-                             intercept=intold)
+        state = GLMNetState(coef=coefold,
+                            intercept=intold)
         state.update(self.design,
                      self.family,
                      self.offset)
@@ -222,17 +223,17 @@ class GLMNetSpec(ElNetSpec):
         coefold, intold = state.coef, state.intercept
         
         # some checks for NAs/zeros
-        varmu = family.variance(state.mu)
+        varmu = self.family.variance(state.mu)
         if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
 
         if np.any(varmu == 0): raise ValueError("0s in V(mu)")
 
-        dmu_deta = family.link.inverse_deriv(state.eta)
+        dmu_deta = self.family.link.inverse_deriv(state.eta)
         if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
 
         # compute working response and weights
-        z = (state.eta - self.offset) + (y - state.mu) / dmu_deta
-        w = (weights * dmu_deta**2)/varmu
+        z = (state.eta - self.offset) + (self.y - state.mu) / dmu_deta
+        w = (self.weights * dmu_deta**2)/varmu
 
         # have to update the weighted residual in our fit object
         # (in theory g and iy should be updated too, but we actually recompute g
@@ -260,13 +261,13 @@ class GLMNetSpec(ElNetSpec):
         
         coefnew = fit.warm_fit.a
         intnew = fit.warm_fit.aint
-        state = glmnet_state(coefnew,
-                             intnew)
+        state = GLMNetState(coefnew,
+                            intnew)
         state.update(self.design,
                      self.family,
                      self.offset)
         state.obj_val = self.obj_function(state.mu,
-                                          start)
+                                          coefnew)
 
         # check to make sure it is a feasible descent step
 
@@ -323,8 +324,8 @@ class GLMNetSpec(ElNetSpec):
                         raise ValueError(f"inner loop {test}; cannot correct step size")
                     ii += 1
 
-                    state = glmnet_state((state.coef + coefold)/2,
-                                         (state.intercept + intold)/2)
+                    state = GLMNetState((state.coef + coefold)/2,
+                                        (state.intercept + intold)/2)
                     state.update(self.design,
                                  self.family,
                                  self.offset)
@@ -340,15 +341,6 @@ class GLMNetSpec(ElNetSpec):
             fit.warm_fit.r =  w * (z - state.eta)
 
         # test for convergence
-        if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < self.control.epsnr):
-            converged = True
-            break
-
-        else:
-            coefold = state.coef
-            intold = state.intercept
-            state.obj_val_old = state.obj_val
-
         return state, fit, boundary
 
     def _IRLS(self,
@@ -361,7 +353,8 @@ class GLMNetSpec(ElNetSpec):
         print(coefold, state.obj_val_old, 'huh')
 
         converged = False
-
+        fit = None
+        
         for iter in range(self.control.mxitnr):
 
             (state,
@@ -391,16 +384,15 @@ class GLMNetSpec(ElNetSpec):
 
         args = asdict(fit)
         args['offset'] = self.is_offset
-        args['nulldev'] = nulldev
+        args['nulldev'] = self.nulldev
 
-        args['dev_ratio'] = (1 - self.dev_function(state.mu) / nulldev)
+        args['dev_ratio'] = (1 - self.dev_function(state.mu) / self.nulldev)
         args['family'] = self.family
         args['converged'] = converged
         args['boundary'] = boundary
         args['obj_function'] = state.obj_val
 
         return GLMNetResult(**args)
-
 
 @dataclass
 class GLMNetResult(ElNetResult):
@@ -412,14 +404,12 @@ class GLMNetResult(ElNetResult):
     obj_function: float
 
 @dataclass
-class glmnet_state(object):
+class GLMNetState(object):
 
     coef: np.ndarray
     intercept: np.ndarray
-    mu: np.ndarray
-    eta: np.ndarray
-    obj_val: float
-    obj_val_old: float
+    obj_val: float = np.inf
+    obj_val_old: float = np.inf
     
     
     def update(self,
@@ -451,111 +441,6 @@ def glmnet_fit(X,
                internal_params={'big':1e30},
                from_glmnet_path=False):
 
-    '''An IRLS ....
-
-    .. math::
-    
-        ???1/2 \sum w_i (y_i - X_i^T \beta)^2 + \sum \lambda \gamma_j [(1-\alpha)/2 \beta^2+\alpha|\beta|]
-
-    over $\beta$, where $\gamma_j$ is the relative penalty factor on the
-    j-th variable. If `intercept`, then the term in the first sum is
-    $w_i (y_i - \beta_0 - X_i^T \beta)^2$, and we are minimizing over both
-    $\beta_0$ and $\beta$.
-
-    None of the inputs are standardized except for `penalty_factor`, which
-    is standardized so that they sum up to `nvars`.
-
-    Parameters
-    ----------
-
-    X: Union[np.ndarray, scipy.sparse]
-        Input matrix, of shape `(nobs, nvars)`; each row is an
-        observation vector. If it is a sparse matrix, it is assumed to
-        be unstandardized.  If it is not a sparse matrix, it is
-        assumed that any standardization needed has already been done.
-
-    y: np.ndarray
-        Quantitative response variable.
-
-    weights: np.ndarray
-        Observation weights. `elnet_fit` does NOT standardize these weights.
-
-    lambda_val: float
-        A single value for the `lambda` hyperparameter.
-
-    alpha: float
-
-        The elasticnet mixing parameter in [0,1].  The penalty is
-        defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
-        `alpha=1` is the lasso penalty, and `alpha=0` the ridge
-        penalty.
-
-    intercept: bool
-        Should intercept be fitted (default=`True`) or set to zero (`False`)?
-
-    thresh: float
-
-        Convergence threshold for coordinate descent. Each inner
-        coordinate-descent loop continues until the maximum change in the
-        objective after any coefficient update is less than thresh times
-        the null deviance.  Default value is `1e-7`.
-
-    maxit: int
-
-        Maximum number of passes over the data; default is
-        `10^5`.  (If a warm start object is provided, the number
-        of passes the warm start object performed is included.)
-
-    penalty_factor: np.ndarray (optional)
-
-        Separate penalty factors can be applied to each
-        coefficient. This is a number that multiplies `lambda_val` to
-        allow differential shrinkage. Can be 0 for some variables,
-        which implies no shrinkage, and that variable is always
-        included in the model. Default is 1 for all variables (and
-        implicitly infinity for variables listed in `exclude`). Note:
-        the penalty factors are internally rescaled to sum to
-        `nvars=X.shape[1]`.
-
-    exclude: list
-
-        Indices of variables to be excluded from the model. Default is
-        `[]`. Equivalent to an infinite penalty factor.
-
-    lower_limits: Union[List[float, np.ndarray]]
-
-        Vector of lower limits for each coefficient; default
-        `-np.inf`. Each of these must be non-positive. Can be
-        presented as a single value (which will then be replicated),
-        else a vector of length `nvars`.
-
-    upper_limits: Union[List[float, np.ndarray]]
-
-        Vector of upper limits for each coefficient; default
-        `np.inf`. See `lower_limits`.
-
-    warm: dict
-
-        A dict-like with keys `beta` and `a0` containing coefficients
-        and intercept respectively which can be used as a warm start.
-        For internal use only.
-
-    from_glmnet_path: bool
-
-        Was `glmnet_fit` called from `glmnet_path`?
-        Default is `False`. This has implications for computation of the penalty factors.
-
-    save_fit: bool
-
-        Return the warm start object? Default is `False`.
-
-    Returns
-    -------
-
-    result: GLMnetResult
-
-    '''
-
     # get the relevant family functions
 
     if type(family) == str:
@@ -566,8 +451,8 @@ def glmnet_fit(X,
         else:
             family = F()
         
-    control = GLMNetControl(thresh=thresh,
-                            maxit=maxit)
+    control = GLMControl(thresh=thresh,
+                         maxit=maxit)
     
     problem = GLMNetSpec(X=X,
                          y=y,
@@ -583,7 +468,7 @@ def glmnet_fit(X,
                          exclude=exclude,
                          control=control)
 
-    return problem.fit(warm)
+    return problem.fit(warm), problem
 
 
 def _get_elnet_subproblem(glmnet_spec,
@@ -594,4 +479,7 @@ def _get_elnet_subproblem(glmnet_spec,
     glmnet_dict['y'] = y
     glmnet_dict['weights'] = W
     glmnet_dict['X'] = glmnet_spec.design
-    return ElNetSpec(**glmnet_dict)
+
+    return _dataclass_from_parent(ElNetSpec,
+                                  glmnet_dict)
+

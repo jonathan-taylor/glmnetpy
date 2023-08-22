@@ -2,6 +2,8 @@ import numpy as np
 import scipy.sparse
 import statsmodels.api as sm
 
+from dataclasses import fields
+
 def _jerr_elnetfit(n, maxit, k=None):
     if n == 0:
         fatal = False
@@ -18,6 +20,11 @@ def _jerr_elnetfit(n, maxit, k=None):
     return {'n':n,
             'fatal':fatal,
             'msg':f"Error code {n}:" + msg}
+
+def _dataclass_from_parent(cls,
+                           parent_dict):
+    _fields = [f.name for f in fields(cls)]
+    return cls(**{k:parent_dict[k] for k in parent_dict.keys() if k in _fields})
 
 #' Elastic net objective function value
 #'
