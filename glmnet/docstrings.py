@@ -17,7 +17,7 @@ y: np.ndarray
     ''',
 
     'weights':'''
-weights: np.ndarray
+weights: Optional[np.ndarray]
 
     Observation weights. These are not standardized in the fit.
     ''',
@@ -29,12 +29,12 @@ lambda_val: float
     ''',
 
     'alpha':r'''
-alpha: float
+alpha: Optional[float]
 
     The elasticnet mixing parameter in [0,1].  The penalty is
     defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
     `alpha=1` is the lasso penalty, and `alpha=0` the ridge
-    penalty.
+    penalty. Defaults to 1.
     ''',
 
     'intercept':'''
@@ -58,6 +58,7 @@ maxit: int
     Maximum number of passes over the data; default is
     `10^5`.  (If a warm start object is provided, the number
     of passes the warm start object performed is included.)
+    Default: 25.
     ''',
 
     'penalty_factor':'''
