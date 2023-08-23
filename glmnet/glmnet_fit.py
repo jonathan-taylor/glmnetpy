@@ -41,6 +41,11 @@ class GLMMixIn(object):
 add_dataclass_docstring(GLMMixIn, subs={'control':'control_glmnet'})
 
 @dataclass
+class GLMSpec(GLMMixIn, Options, Base):
+    pass
+add_dataclass_docstring(GLMSpec, subs={'control':'control_glmnet'})
+
+@dataclass
 class GLMNetSpec(GLMMixIn, ElNetSpec):
 
     def __post_init__(self):

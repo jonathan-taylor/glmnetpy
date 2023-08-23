@@ -70,8 +70,8 @@ class Penalty(object):
 @dataclass
 class Options(object):
     
-    exclude: list = field(default_factory=list)
-    weights: Optional[np.ndarray] = None
     intercept: bool = True
+    weights: Optional[np.ndarray] = None
+    exclude: list = field(default_factory=list)
     
     
