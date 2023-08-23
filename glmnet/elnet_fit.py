@@ -4,9 +4,10 @@ from dataclasses import dataclass, field
 import numpy as np
 import scipy.sparse
 
+from sklearn.base import BaseEstimator, RegressorMixin
+
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
-
 from .base import Base, Penalty, Options, Design
 from ._utils import _jerr_elnetfit, _dataclass_from_parent
 from .docstrings import make_docstring, add_dataclass_docstring
@@ -22,11 +23,19 @@ class ElNetControl(object):
 
 
 @dataclass
-class ElNetSpec(Options,Penalty,Base):
+class ElNetSpec(Options,
+                Penalty):
 
     control: ElNetControl = field(default_factory=ElNetControl)
 
-    def __post_init__(self):
+add_dataclass_docstring(ElNetSpec, subs={'control':'control_elnet'})
+
+@dataclass
+class ElNetEstimator(BaseEstimator,
+                     RegressorMixin,
+                     ElNetSpec):
+
+    def fit(self, X, y, weights=None, warm=None):
 
         if self.control is None:
             self.control = ElNetControl()
@@ -36,20 +45,21 @@ class ElNetSpec(Options,Penalty,Base):
         if self.exclude is None:
             self.exclude = []
             
-        _set_design(self)
-        _set_limits(self)
-        _set_vp(self)
+        nobs, nvars = X.shape
         
-    def fit(self, warm=None):
+        if weights is None:
+            weights = np.ones(nobs)
 
-        args, nulldev = self._wls_args(warm)
+        design = _get_design(X, weights)
+        _check_and_set_limits(self, nvars)
+        _check_and_set_vp(self, nvars)
+        
+        args, nulldev = _wls_args(self, design, y, weights, warm)
 
-        if scipy.sparse.issparse(self.X):
+        if scipy.sparse.issparse(design.X):
             wls_fit = sparse_wls(**args)
         else:
             wls_fit = dense_wls(**args)
-
-        nobs, nvars = self.X.shape
 
         # if error code > 0, fatal error occurred: stop immediately
         # if error code < 0, non-fatal error occurred: return error code
@@ -73,24 +83,24 @@ class ElNetSpec(Options,Penalty,Base):
 
         beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
 
-        out = ElNetResult(a0=wls_fit['aint'],
-                          beta=beta,
-                          df=np.sum(np.abs(beta) > 0),
-                          dim=beta.shape,
-                          lambda_val=self.lambda_val,
-                          dev_ratio=wls_fit['rsqc'],
-                          nulldev=nulldev,
-                          npasses=wls_fit['nlp'],
-                          jerr=wls_fit['jerr'],
-                          nobs=nobs,
-                          warm_fit=warm_fit)
+        result = ElNetResult(a0=wls_fit['aint'],
+                             beta=beta,
+                             df=np.sum(np.abs(beta) > 0),
+                             dim=beta.shape,
+                             lambda_val=self.lambda_val,
+                             dev_ratio=wls_fit['rsqc'],
+                             nulldev=nulldev,
+                             npasses=wls_fit['nlp'],
+                             jerr=wls_fit['jerr'],
+                             nobs=nobs,
+                             warm_fit=warm_fit)
 
-        return out
+        self.result_ = result
+        return self
 
-    def _wls_args(self, warm=None):
-        return _wls_args(self, warm)
-
-add_dataclass_docstring(ElNetSpec, subs={'control':'control_elnet'})
+    def _wls_args(self, design, y, weights, warm=None):
+        return _wls_args(self, design, y, weights, warm)
+add_dataclass_docstring(ElNetEstimator, subs={'control':'control_elnet'})
 
 @dataclass
 class ElNetWarmStart(object):
@@ -351,9 +361,7 @@ def _elnet_args(design,
 
     return _args, nulldev
 
-def _set_limits(spec):
-    X = spec.X
-    nobs, nvars = X.shape
+def _check_and_set_limits(spec, nvars):
 
     lower_limits = np.asarray(spec.lower_limits)
     upper_limits = np.asarray(spec.upper_limits)
@@ -381,12 +389,11 @@ def _set_limits(spec):
 
     spec.lower_limits, spec.upper_limits = lower_limits, upper_limits
 
-def _set_vp(spec):
+def _check_and_set_vp(spec, nvars):
 
     (penalty_factor,
      exclude) = (spec.penalty_factor,
                  spec.exclude)
-    _, nvars = spec.X.shape
 
     if penalty_factor is None:
         penalty_factor = np.ones(nvars)
@@ -410,24 +417,23 @@ def _set_vp(spec):
 
     spec.exclude, spec.vp = exclude, vp
 
-def _set_design(spec):
-    if isinstance(spec.X, Design):
-        design = spec.X
-        spec.design = design
-        spec.X = spec.design.X
-        if spec.weights is None:
-            spec.weights = np.ones(spec.X.shape[0])
+def _get_design(X, weights):
+    if isinstance(X, Design):
+        return X
     else:
-        if spec.weights is None:
-            spec.weights = np.ones(spec.X.shape[0])
-        spec.design = Design(spec.X, spec.weights)
+        if weights is None:
+            weights = np.ones(X.shape[0])
+        return Design(X, weights)
 
 def _wls_args(spec,
+              design,
+              y,
+              weights,
               warm=None):
 
-    return _elnet_args(spec.design,
-                       spec.y,
-                       spec.weights,
+    return _elnet_args(design,
+                       y,
+                       weights,
                        spec.lambda_val,
                        spec.vp,
                        alpha=spec.alpha,
