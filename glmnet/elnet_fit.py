@@ -7,49 +7,23 @@ import scipy.sparse
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 
-from .design import DesignSpec
+from .base import Base, Penalty, Options, Design
 from ._utils import _jerr_elnetfit, _dataclass_from_parent
-from ._docstrings import _make_docstring
+from .docstrings import make_docstring, add_dataclass_docstring
 
+
+@add_dataclass_docstring
 @dataclass
 class ElNetControl(object):
 
-    __doc__ = _make_docstring('thresh', 'maxit', 'big')
-    
     thresh: float = 1e-7
     maxit: int = 100000
     big: float = 9.9e35
-    
-@dataclass
-class BaseSpec(object):
-    
-    __doc__ = _make_docstring('X', 'y')
 
-    X: Union[np.ndarray, scipy.sparse._csc.csc_array, DesignSpec]
-    y : np.ndarray
 
 @dataclass
-class ElNetSpec(BaseSpec):
+class ElNetSpec(Options,Penalty,Base):
 
-    __doc__ = _make_docstring('X',
-                              'y',
-                              'lambda_val',
-                              'alpha',
-                              'lower_limits',
-                              'upper_limits',
-                              'exclude',
-                              'penalty_factor',
-                              'weights',
-                              'intercept')
-
-    lambda_val: float
-    alpha: float = 1.0
-    lower_limits: Union[float, np.ndarray] = -np.inf
-    upper_limits: Union[float, np.ndarray] = np.inf
-    exclude: list = field(default_factory=list)
-    penalty_factor: Optional[Union[np.ndarray, float]] = None
-    weights: Optional[np.ndarray] = None
-    intercept: bool = True
     control: ElNetControl = field(default_factory=ElNetControl)
 
     def __post_init__(self):
@@ -116,6 +90,7 @@ class ElNetSpec(BaseSpec):
     def _wls_args(self, warm=None):
         return _wls_args(self, warm)
 
+add_dataclass_docstring(ElNetSpec, subs={'control':'control_elnet'})
 
 @dataclass
 class ElNetWarmStart(object):
@@ -141,20 +116,10 @@ class ElNetWarmStart(object):
     no: int
     ni: int
 
+@add_dataclass_docstring
 @dataclass
 class ElNetResult(object):
 
-    __doc__ = _make_docstring('a0',
-                              'beta',
-                              'df',
-                              'dim',
-                              'lambda_val',
-                              'dev_ratio',
-                              'nulldev',
-                              'npasses',
-                              'jerr',
-                              'nobs',
-                              'warm_fit')
     a0: float 
     beta: scipy.sparse._csc.csc_array 
     df: int
@@ -198,7 +163,6 @@ def elnet_fit(X,
     
     return problem.fit()
 
-
 _elnet_fit_doc = r'''A wrapper around a C++ subroutine which minimizes
 
 .. math::
@@ -220,19 +184,19 @@ Returns
 
 result: ElNetResult
 
-'''.format(_make_docstring('X',
-                           'y',
-                           'weights',
-                           'lambda_val',
-                           'alpha',
-                           'intercept',
-                           'penalty_factor',
-                           'exclude',
-                           'lower_limits',
-                           'upper_limits',
-                           'thresh',
-                           'maxit',
-                           'warm'))
+'''.format(make_docstring('X',
+                          'y',
+                          'weights',
+                          'lambda_val',
+                          'alpha',
+                          'intercept',
+                          'penalty_factor',
+                          'exclude',
+                          'lower_limits',
+                          'upper_limits',
+                          'thresh',
+                          'maxit',
+                          'warm'))
 
 elnet_fit.__doc__ = _elnet_fit_doc
 
@@ -447,7 +411,7 @@ def _set_vp(spec):
     spec.exclude, spec.vp = exclude, vp
 
 def _set_design(spec):
-    if isinstance(spec.X, DesignSpec):
+    if isinstance(spec.X, Design):
         design = spec.X
         spec.design = design
         spec.X = spec.design.X
@@ -456,7 +420,7 @@ def _set_design(spec):
     else:
         if spec.weights is None:
             spec.weights = np.ones(spec.X.shape[0])
-        spec.design = DesignSpec(spec.X, spec.weights)
+        spec.design = Design(spec.X, spec.weights)
 
 def _wls_args(spec,
               warm=None):

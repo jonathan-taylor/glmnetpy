@@ -13,15 +13,19 @@ from ._utils import (_jerr_elnetfit,
                      _dev_function,
                      _dataclass_from_parent)
 
+from .base import Base, Penalty, Options, Design
+from .docstrings import make_docstring, add_dataclass_docstring
+
 from .elnet_fit import (elnet_fit,
                         ElNetResult,
-                        DesignSpec,
+                        Design,
                         ElNetSpec,
                         ElNetControl,
                         _set_limits,
                         _set_vp,
                         _set_design)
 
+@add_dataclass_docstring
 @dataclass
 class GLMControl(ElNetControl):
 
@@ -29,11 +33,15 @@ class GLMControl(ElNetControl):
     epsnr: float = 1e-6
 
 @dataclass
-class GLMNetSpec(ElNetSpec):
+class GLMMixIn(object):
 
     offset: np.ndarray = None
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     control: GLMControl = field(default_factory=GLMControl)
+add_dataclass_docstring(GLMMixIn, subs={'control':'control_glmnet'})
+
+@dataclass
+class GLMNetSpec(GLMMixIn, ElNetSpec):
 
     def __post_init__(self):
 
@@ -393,7 +401,9 @@ class GLMNetSpec(ElNetSpec):
         args['obj_function'] = state.obj_val
 
         return GLMNetResult(**args)
+add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 
+@add_dataclass_docstring
 @dataclass
 class GLMNetResult(ElNetResult):
 
@@ -411,14 +421,13 @@ class GLMNetState(object):
     obj_val: float = np.inf
     obj_val_old: float = np.inf
     
-    
     def update(self,
                design,
                family,
                offset):
         '''pin the mu/eta values to coef/intercept'''
-        self.eta = design.get_eta(self.coef,
-                                  self.intercept)
+        self.eta = design.linear_map(self.coef,
+                                     self.intercept)
         self.mu = family.link.inverse(self.eta + offset)    
 
 def glmnet_fit(X,
