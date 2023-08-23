@@ -1,3 +1,5 @@
+from dataclasses import fields, dataclass
+
 _docstrings = {
     'X':'''
 X: Union[np.ndarray, scipy.sparse, DesignSpec]
@@ -176,9 +178,63 @@ warm_fit: Optional(ElNetWarmStart)
     Used for warm starts.
     ''',
     
+    'control_elnet': '''
+control: Optional(ElNetControl)
+
+    Parameters to control the solver.
+    ''',
+    
+    'control_glmnet': '''
+control: Optional(GLMNetControl)
+
+    Parameters to control the solver.
+    ''',
+    
+    'mxitnr':'''
+mxitnr: int
+
+    Maximum number of quasi Newton iterations.
+    ''',
+
+    'epsnr':'''
+epsnr: float
+
+    Tolerance for quasi Newton iterations.
+    ''',
+
+    'offset':'''
+offset: np.ndarray
+
+    Offset for linear predictor.
+    ''',
+    
+    'family':'''
+family: Family
+
+    One-parameter exponential family (from `statsmodels`).
+    ''',
+
+    'converged':'''
+converged: bool
+
+    Did the algorithm converge?
+    ''',
+
+    'boundary':'''
+boundary: bool
+
+    Was backtracking required due to getting near boundary of valid mean / natural parameters.
+    ''',
+
+    'obj_function':'''
+obj_function: float
+
+    Value of objective function (deviance + penalty).
+    ''',
+
     }
 
-def _make_docstring(*fieldnames):
+def make_docstring(*fieldnames):
 
     field_str = '\n\n'.join([_docstrings[f].strip() for f in fieldnames])
     return f'''
@@ -187,3 +243,16 @@ Parameters
 
 {field_str}
 '''
+
+def add_dataclass_docstring(kls, subs={}):
+    """
+    Add a docstring to a dataclass using entries in `._docstrings` based on the fields
+    of the dataclass.
+    """
+
+    fieldnames = [f.name for f in fields(kls)]
+    for k in subs:
+        fieldnames[fieldnames.index(k)] = subs[k]
+
+    kls.__doc__ = '\n'.join([kls.__doc__, make_docstring(*fieldnames)])
+    return kls
