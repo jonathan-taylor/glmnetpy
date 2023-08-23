@@ -1,6 +1,6 @@
 import numpy as np
 
-from glmnet.elnet_fit import ElNetSpec
+from glmnet.elnet_fit import ElNetEstimator
 
 def test_simple(n=50, p=10):
 
@@ -9,12 +9,11 @@ def test_simple(n=50, p=10):
     y = rng.standard_normal(n)
     W = rng.uniform(0, 1, size=(n,))
 
-    spec = ElNetSpec(X, y, 0, weights=W)
-    out = spec.fit()
+    spec = ElNetEstimator(lambda_val=0, weights=W)
+    out = spec.fit(X, y, weights=W).result_
 
     beta = out.beta.toarray().reshape(-1)
     intercept = out.a0
-
 
     X1 = np.concatenate([np.ones((n,1)), X], axis=1)
     Q = X1.T @ (W[:, None] * X1)

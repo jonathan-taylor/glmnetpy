@@ -23,7 +23,8 @@ class Design(object):
         self.xm = X.T @ weights / sum_w
         xm2 = (X*X).T @ weights / sum_w
         self.xs = xm2 - self.xm**2
-
+        self.shape = self.X.shape
+        
     # the map presumes X has column of 1's appended
     
     def linear_map(self,
@@ -64,7 +65,7 @@ class Penalty(object):
     alpha: float = 1.0
     lower_limits: float = -np.inf
     upper_limits: float = np.inf
-    penalty_factor = Optional[Union[float, np.ndarray]]
+    penalty_factor: Optional[Union[float, np.ndarray]] = None
 
 @add_dataclass_docstring
 @dataclass
