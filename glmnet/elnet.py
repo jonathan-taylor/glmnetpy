@@ -359,7 +359,7 @@ def _elnet_args(design,
              'nlp':nlp,
              'jerr':jerr}
 
-    _args.update(**design.wls_args())
+    _args.update(**design._wls_args())
 
     return _args, nulldev
 

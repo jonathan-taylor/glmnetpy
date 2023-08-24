@@ -60,3 +60,55 @@ def test_design(n=100, p=5, q=3):
         X_v = X_v / xs[None,:]
 
         assert np.allclose(X_, X_v)
+
+        Q_s = design_s.quadratic_form(G=G)
+        Q = design.quadratic_form(G=G)
+
+        assert np.allclose(Q_s, Q)
+
+def test_quadratic_form(n=100, p=5, q=3):
+    """
+    test the linear / adjoint maps of Design from an np.ndarray and a scipy.sparse.csc_array
+    """
+    rng = np.random.default_rng(0)
+    
+    for X, W, stand, G in product([rng.standard_normal((n, p)),
+                               scipy.sparse.csc_array(rng.standard_normal((n, p)))],
+                              [rng.uniform(0, 1, size=(n,)), np.ones(n)],
+                              [False, True],
+                              [None,
+                               rng.uniform(0, 1, size=(n,)),
+                               rng.uniform(0, 1, size=(n,n))]):
+
+        if G is not None and G.ndim == 2:
+            G = (G + G.T) / 2
+        X_s = scipy.sparse.csc_array(X)
+        design = Design(X, W, standardize=stand)
+        design_s = Design(X_s, W, standardize=stand)
+
+        Q_s = design_s.quadratic_form(G=G)
+        Q = design.quadratic_form(G=G)
+
+        X_eff = scipy.sparse.csc_array(X).toarray()
+        if stand:
+            xm = (X_eff * W[:,None]).sum(0) / W.sum()
+            x2 = (X_eff**2 * W[:,None]).sum(0) / W.sum()
+            xs = np.sqrt(x2 - xm**2)
+        else:
+            xm = np.zeros(p)
+            xs = np.ones(p)
+
+        X_eff = X_eff / xs[None,:] - np.multiply.outer(np.ones(n), xm / xs)
+        X_eff = np.concatenate([np.ones((n,1)), X_eff], axis=1)
+
+        if G is None:
+            Q_ = X_eff.T @ X_eff
+        elif G.ndim == 1:
+            Q_ = X_eff.T @ (G[:, None] * X_eff)
+        else:
+            Q_ = X_eff.T @ G @ X_eff
+        assert np.allclose(Q, Q_)  # calculation is done correctly
+
+        # assert np.allclose(Q_s, Q) # sparse and dense agree
+
+        
