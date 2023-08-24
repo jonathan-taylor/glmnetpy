@@ -158,8 +158,6 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
         g = g * ju / (vp + (vp <= 0))
         lambda_max = np.max(g) / max(alpha, 1e-3)
 
-        print('lambda_max', lambda_max)
-
         return {'nulldev':nulldev,
                 'mu':mu,
                 'lambda_max':lambda_max}
@@ -222,12 +220,13 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
 
             (state,
              fit,
-             boundary) = _quasi_newton_step(self,
-                                            design,
-                                            y,
-                                            weights,
-                                            state,
-                                            fit)
+             boundary,
+             halved) = _quasi_newton_step(self,
+                                          design,
+                                          y,
+                                          weights,
+                                          state,
+                                          fit)
 
             # test for convergence
             if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < self.control.epsnr):
@@ -378,10 +377,9 @@ def _quasi_newton_step(spec,
         z = (state.eta - spec.offset) + (y - state.mu) / dmu_deta
     else:
         z = state.eta + (y - state.mu) / dmu_deta
-    print(z[:3], 'z')
     
     w = (weights * dmu_deta**2)/varmu
-    print(w[:5], 'w')
+
     # have to update the weighted residual in our fit object
     # (in theory g and iy should be updated too, but we actually recompute g
     # and it anyway in wls.f)
@@ -397,7 +395,6 @@ def _quasi_newton_step(spec,
     #elnet_ = _get_elnet_spec(spec)
     #fit = elnet_.fit(design, z, weights=w).result_
 
-    print(state.coef, 'before')
     fit = ElNetEstimator.fit(spec, design.X, z, weights=w).result_
 
     if fit.jerr != 0:
@@ -414,7 +411,7 @@ def _quasi_newton_step(spec,
     state.update(design,
                  spec.family,
                  spec.offset)
-    print(state.coef, spec.lambda_val, 'after')
+
     state.obj_val = _obj_function(y,
                                   state.mu,
                                   weights,
@@ -495,6 +492,5 @@ def _quasi_newton_step(spec,
         fit.warm_fit.aint = state.intercept
         fit.warm_fit.r =  w * (z - state.eta)
 
-    print('halved', halved)
     # test for convergence
-    return state, fit, boundary
+    return state, fit, boundary, halved

@@ -25,10 +25,8 @@ def test_quasi_newton(n=100, p=5):
     y = rng.standard_normal(n) > 0
     F = sm.families.Binomial()
     GLM = GLMNetEstimator(0, family=F)
-
     
-    
-    W = rng.uniform(0, 1, size=(n,))
+    W = np.ones(n) # rng.uniform(0, 1, size=(n,))
     design = _get_design(X, W)
     coef_ = rng.standard_normal(p)
     int_ = rng.standard_normal()
@@ -38,42 +36,34 @@ def test_quasi_newton(n=100, p=5):
     beta[1:] = coef_
     
     state = GLMNetState(coef_, int_)
-    state.update(design, GLM.family, GLM.offset)
+    state.update(design,
+                 GLM.family,
+                 GLM.offset)
 
     eta = X1 @ beta
     mu = np.exp(eta) / (1 + np.exp(eta))
 
     Z = eta + (y - state.mu) / (state.mu * (1 - state.mu))
-    print(Z[:3], 'Zq')
+
     assert np.allclose(state.mu, mu)
     assert np.allclose(state.eta, eta)
     
-    W_ = W * (state.mu * (1 - state.mu))
-    G = X1.T @ (W_ * Z)
-    H = X1.T @ (W_[:, None] * X1)
+    IRLS_W = W * (state.mu * (1 - state.mu))
+    G = X1.T @ (W * (y - state.mu))
+    G2 = X1.T @ (IRLS_W * (Z - eta))
+
+    assert np.allclose(G, G2)
     
-    print(W_[:5], 'Wq')
-    new_beta = np.linalg.inv(H) @ G
-    R = _quasi_newton_step(GLM,
-                       design,
-                       y,
-                       W,
-                       state)
-    print(R[0].coef, R[0].intercept, 'quasi')
-    print(new_beta, 'new')
-    sm_G = sm.GLM(y, X, family=F)
-    sm_G.fit()
+    H = X1.T @ (IRLS_W[:, None] * X1)
     
+    new_beta = beta + np.linalg.inv(H) @ G
+    R, _, _, halved = _quasi_newton_step(GLM,
+                                         design,
+                                         y,
+                                         W,
+                           state)
 
-
-# In[3]:
-
-
-test_quasi_newton()
-
-
-# In[ ]:
-
-
-
+    assert not halved
+    assert np.fabs((R.intercept - new_beta[0]) / new_beta[0]) < 1e-3
+    assert np.allclose(R.coef, new_beta[1:], rtol=1e-3)
 
