@@ -43,6 +43,8 @@ class Design(object):
             self.X = self.X - np.multiply.outer(np.ones(n), self.xm)
             self.X = self.X / self.xs[None,:]
             self.X = np.asfortranarray(self.X)
+            self.xm = np.zeros(self.shape[1])
+            self.xs = np.ones(self.shape[1])
 
     # the map presumes X has column of 1's appended
     
@@ -94,19 +96,20 @@ class Design(object):
         '''
 
         # A is effective matrix
-        # A = XS^{-1} - 1 (xm/xs)'
-        # GA = GXS^{-1} - G.sum(0) (xm/xs)'
-        # A'G1 = S^{-1}X'G1 - 1'G1 (xm/xs)'
+        # A = XS^{-1} - 1 (xm/xs)' = (X - 1 xm')S^{-1}
+        # GA = G(X - 1 xm')S^{-1}
+        # A'G1 = S^{-1}(X' - xm 1')G1 = S^{-1}X'G1 - S^{-1}xm 1'G1
         # A'GA = S^{-1}X'GXS^{-1} - S^{-1}X'G1 xm/xs' - xm/xs 1'GXS^{-1} + xm/xs 1'G1 (xm/xs)'
         
         n, p = self.X.shape
         
         if columns is None:
             X_E = self.X
+            columns = slice(0, p)
         else:
             X_E = self.X[:,columns]
+
         if G is None:
-            
             XX_block = self.X.T @ X_E # have to assume this is not too expensive
             X1_block = self.X.sum(0) # X'1
             G_sum = n
@@ -117,19 +120,21 @@ class Design(object):
                 if np.linalg.norm(G-G.T)/np.linalg.norm(G) > 1e-3:
                     warnings.warn('G should be symmetric, using (G+G.T)/2')
                     G = (G + G.T) / 2
-                GX = G @ self.X
+                GX = G @ X_E
+                X1_block = self.X.T @ G.sum(0)
             elif G.ndim == 1:
                 if not np.all(G >= 0):
                     raise ValueError('weights should be non-negative')
                 if not scipy.sparse.issparse(self.X):
-                    GX = G[:,None] * self.X 
+                    GX = G[:,None] * X_E
                 else:
-                    GX = scipy.sparse.diags(G) @ self.X  
+                    GX = scipy.sparse.diags(G) @ X_E
+                X1_block = self.X.T @ G
             else:
                 raise ValueError("G should be 1-dim (treated as diagonal) or 2-dim") 
             if scipy.sparse.issparse(GX):
                 GX = GX.toarray()
-            XX_block, X1_block = self.adjoint_map(GX) # assuming that this not too expensive, same "cost" as without weights
+            XX_block = self.X.T @ GX
             G_sum = G.sum()
             
         if scipy.sparse.issparse(XX_block):
@@ -137,13 +142,18 @@ class Design(object):
             
         # correct XX_block for standardize
         
-        XX_block -= (np.multiply.outer(X1_block, self.xm) + np.multiply.outer(self.xm, X1_block))
-        XX_block += np.multiply.outer(self.xm, self.xm) * G_sum
-        X1_block -= G_sum * self.xm / self.xs
+        XX_block -= (np.multiply.outer(X1_block, self.xm[columns]) + np.multiply.outer(self.xm, X1_block[columns]))
+        XX_block += np.multiply.outer(self.xm, self.xm[columns]) * G_sum
+        XX_block /= np.multiply.outer(self.xs, self.xs[columns])
+
+        X1_block -= G_sum * self.xm
+        X1_block /= self.xs
         
-        Q = np.zeros((XX_block.shape[0] + 1,)*2)
+        Q = np.zeros((XX_block.shape[0] + 1,
+                      XX_block.shape[1] + 1))
         Q[1:,1:] = XX_block
-        Q[0,1:] = Q[1:,0] = X1_block
+        Q[1:,0] = X1_block
+        Q[0,1:] = X1_block[columns]
         Q[0,0] = G_sum
         
         return Q
