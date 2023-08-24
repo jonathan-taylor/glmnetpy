@@ -39,15 +39,15 @@ class GLMMixin(object):
     offset: np.ndarray = None
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     control: GLMControl = field(default_factory=GLMControl)
-add_dataclass_docstring(GLMMixin, subs={'control':'control_glmnet'})
+add_dataclass_docstring(GLMMixin, subs={'control':'control_glm'})
 
 @dataclass
 class GLMSpec(GLMMixin, Options):
     pass
-add_dataclass_docstring(GLMSpec, subs={'control':'control_glmnet'})
+add_dataclass_docstring(GLMSpec, subs={'control':'control_glm'})
 
 @dataclass
-class GLMNetEstimator(GLMMixin, ElNetEstimator):
+class GLMEstimator(GLMMixin, ElNetEstimator):
 
     def fit(self, X, y, weights=None, warm=None):
 
@@ -193,8 +193,8 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
             else:
                 raise ValueError("Invalid warm start object")
 
-        state = GLMNetState(coef=coefold,
-                            intercept=intold)
+        state = GLMState(coef=coefold,
+                         intercept=intold)
         state.update(self.design,
                      self.family,
                      self.offset)
@@ -220,9 +220,9 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
 
         # checks on convergence and fitted values
         if not converged:
-            warnings.warn("fitting glmnet: algorithm did not converge")
+            warnings.warn("fitting IRLS: algorithm did not converge")
         if boundary:
-            warnings.warn("fitting glmnet: algorithm stopped at boundary value")
+            warnings.warn("fitting IRLS: algorithm stopped at boundary value")
 
         # create a GLMNetResult
 
@@ -236,12 +236,12 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
         args['boundary'] = boundary
         args['obj_function'] = state.obj_val
 
-        return GLMNetResult(**args)
-add_dataclass_docstring(GLMNetEstimator, subs={'control':'control_glmnet'})
+        return GLMResult(**args)
+add_dataclass_docstring(GLMEstimator, subs={'control':'control_glm'})
 
 @add_dataclass_docstring
 @dataclass
-class GLMNetResult(ElNetResult):
+class GLMResult(ElNetResult):
 
     family: sm_family.Family
     offset: bool
@@ -250,7 +250,7 @@ class GLMNetResult(ElNetResult):
     obj_function: float
 
 @dataclass
-class GLMNetState(object):
+class GLMState(object):
 
     coef: np.ndarray
     intercept: np.ndarray
@@ -268,56 +268,6 @@ class GLMNetState(object):
             self.mu = family.link.inverse(self.eta)
         else:
             self.mu = family.link.inverse(self.eta + offset)    
-
-def glmnet_fit(X,
-               y,
-               weights,
-               lambda_val,
-               family='Gaussian',
-               link=None,
-               offset=None,
-               alpha=1.0,
-               intercept=True,
-               thresh=1e-7,
-               maxit=100000,
-               penalty_factor=None, 
-               exclude=[],
-               lower_limits=-np.inf,
-               upper_limits=np.inf,
-               warm=None,
-               save_fit=False,
-               internal_params={'big':1e30},
-               from_glmnet_path=False):
-
-    # get the relevant family functions
-
-    if type(family) == str:
-        F = getattr(sm_family, family)
-        if link is not None:
-            L = getattr(sm_links, link)()
-            family = F(L)
-        else:
-            family = F()
-        
-    control = GLMControl(thresh=thresh,
-                         maxit=maxit)
-    
-    problem = GLMNetSpec(X=X,
-                         y=y,
-                         offset=offset,
-                         weights=weights,
-                         family=family,
-                         lambda_val=lambda_val,
-                         alpha=alpha,
-                         intercept=intercept,
-                         penalty_factor=penalty_factor,
-                         lower_limits=lower_limits,
-                         upper_limits=upper_limits,
-                         exclude=exclude,
-                         control=control)
-
-    return problem.fit(warm), problem
-
 
 def _quasi_newton_step(spec,
                        design,
@@ -378,9 +328,10 @@ def _quasi_newton_step(spec,
 
     coefnew = fit.warm_fit.a
     intnew = fit.warm_fit.aint
-    state = GLMNetState(coefnew,
-                        intnew,
-                        obj_val_old=state.obj_val)
+    state = GLMState(coefnew,
+                     intnew,
+                     obj_val_old=state.obj_val)
+
     state.update(design,
                  spec.family,
                  spec.offset)
@@ -449,9 +400,9 @@ def _quasi_newton_step(spec,
                     raise ValueError(f"inner loop {test}; cannot correct step size")
                 ii += 1
 
-                state = GLMNetState((state.coef + coefold)/2,
-                                    (state.intercept + intold)/2,
-                                    obj_val_old=state.obj_val_old)
+                state = GLMState((state.coef + coefold)/2,
+                                 (state.intercept + intold)/2,
+                                 obj_val_old=state.obj_val_old)
                 state.update(design,
                              spec.family,
                              spec.offset)
