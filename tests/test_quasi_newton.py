@@ -4,8 +4,8 @@ import numpy as np
 import scipy.sparse
 import statsmodels.api as sm
 
-from glmnet.glmnet_fit import GLMNetEstimator, _quasi_newton_step, _IRLS, GLMNetState
-from glmnet.glmnet_fit import Design
+from glmnet.glm import GLMNetEstimator, _quasi_newton_step, _IRLS, GLMNetState
+from glmnet.glm import Design
 from glmnet._utils import _obj_function
 
 def test_quasi_newton(n=100, p=5):
