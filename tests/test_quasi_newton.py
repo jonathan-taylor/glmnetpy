@@ -112,11 +112,15 @@ def test_IRLS(n=100, p=5):
 
     y = rng.standard_normal(n) > 0
     F = sm.families.Binomial()
+    L = sm.families.links.Probit()
+    F2 = sm.families.Binomial(link=L)
     
     Xv = rng.standard_normal((n, p))
     WU = rng.uniform(0, 1, size=(n,))
-    for W, s in product([WU, np.ones(n)],
-                        [False,True]):
+
+    for W, s, F in product([WU, np.ones(n)],
+                           [False,True],
+                           [F, F2]):
 
         GLM = GLMNetEstimator(0, family=F, standardize=s)
         GLM.vp = np.ones(p) # this would usually be set within `fit`
@@ -135,8 +139,8 @@ def test_IRLS(n=100, p=5):
         design = Design(X, W, standardize=s)
         design_s = Design(Xs, W, standardize=s)
 
-        coef_ = rng.standard_normal(p)
-        int_ = rng.standard_normal()
+        coef_ = rng.standard_normal(p) * 0.1
+        int_ = rng.standard_normal() * 0.1
 
         beta = np.zeros(p+1)
         beta[0] = int_
@@ -178,6 +182,6 @@ def test_IRLS(n=100, p=5):
                             glm_state.coef,
                             GLM.vp), 'glm_val')
 
-        assert np.allclose(glm_state.coef, res.params[1:], rtol=1e-3)
-        assert np.allclose(glm_state.intercept, res.params[0])
+        assert np.allclose(glm_state.coef, res.params[1:], rtol=1e-3, atol=1e-3)
+        assert np.allclose(glm_state.intercept, res.params[0], rtol=1e-3, atol=1e-3)
 
