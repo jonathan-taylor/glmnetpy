@@ -5,7 +5,7 @@ import numpy as np
 import scipy.sparse
 import statsmodels.api as sm
 
-from glmnet.glm import GLMNetEstimator, _quasi_newton_step, _IRLS, GLMNetState
+from glmnet.glm import GLMEstimator, _quasi_newton_step, _IRLS, GLMState
 from glmnet.base import Design
 from glmnet.elnet import ElNetEstimator
 from glmnet._utils import _obj_function, _parent_dataclass_from_child
@@ -22,7 +22,7 @@ def test_quasi_newton(n=100, p=5):
     for W, s in product([WU, np.ones(n)],
                         [False,True]):
 
-        GLM = GLMNetEstimator(0, family=F, standardize=s)
+        GLM = GLMEstimator(0, family=F, standardize=s)
         GLM.vp = np.ones(p) # this would usually be set within `fit`
         elnet_est = _parent_dataclass_from_child(ElNetEstimator,
                                                  asdict(GLM),
@@ -51,7 +51,7 @@ def test_quasi_newton(n=100, p=5):
         beta[0] = int_
         beta[1:] = coef_
 
-        state = GLMNetState(coef_, int_)
+        state = GLMState(coef_, int_)
         state.update(design,
                      GLM.family,
                      GLM.offset)
@@ -99,7 +99,7 @@ def test_quasi_newton(n=100, p=5):
                                                state,
                                                elnet_solver)
 
-        new_state = GLMNetState(coef_, int_)
+        new_state = GLMState(coef_, int_)
         new_state.update(design,
                          GLM.family,
                          GLM.offset)
@@ -131,7 +131,7 @@ def test_IRLS(n=100, p=5):
                            [False,True],
                            [F, F2]):
 
-        GLM = GLMNetEstimator(0, family=F, standardize=s)
+        GLM = GLMEstimator(0, family=F, standardize=s)
         elnet_est = _parent_dataclass_from_child(ElNetEstimator,
                                                  asdict(GLM),
                                                  standardize=False)
@@ -159,7 +159,7 @@ def test_IRLS(n=100, p=5):
         beta[0] = int_
         beta[1:] = coef_
 
-        state = GLMNetState(coef_, int_)
+        state = GLMState(coef_, int_)
         state.update(design,
                      GLM.family,
                      GLM.offset)
@@ -174,7 +174,7 @@ def test_IRLS(n=100, p=5):
         X_1 = np.concatenate([np.ones((n,1)), X], axis=1)
         res = sm.GLM(y, X_1, family=F, var_weights=W).fit()
 
-        sm_state = GLMNetState(res.params[1:], res.params[0])
+        sm_state = GLMState(res.params[1:], res.params[0])
         sm_state.update(design,
                         GLM.family,
                         GLM.offset)
