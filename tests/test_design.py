@@ -66,19 +66,21 @@ def test_design(n=100, p=5, q=3):
 
         assert np.allclose(Q_s, Q)
 
-def test_quadratic_form(n=100, p=5, q=3):
+def test_quadratic_form(n=100, p=10, q=3):
     """
     test the linear / adjoint maps of Design from an np.ndarray and a scipy.sparse.csc_array
     """
     rng = np.random.default_rng(0)
     
-    for X, W, stand, G in product([rng.standard_normal((n, p)),
-                               scipy.sparse.csc_array(rng.standard_normal((n, p)))],
-                              [rng.uniform(0, 1, size=(n,)), np.ones(n)],
-                              [False, True],
-                              [None,
-                               rng.uniform(0, 1, size=(n,)),
-                               rng.uniform(0, 1, size=(n,n))]):
+    for X, W, stand, G, columns in product([rng.standard_normal((n, p)),
+                                            scipy.sparse.csc_array(rng.standard_normal((n, p)))], #Xs
+                                           [rng.uniform(0, 1, size=(n,)), np.ones(n)], #Ws
+                                           [False, True], #stand
+                                           [None,
+                                            rng.uniform(0, 1, size=(n,)),
+                                            rng.uniform(0, 1, size=(n,n))], #Gs,
+                                           [None, [1,4,6]] #columns
+                                           ):
 
         if G is not None and G.ndim == 2:
             G = (G + G.T) / 2
@@ -86,8 +88,8 @@ def test_quadratic_form(n=100, p=5, q=3):
         design = Design(X, W, standardize=stand)
         design_s = Design(X_s, W, standardize=stand)
 
-        Q_s = design_s.quadratic_form(G=G)
-        Q = design.quadratic_form(G=G)
+        Q_s = design_s.quadratic_form(G=G, columns=columns)
+        Q = design.quadratic_form(G=G, columns=columns)
 
         X_eff = scipy.sparse.csc_array(X).toarray()
         if stand:
@@ -101,14 +103,21 @@ def test_quadratic_form(n=100, p=5, q=3):
         X_eff = X_eff / xs[None,:] - np.multiply.outer(np.ones(n), xm / xs)
         X_eff = np.concatenate([np.ones((n,1)), X_eff], axis=1)
 
+        if columns is not None:
+            columns = np.array(columns)
+            columns += 1
+            columns = np.hstack([[0], columns])
+            
         if G is None:
-            Q_ = X_eff.T @ X_eff
+            Q_eff = X_eff.T @ X_eff
         elif G.ndim == 1:
-            Q_ = X_eff.T @ (G[:, None] * X_eff)
+            Q_eff = X_eff.T @ (G[:, None] * X_eff)
         else:
-            Q_ = X_eff.T @ G @ X_eff
-        assert np.allclose(Q, Q_)  # calculation is done correctly
+            Q_eff = X_eff.T @ G @ X_eff
+        if columns is not None:
+            Q_eff = Q_eff[:, columns]
+        assert np.allclose(Q, Q_eff)  # calculation is done correctly
 
-        # assert np.allclose(Q_s, Q) # sparse and dense agree
+        assert np.allclose(Q_s, Q) # sparse and dense agree
 
         
