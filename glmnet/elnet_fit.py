@@ -50,7 +50,10 @@ class ElNetEstimator(BaseEstimator,
         if weights is None:
             weights = np.ones(nobs)
 
-        design = _get_design(X, weights)
+        # because _get_design ignores `standardize` if X is a `Design`, then if `X`
+        # is a `Design` this will ignore `self.standardize
+        design = _get_design(X, weights, standardize=self.standardize)
+
         _check_and_set_limits(self, nvars)
         _check_and_set_vp(self, nvars)
         
@@ -100,6 +103,7 @@ class ElNetEstimator(BaseEstimator,
 
     def _wls_args(self, design, y, weights, warm=None):
         return _wls_args(self, design, y, weights, warm)
+
 add_dataclass_docstring(ElNetEstimator, subs={'control':'control_elnet'})
 
 @dataclass
@@ -300,8 +304,6 @@ def _elnet_args(design,
         rsqc = 0.                        # double(1) -- mismatch?
         xv = np.zeros((nvars, 1))        # double(nvars)
 
-        
-
         # check if coefs were provided as warmstart: if so, use them
 
         if warm is not None:
@@ -417,13 +419,13 @@ def _check_and_set_vp(spec, nvars):
 
     spec.exclude, spec.vp = exclude, vp
 
-def _get_design(X, weights):
+def _get_design(X, weights, standardize=False):
     if isinstance(X, Design):
         return X
     else:
         if weights is None:
             weights = np.ones(X.shape[0])
-        return Design(X, weights)
+        return Design(X, weights, standardize=standardize)
 
 def _wls_args(spec,
               design,

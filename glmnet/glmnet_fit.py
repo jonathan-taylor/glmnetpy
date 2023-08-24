@@ -18,8 +18,7 @@ from ._utils import (_jerr_elnetfit,
 from .base import Penalty, Options, Design
 from .docstrings import make_docstring, add_dataclass_docstring
 
-from .elnet_fit import (elnet_fit,
-                        ElNetResult,
+from .elnet_fit import (ElNetResult,
                         Design,
                         ElNetEstimator,
                         ElNetControl,
@@ -202,39 +201,6 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
 
         return state, nulldev
 
-    def _IRLS(self,
-              design,
-              y,
-              weights,
-              state):
-
-        coefold, intold = state.coef, state.intercept
-
-        state.obj_val_old = self.obj_function(state.mu,
-                                              coefold)
-
-        converged = False
-        fit = None
-        
-        for iter in range(self.control.mxitnr):
-
-            (state,
-             fit,
-             boundary,
-             halved) = _quasi_newton_step(self,
-                                          design,
-                                          y,
-                                          weights,
-                                          state,
-                                          fit)
-
-            # test for convergence
-            if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < self.control.epsnr):
-                converged = True
-                break
-                
-        return fit, converged, boundary, state
-
     def _fit(self,
              design,
              y,
@@ -385,17 +351,23 @@ def _quasi_newton_step(spec,
     # and it anyway in wls.f)
 
     if fit is not None:
-        fit.warm_fit.r = w * (z - state.eta + spec.offset)
+        if spec.offset is not None:
+            fit.warm_fit.r = w * (z - state.eta + spec.offset)
+        else:
+            fit.warm_fit.r = w * (z - state.eta)
         warm = fit.warm_fit
     else:
         warm = None
 
     # do WLS with warmstart from previous iteration
 
-    #elnet_ = _get_elnet_spec(spec)
-    #fit = elnet_.fit(design, z, weights=w).result_
+    # IMPORTANT
+    # passing `design` here ensures that the X will not be re-standardized
+    # _get_design ignores "standardize" if X is a Design instance
 
-    fit = ElNetEstimator.fit(spec, design.X, z, weights=w).result_
+    # WORKAROUND: use a cloned version of spec and set standardize=False
+
+    fit = ElNetEstimator.fit(spec, design, z, weights=w).result_
 
     if fit.jerr != 0:
         errmsg = _jerr_elnetfit(fit.jerr, spec.control.maxit)
@@ -407,7 +379,8 @@ def _quasi_newton_step(spec,
     coefnew = fit.warm_fit.a
     intnew = fit.warm_fit.aint
     state = GLMNetState(coefnew,
-                        intnew)
+                        intnew,
+                        obj_val_old=state.obj_val)
     state.update(design,
                  spec.family,
                  spec.offset)
@@ -418,7 +391,7 @@ def _quasi_newton_step(spec,
                                   spec.family,
                                   spec.lambda_val,
                                   spec.alpha,
-                                  coefnew,
+                                  state.coef,
                                   spec.vp)
 
     # check to make sure it is a feasible descent step
@@ -477,12 +450,19 @@ def _quasi_newton_step(spec,
                 ii += 1
 
                 state = GLMNetState((state.coef + coefold)/2,
-                                    (state.intercept + intold)/2)
+                                    (state.intercept + intold)/2,
+                                    obj_val_old=state.obj_val_old)
                 state.update(design,
                              spec.family,
                              spec.offset)
-                state.obj_val = spec.obj_function(state.mu,
-                                                  start)
+                state.obj_val = _obj_function(y,
+                                              state.mu,
+                                              weights,
+                                              spec.family,
+                                              spec.lambda_val,
+                                              spec.alpha,
+                                              state.coef,
+                                              spec.vp)
                 check, boundary_, halved_ = test(state)
 
     # if we did any halving, we have to update the coefficients, intercept
@@ -494,3 +474,44 @@ def _quasi_newton_step(spec,
 
     # test for convergence
     return state, fit, boundary, halved
+
+def _IRLS(spec,
+          design,
+          y,
+          weights,
+          state):
+
+    coefold, intold = state.coef, state.intercept
+
+    state.obj_val_old = _obj_function(y,
+                                      state.mu,
+                                      weights,
+                                      spec.family,
+                                      spec.lambda_val,
+                                      spec.alpha,
+                                      state.coef,
+                                      spec.vp)
+
+    converged = False
+    fit = None
+
+    for iter in range(spec.control.mxitnr):
+
+        (state,
+         fit,
+         boundary,
+         halved) = _quasi_newton_step(spec,
+                                      design,
+                                      y,
+                                      weights,
+                                      state,
+                                      fit)
+
+        print(state.obj_val, state.obj_val_old)
+
+        # test for convergence
+        if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < spec.control.epsnr):
+            converged = True
+            break
+
+    return fit, converged, boundary, state

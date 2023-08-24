@@ -16,6 +16,12 @@ y: np.ndarray
     Quantitative response variable.
     ''',
 
+    'standardize':'''
+standardize: bool
+
+    Standardize columns of X according to weights? Default is False.
+    ''',
+    
     'weights':'''
 weights: Optional[np.ndarray]
 
