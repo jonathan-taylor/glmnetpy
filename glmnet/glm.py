@@ -13,7 +13,7 @@ import statsmodels.api as sm
 from ._utils import (_jerr_elnetfit,
                      _obj_function,
                      _dev_function,
-                     _dataclass_from_parent)
+                     _parent_dataclass_from_child)
 
 from .base import Penalty, Options, Design
 from .docstrings import make_docstring, add_dataclass_docstring
@@ -52,10 +52,10 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
     def fit(self, X, y, weights=None, warm=None):
 
         if self.control is None:
-            self.control = ElNetControl()
+            self.control = GLMControl()
         elif type(self.control) == dict:
-            self.control = _dataclass_from_parent(ElNetControl,
-                                                  self.control)
+            self.control = _parent_dataclass_from_child(GLMControl,
+                                                        self.control)
         if self.exclude is None:
             self.exclude = []
             
@@ -207,10 +207,16 @@ class GLMNetEstimator(GLMMixin, ElNetEstimator):
              weights,
              state):
 
-        fit, converged, boundary, state = self._IRLS(state,
-                                                     design,
-                                                     y,
-                                                     weights)
+        elnet_est = _parent_dataclass_from_child(ElNetEstimator,
+                                                 asdict(self),
+                                                 standardize=False)
+
+        fit, converged, boundary, state = _IRLS(self,
+                                                state,
+                                                design,
+                                                y,
+                                                weights,
+                                                elnet_est.fit)
 
         # checks on convergence and fitted values
         if not converged:
@@ -313,18 +319,12 @@ def glmnet_fit(X,
     return problem.fit(warm), problem
 
 
-def _get_elnet(glmnet_spec):
-
-    glmnet_dict = asdict(glmnet_spec)
-    elnet
-    return _dataclass_from_parent(ElNetSpec,
-                                  glmnet_dict)
-
 def _quasi_newton_step(spec,
                        design,
                        y,
                        weights,
                        state,
+                       elnet_solver,
                        fit=None):
 
     coefold, intold = state.coef, state.intercept
@@ -367,7 +367,7 @@ def _quasi_newton_step(spec,
 
     # WORKAROUND: use a cloned version of spec and set standardize=False
 
-    fit = ElNetEstimator.fit(spec, design, z, weights=w).result_
+    fit = elnet_solver(design, z, weights=w).result_
 
     if fit.jerr != 0:
         errmsg = _jerr_elnetfit(fit.jerr, spec.control.maxit)
@@ -479,7 +479,10 @@ def _IRLS(spec,
           design,
           y,
           weights,
-          state):
+          state,
+          elnet_solver):
+
+    # would be good to have objective and elnet_solver as args
 
     coefold, intold = state.coef, state.intercept
 
@@ -505,6 +508,7 @@ def _IRLS(spec,
                                       y,
                                       weights,
                                       state,
+                                      elnet_solver,
                                       fit)
 
         print(state.obj_val, state.obj_val_old)
