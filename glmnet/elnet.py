@@ -9,7 +9,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 from .base import Base, Penalty, Options, Design
-from ._utils import _jerr_elnetfit, _dataclass_from_parent
+from ._utils import _jerr_elnetfit, _parent_dataclass_from_child
 from .docstrings import make_docstring, add_dataclass_docstring
 
 
@@ -40,8 +40,8 @@ class ElNetEstimator(BaseEstimator,
         if self.control is None:
             self.control = ElNetControl()
         elif type(self.control) == dict:
-            self.control = _dataclass_from_parent(ElNetControl,
-                                                  self.control)
+            self.control = _parent_dataclass_from_child(ElNetControl,
+                                                        self.control)
         if self.exclude is None:
             self.exclude = []
             

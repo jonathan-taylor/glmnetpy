@@ -21,10 +21,13 @@ def _jerr_elnetfit(n, maxit, k=None):
             'fatal':fatal,
             'msg':f"Error code {n}:" + msg}
 
-def _dataclass_from_parent(cls,
-                           parent_dict):
+def _parent_dataclass_from_child(cls,
+                                 parent_dict,
+                                 **modified_args):
     _fields = [f.name for f in fields(cls)]
-    return cls(**{k:parent_dict[k] for k in parent_dict.keys() if k in _fields})
+    _cls_args = {k:parent_dict[k] for k in parent_dict.keys() if k in _fields}
+    _cls_args.update(**modified_args)
+    return cls(**_cls_args)
 
 #' Elastic net objective function value
 #'
