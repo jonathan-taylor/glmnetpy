@@ -18,13 +18,13 @@ from ._utils import (_jerr_elnetfit,
 from .base import Penalty, Options, Design
 from .docstrings import make_docstring, add_dataclass_docstring
 
-from .elnet_fit import (ElNetResult,
-                        Design,
-                        ElNetEstimator,
-                        ElNetControl,
-                        _check_and_set_limits,
-                        _check_and_set_vp,
-                        _get_design)
+from .elnet import (ElNetResult,
+                    Design,
+                    ElNetEstimator,
+                    ElNetControl,
+                    _check_and_set_limits,
+                    _check_and_set_vp,
+                    _get_design)
 
 @add_dataclass_docstring
 @dataclass

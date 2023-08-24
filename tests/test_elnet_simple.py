@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse
 
-from glmnet.elnet_fit import ElNetEstimator
+from glmnet.elnet import ElNetEstimator
 
 def test_simple(n=50, p=10):
 
@@ -13,7 +13,7 @@ def test_simple(n=50, p=10):
     W = rng.uniform(0, 1, size=(n,))
 
     for standardize in [False, True]:
-        spec = ElNetEstimator(lambda_val=0, weights=W, standardize=standardize)
+        spec = ElNetEstimator(lambda_val=0, standardize=standardize)
 
         out = spec.fit(X, y, weights=W).result_
         out_s = spec.fit(X_s, y, weights=W).result_
