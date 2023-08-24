@@ -26,44 +26,46 @@ def test_quasi_newton(n=100, p=5):
     F = sm.families.Binomial()
     GLM = GLMNetEstimator(0, family=F)
     
-    W = np.ones(n) # rng.uniform(0, 1, size=(n,))
-    design = _get_design(X, W)
-    coef_ = rng.standard_normal(p)
-    int_ = rng.standard_normal()
+    for W in [rng.uniform(0, 1, size=(n,)), np.ones(n)]:
 
-    beta = np.zeros(p+1)
-    beta[0] = int_
-    beta[1:] = coef_
-    
-    state = GLMNetState(coef_, int_)
-    state.update(design,
-                 GLM.family,
-                 GLM.offset)
 
-    eta = X1 @ beta
-    mu = np.exp(eta) / (1 + np.exp(eta))
+        design = _get_design(X, W)
+        coef_ = rng.standard_normal(p)
+        int_ = rng.standard_normal()
 
-    Z = eta + (y - state.mu) / (state.mu * (1 - state.mu))
+        beta = np.zeros(p+1)
+        beta[0] = int_
+        beta[1:] = coef_
 
-    assert np.allclose(state.mu, mu)
-    assert np.allclose(state.eta, eta)
-    
-    IRLS_W = W * (state.mu * (1 - state.mu))
-    G = X1.T @ (W * (y - state.mu))
-    G2 = X1.T @ (IRLS_W * (Z - eta))
+        state = GLMNetState(coef_, int_)
+        state.update(design,
+                     GLM.family,
+                     GLM.offset)
 
-    assert np.allclose(G, G2)
-    
-    H = X1.T @ (IRLS_W[:, None] * X1)
-    
-    new_beta = beta + np.linalg.inv(H) @ G
-    R, _, _, halved = _quasi_newton_step(GLM,
-                                         design,
-                                         y,
-                                         W,
-                           state)
+        eta = X1 @ beta
+        mu = np.exp(eta) / (1 + np.exp(eta))
 
-    assert not halved
-    assert np.fabs((R.intercept - new_beta[0]) / new_beta[0]) < 1e-3
-    assert np.allclose(R.coef, new_beta[1:], rtol=1e-3)
+        Z = eta + (y - state.mu) / (state.mu * (1 - state.mu))
+
+        assert np.allclose(state.mu, mu)
+        assert np.allclose(state.eta, eta)
+
+        IRLS_W = W * (state.mu * (1 - state.mu))
+        G = X1.T @ (W * (y - state.mu))
+        G2 = X1.T @ (IRLS_W * (Z - eta))
+
+        assert np.allclose(G, G2)
+
+        H = X1.T @ (IRLS_W[:, None] * X1)
+
+        new_beta = beta + np.linalg.inv(H) @ G
+        R, _, _, halved = _quasi_newton_step(GLM,
+                                             design,
+                                             y,
+                                             W,
+                               state)
+
+        assert not halved
+        assert np.fabs((R.intercept - new_beta[0]) / new_beta[0]) < 1e-3
+        assert np.allclose(R.coef, new_beta[1:], rtol=1e-3)
 
