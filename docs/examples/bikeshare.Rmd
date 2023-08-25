@@ -250,6 +250,7 @@ coef_hr = S_pois[S_pois.index.str.contains('hr')]['coef']
 coef_hr = pd.concat([coef_hr,
                      pd.Series([-coef_hr.sum()],
                      index=['hr[23]'])])
+S_pois
 ```
 The plotting is as before.
 

@@ -1,5 +1,6 @@
-import warnings
 from dataclasses import dataclass, asdict, field
+from functools import partial
+import warnings
    
 import numpy as np
 import pandas as pd
@@ -7,6 +8,7 @@ from scipy.stats import norm as normal_dbn
 import scipy.sparse
 
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils import check_X_y
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -17,8 +19,11 @@ from ._utils import (_jerr_elnetfit,
                      _dev_function,
                      _parent_dataclass_from_child)
 
-from .base import Penalty, Options, Design
-from .docstrings import make_docstring, add_dataclass_docstring
+from .base import (Options,
+                   Design)
+from .docstrings import (make_docstring,
+                         add_dataclass_docstring,
+                         _docstrings)
 
 from .elnet import (ElNetResult,
                     Design,
@@ -36,7 +41,7 @@ class GLMControl(ElNetControl):
     epsnr: float = 1e-6
 
 @dataclass
-class GLMMixin(object):
+class GLMMixin(Options):
 
     offset: np.ndarray = None
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
@@ -49,41 +54,47 @@ class GLMSpec(GLMMixin, Options):
 add_dataclass_docstring(GLMSpec, subs={'control':'control_glm'})
 
 @dataclass
-class GLMEstimator(GLMMixin, ElNetEstimator):
+class GLMEstimator(BaseEstimator,
+                   GLMSpec):
 
     def fit(self,
             X,
             y,
-            weights=None,
-            warm=None):
+            sample_weight=None,
+            warm=None,
+            exclude=[]):
+
+        self.exclude_ = exclude
+        nobs, nvar = X.shape
+        
+        if isinstance(X, pd.DataFrame):
+            self.feature_names_in_ = list(X.columns)
+        else:
+            self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
+
+        X, y = check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=False,
+                         estimator=self)
 
         y = np.asarray(y)
-        if isinstance(X, pd.DataFrame):
-            self.column_names_ = list(X.columns)
-            X = X.values
-        else:
-            self.column_names_ = ['X{}'.format(i) for i in range(X.shape[1])]
+
         if self.control is None:
             self.control = GLMControl()
         elif type(self.control) == dict:
             self.control = _parent_dataclass_from_child(GLMControl,
                                                         self.control)
-        if self.exclude is None:
-            self.exclude = []
-            
         nobs, nvars = n, p = X.shape
         
-        if weights is None:
-            weights = np.ones(nobs)
+        if sample_weight is None:
+            sample_weight = np.ones(nobs)
 
-        design = _get_design(X, weights)
-        _check_and_set_limits(self, nvars)
-        _check_and_set_vp(self, nvars)
+        design = _get_design(X, sample_weight)
         
         nulldev = np.inf
         if not warm:
             coefold = np.zeros(nvars)   # initial coefs = 0
-            intold = self.family.link((y * weights).sum() / weights.sum())
+            intold = self.family.link((y * sample_weight).sum() / sample_weight.sum())
             mu = np.ones_like(y) * intold
             eta = self.family.link(mu)
         else:
@@ -91,9 +102,9 @@ class GLMEstimator(GLMMixin, ElNetEstimator):
             if 'warm_fit' in warm:
                 coefold = fit.warm_fit.a   # prev value for coefficients
                 intold = fit.warm_fit.aint    # prev value for intercept
-            elif 'a0' in warm and 'beta' in warm:
-                coefold = warm['beta']   # prev value for coefficients
-                intold = warm['a0']      # prev value for intercept
+            elif 'intercept_' in warm and 'coef_' in warm:
+                coefold = warm['coef_']   # prev value for coefficients
+                intold = warm['intercept_']      # prev value for intercept
             else:
                 raise ValueError("Invalid warm start object")
 
@@ -104,16 +115,34 @@ class GLMEstimator(GLMMixin, ElNetEstimator):
                      self.family,
                      self.offset)
 
-        elnet_est = _parent_dataclass_from_child(ElNetEstimator,
-                                                 asdict(self),
-                                                 standardize=False)
+        # this is just a WLS solver
+        wls_est = ElNetEstimator(lambda_val=0.,
+                                 fit_intercept=self.fit_intercept,
+                                 standardize=False)
 
+        def obj_function(y, family, vp, state):
+            return _obj_function(y,
+                                 state.mu,
+                                 sample_weight,
+                                 family,
+                                 0,
+                                 1,
+                                 state.coef,
+                                 vp)
+        obj_function = partial(obj_function, y, self.family, np.ones(nvar))
+        
+        def _fit(wls_est, exclude, X, y, sample_weight):
+            return wls_est.fit(X, y, sample_weight, exclude=exclude)
+
+        _fit = partial(_fit, wls_est, exclude)
+        
         fit, converged, boundary, state = _IRLS(self,
                                                 design,
                                                 y,
-                                                weights,
+                                                sample_weight,
                                                 state,
-                                                elnet_est.fit)
+                                                _fit,
+                                                obj_function)
 
         # checks on convergence and fitted values
         if not converged:
@@ -129,7 +158,7 @@ class GLMEstimator(GLMMixin, ElNetEstimator):
 
         _dev = _dev_function(y,
                              state.mu,
-                             weights,
+                             sample_weight,
                              self.family)
         args['dev_ratio'] = (1 - _dev / nulldev)
         args['family'] = self.family
@@ -140,30 +169,109 @@ class GLMEstimator(GLMMixin, ElNetEstimator):
         self.result_ = GLMResult(**args)
         self.coef_ = self.result_.warm_fit['a']
         self.intercept_ = self.result_.warm_fit['aint']
-        self.covariance_ = np.linalg.inv(design.quadratic_form(self.result_.weights)) # use final IRLS weights
 
         if isinstance(self.family, sm_family.Gaussian):
             self.dispersion_ = _dev / (n-p-1) # usual estimate of sigma^2
         else:
             self.dispersion_ = 1
+
+        self.unscaled_precision_ = design.quadratic_form(self.result_.weights) # use final IRLS weights
         return self
+    fit.__doc__ = '''
+Fit a GLM.
+
+Parameters
+----------
+
+{X}
+{y}
+{weights}
+{warm_glm}
+{exclude}
+
+Returns
+-------
+
+self: object
+        GLMEstimator class instance.
+        '''.format(**_docstrings)
     
-    def predict(self, X):
+    def predict(self, X, prediction_type='mean'):
 
         eta = X @ self.coef_ + self.intercept_
-        return self.family.link.inverse(eta)
+        if prediction_type == 'linear':
+            return eta
+        elif prediction_type == 'mean':
+            return self.family.link.inverse(eta)
+        else:
+            raise ValueError("prediction should be one of 'mean' or 'linear'")
+    predict.__doc__ = '''
+Predict outcome of corresponding family.
+
+Parameters
+----------
+
+{X}
+{prediction_type}
+
+Returns
+-------
+
+{prediction}'''.format(**_docstrings).strip()
+
+    def score(self, X, y, sample_weight=None):
+
+        mu = self.predict(X, prediction_type='mean')
+        if sample_weight is None:
+            sample_weight = np.ones_like(y)
+        return -_dev_function(y, mu, sample_weight, self.family) / 2 
+    score.__doc__ = '''
+Compute log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model.
+
+Parameters
+----------
+
+{X}
+{y}
+{sample_weight}    
+
+Returns
+-------
+
+score: float
+    Deviance of family for (X, y).
+'''.format(**_docstrings).strip()
+
+
+
+
+    # non-sklearn methods
 
     def summarize(self, dispersion=None):
 
         dispersion = dispersion or self.dispersion_
 
-        SE = np.sqrt(np.diag(self.covariance_)) * np.sqrt(dispersion)
-        T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
-        return pd.DataFrame({'coef': np.hstack([self.intercept_, self.coef_]),
+        keep = np.ones(self.unscaled_precision_.shape[0]-1, bool)
+        if self.exclude_ is not []:
+            keep[self.exclude_] = 0
+        keep = np.hstack([self.fit_intercept, keep]).astype(bool)
+        self.covariance_ = dispersion * np.linalg.inv(self.unscaled_precision_[keep][:,keep])
+        SE = np.sqrt(np.diag(self.covariance_)) 
+
+        index = self.feature_names_in_
+        if self.fit_intercept:
+            coef = np.hstack([self.intercept_, self.coef_])
+            T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
+            index = ['intercept'] + index
+        else:
+            coef = self.coef_
+            T = self.coef_ / SE
+
+        return pd.DataFrame({'coef':coef,
                              'std err': SE,
                              't': T,
                              'P>|t|': 2 * normal_dbn.sf(np.fabs(T))},
-                            index=['intercept'] + self.column_names_)
+                            index=index)
     
 
 
@@ -336,6 +444,7 @@ def _quasi_newton_step(spec,
                        weights,
                        state,
                        elnet_solver,
+                       objective,
                        fit=None):
 
     coefold, intold = state.coef, state.intercept
@@ -370,7 +479,7 @@ def _quasi_newton_step(spec,
     else:
         warm = None
 
-    fit = elnet_solver(design, z, weights=w).result_
+    fit = elnet_solver(design, z, sample_weight=w).result_
 
     if fit.jerr != 0:
         errmsg = _jerr_elnetfit(fit.jerr, spec.control.maxit)
@@ -389,14 +498,7 @@ def _quasi_newton_step(spec,
                  spec.family,
                  spec.offset)
 
-    state.obj_val = _obj_function(y,
-                                  state.mu,
-                                  weights,
-                                  spec.family,
-                                  spec.lambda_val,
-                                  spec.alpha,
-                                  state.coef,
-                                  spec.vp)
+    state.obj_val = objective(state)
 
     # check to make sure it is a feasible descent step
 
@@ -460,14 +562,7 @@ def _quasi_newton_step(spec,
                 state.update(design,
                              spec.family,
                              spec.offset)
-                state.obj_val = _obj_function(y,
-                                              state.mu,
-                                              weights,
-                                              spec.family,
-                                              spec.lambda_val,
-                                              spec.alpha,
-                                              state.coef,
-                                              spec.vp)
+                state.obj_val = objective(state)
                 check, boundary_, halved_ = test(state)
 
     # if we did any halving, we have to update the coefficients, intercept
@@ -485,20 +580,22 @@ def _IRLS(spec,
           y,
           weights,
           state,
-          elnet_solver):
+          elnet_solver,
+          objective):
 
     # would be good to have objective and elnet_solver as args
 
     coefold, intold = state.coef, state.intercept
 
-    state.obj_val_old = _obj_function(y,
-                                      state.mu,
-                                      weights,
-                                      spec.family,
-                                      spec.lambda_val,
-                                      spec.alpha,
-                                      state.coef,
-                                      spec.vp)
+    state.obj_val_old = objective(state)
+    # y,
+    #                                   state.mu,
+    #                                   weights,
+    #                                   spec.family,
+    #                                   spec.lambda_val,
+    #                                   spec.alpha,
+    #                                   state.coef,
+    #                                   spec.vp)
 
     converged = False
     fit = None
@@ -514,7 +611,8 @@ def _IRLS(spec,
                                       weights,
                                       state,
                                       elnet_solver,
-                                      fit)
+                                      objective,
+                                      fit=fit)
 
         # test for convergence
         if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < spec.control.epsnr):

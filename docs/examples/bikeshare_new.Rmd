@@ -99,7 +99,7 @@ X = MS(['mnth',
         'weathersit']).fit_transform(Bike)
 X = X.drop(columns=['intercept'])
 Y = Bike['bikers']
-OLS = GLMEstimator(lambda_val=0)
+OLS = GLMEstimator()
 OLS.fit(X, Y)
 OLS.summarize()
 
@@ -132,7 +132,7 @@ X2 = MS([mnth_encode,
         'temp',
         'weathersit'],
        intercept=False).fit_transform(Bike)
-OLS2 = GLMEstimator(lambda_val=0)
+OLS2 = GLMEstimator()
 OLS2.fit(X2, Y)
 S2 = OLS2.summarize()
 S2
@@ -244,8 +244,12 @@ Now we fit instead a Poisson regression model to the
 function `sm.GLM()` with the Poisson family specified:
 
 ```{python}
-Poisson_GLM = GLMEstimator(0, family=sm.families.Poisson(), standardize=True)
+Poisson_GLM = GLMEstimator(family=sm.families.Poisson(), standardize=True)
 Poisson_GLM.fit(X2, Y)
+```
+
+```{python}
+Poisson_GLM.score(X2, Y)
 ```
 
 We can plot the coefficients associated with `mnth` and `hr`, in order to reproduce  Figure 4.15. We first complete these coefficients as before.
@@ -260,6 +264,7 @@ coef_hr = S_pois[S_pois.index.str.contains('hr')]['coef']
 coef_hr = pd.concat([coef_hr,
                      pd.Series([-coef_hr.sum()],
                      index=['hr[23]'])])
+S_pois
 ```
 The plotting is as before.
 
@@ -274,7 +279,7 @@ ax_hr.plot(x_hr, coef_hr, marker='o', ms=10)
 ax_hr.set_xticklabels(range(24)[::2], fontsize=20)
 ax_hr.set_xlabel('Hour', fontsize=20)
 ax_hr.set_ylabel('Coefficient', fontsize=20);
-
+np.diag(Poisson_GLM.covariance_)
 ```
 We compare the fitted values of the two models.
 The fitted values are stored in the `fittedvalues` attribute
@@ -308,3 +313,16 @@ of GLMs. For instance, `family=sm.families.Gamma()` fits a Gamma regression
 model.
 
 
+
+
+## Cross-validating a GLM
+
+```{python}
+from sklearn.model_selection import cross_validate, KFold
+cv = KFold(5, shuffle=True, random_state=0)
+cross_validate(Poisson_GLM, X2, Y, cv=cv)
+```
+
+```{python}
+
+```
