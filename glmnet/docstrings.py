@@ -148,8 +148,10 @@ control: Optional(ElNetControl)
     Parameters to control the solver.''',
     
     'control_glm': '''
-control: Optional(GLMNetControl)
-    Parameters to control the solver.''',
+control: Optional(GLMControl)
+
+    Parameters to control the solver.
+    ''',
     
     'mxitnr':'''
 mxitnr: int
