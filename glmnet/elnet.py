@@ -96,7 +96,8 @@ class ElNetEstimator(BaseEstimator,
                              npasses=wls_fit['nlp'],
                              jerr=wls_fit['jerr'],
                              nobs=nobs,
-                             warm_fit=warm_fit)
+                             warm_fit=warm_fit,
+                             weights=weights)
 
         self.result_ = result
         return self
@@ -145,7 +146,8 @@ class ElNetResult(object):
     jerr: int
     nobs: int
     warm_fit: dict
-
+    weights: np.ndarray
+    
 def elnet_fit(X,
               y,
               weights,

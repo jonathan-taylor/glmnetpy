@@ -191,7 +191,7 @@ control: Optional(ElNetControl)
     Parameters to control the solver.
     ''',
     
-    'control_glmnet': '''
+    'control_glm': '''
 control: Optional(GLMNetControl)
 
     Parameters to control the solver.
