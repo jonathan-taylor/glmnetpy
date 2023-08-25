@@ -104,13 +104,13 @@ class Design(object):
         n, p = self.X.shape
         
         if columns is None:
-            X_E = self.X
-            columns = slice(0, p)
+            X_R = self.X
+            columns_R = slice(0, p)
         else:
-            X_E = self.X[:,columns]
+            X_R = self.X[:,columns_R]
 
         if G is None:
-            XX_block = self.X.T @ X_E # have to assume this is not too expensive
+            XX_block = self.X.T @ X_R # have to assume this is not too expensive
             X1_block = self.X.sum(0) # X'1
             G_sum = n
             
@@ -120,15 +120,15 @@ class Design(object):
                 if np.linalg.norm(G-G.T)/np.linalg.norm(G) > 1e-3:
                     warnings.warn('G should be symmetric, using (G+G.T)/2')
                     G = (G + G.T) / 2
-                GX = G @ X_E
+                GX = G @ X_R
                 X1_block = self.X.T @ G.sum(0)
             elif G.ndim == 1:
                 if not np.all(G >= 0):
                     raise ValueError('weights should be non-negative')
                 if not scipy.sparse.issparse(self.X):
-                    GX = G[:,None] * X_E
+                    GX = G[:,None] * X_R
                 else:
-                    GX = scipy.sparse.diags(G) @ X_E
+                    GX = scipy.sparse.diags(G) @ X_R
                 X1_block = self.X.T @ G
             else:
                 raise ValueError("G should be 1-dim (treated as diagonal) or 2-dim") 
@@ -142,9 +142,14 @@ class Design(object):
             
         # correct XX_block for standardize
         
-        XX_block -= (np.multiply.outer(X1_block, self.xm[columns]) + np.multiply.outer(self.xm, X1_block[columns]))
-        XX_block += np.multiply.outer(self.xm, self.xm[columns]) * G_sum
-        XX_block /= np.multiply.outer(self.xs, self.xs[columns])
+        if columns is not None:
+            XX_block -= (np.multiply.outer(X1_block, self.xm[columns]) + np.multiply.outer(self.xm, X1_block[columns]))
+            XX_block += np.multiply.outer(self.xm, self.xm[columns]) * G_sum
+            XX_block /= np.multiply.outer(self.xs, self.xs[columns])
+        else:
+            XX_block -= (np.multiply.outer(X1_block, self.xm) + np.multiply.outer(self.xm, X1_block))
+            XX_block += np.multiply.outer(self.xm, self.xm) * G_sum
+            XX_block /= np.multiply.outer(self.xs, self.xs)
 
         X1_block -= G_sum * self.xm
         X1_block /= self.xs
@@ -153,7 +158,10 @@ class Design(object):
                       XX_block.shape[1] + 1))
         Q[1:,1:] = XX_block
         Q[1:,0] = X1_block
-        Q[0,1:] = X1_block[columns]
+        if columns is not None:
+            Q[0,1:] = X1_block[columns]
+        else:
+            Q[0,1:] = X1_block
         Q[0,0] = G_sum
         
         return Q
@@ -199,7 +207,6 @@ class Penalty(object):
 @dataclass
 class Options(object):
     
-    intercept: bool = True
-    exclude: list = field(default_factory=list)
+    fit_intercept: bool = True
     standardize: bool = False
-    
+    warm_start: bool = True

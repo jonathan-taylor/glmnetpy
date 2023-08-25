@@ -5,6 +5,7 @@ import numpy as np
 import scipy.sparse
 
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils import check_X_y
 
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
@@ -35,16 +36,14 @@ class ElNetEstimator(BaseEstimator,
                      RegressorMixin,
                      ElNetSpec):
 
-    def fit(self, X, y, weights=None, warm=None):
+    def fit(self, X, y, weights=None, warm=None, exclude=[]):
 
+        self.exclude_ = exclude
         if self.control is None:
             self.control = ElNetControl()
         elif type(self.control) == dict:
             self.control = _parent_dataclass_from_child(ElNetControl,
                                                         self.control)
-        if self.exclude is None:
-            self.exclude = []
-            
         nobs, nvars = X.shape
         
         if weights is None:
@@ -54,10 +53,15 @@ class ElNetEstimator(BaseEstimator,
         # is a `Design` this will ignore `self.standardize
         design = _get_design(X, weights, standardize=self.standardize)
 
+        design.X, y = check_X_y(design.X, y,
+                                accept_sparse=['csc'],
+                                multi_output=False,
+                                estimator=self)
+
         _check_and_set_limits(self, nvars)
-        _check_and_set_vp(self, nvars)
+        exclude = _check_and_set_vp(self, nvars, exclude)
         
-        args, nulldev = _wls_args(self, design, y, weights, warm)
+        args, nulldev = _wls_args(self, design, y, weights, warm=warm, exclude=exclude)
 
         if scipy.sparse.issparse(design.X):
             wls_fit = sparse_wls(**args)
@@ -102,8 +106,8 @@ class ElNetEstimator(BaseEstimator,
         self.result_ = result
         return self
 
-    def _wls_args(self, design, y, weights, warm=None):
-        return _wls_args(self, design, y, weights, warm)
+    # def _wls_args(self, design, y, weights, warm=None):
+    #     return _wls_args(self, design, y, weights, warm)
 
 add_dataclass_docstring(ElNetEstimator, subs={'control':'control_elnet'})
 
@@ -148,36 +152,6 @@ class ElNetResult(object):
     warm_fit: dict
     weights: np.ndarray
     
-def elnet_fit(X,
-              y,
-              weights,
-              lambda_val,
-              alpha=1.0,
-              intercept=True,
-              penalty_factor=None, 
-              exclude=[],
-              lower_limits=-np.inf,
-              upper_limits=np.inf,
-              thresh=1e-7,
-              maxit=100000,
-              warm=None):
-
-    control = ElNetControl(thresh=thresh,
-                           maxit=maxit)
-    
-    problem = ElNetSpec(X=X,
-                        y=y,
-                        weights=weights,
-                        lambda_val=lambda_val,
-                        alpha=alpha,
-                        intercept=intercept,
-                        penalty_factor=penalty_factor,
-                        lower_limits=lower_limits,
-                        upper_limits=upper_limits,
-                        exclude=exclude,
-                        control=control)
-    
-    return problem.fit()
 
 _elnet_fit_doc = r'''A wrapper around a C++ subroutine which minimizes
 
@@ -205,7 +179,7 @@ result: ElNetResult
                           'weights',
                           'lambda_val',
                           'alpha',
-                          'intercept',
+                          'fit_intercept',
                           'penalty_factor',
                           'exclude',
                           'lower_limits',
@@ -213,8 +187,6 @@ result: ElNetResult
                           'thresh',
                           'maxit',
                           'warm'))
-
-elnet_fit.__doc__ = _elnet_fit_doc
 
 def _elnet_args(design,
                 y,
@@ -393,11 +365,9 @@ def _check_and_set_limits(spec, nvars):
 
     spec.lower_limits, spec.upper_limits = lower_limits, upper_limits
 
-def _check_and_set_vp(spec, nvars):
+def _check_and_set_vp(spec, nvars, exclude):
 
-    (penalty_factor,
-     exclude) = (spec.penalty_factor,
-                 spec.exclude)
+    penalty_factor = spec.penalty_factor
 
     if penalty_factor is None:
         penalty_factor = np.ones(nvars)
@@ -419,7 +389,9 @@ def _check_and_set_vp(spec, nvars):
     vp = np.maximum(0, penalty_factor).reshape((-1,1))
     vp = (vp * nvars / vp.sum())
 
-    spec.exclude, spec.vp = exclude, vp
+    spec.penalty_factor = vp
+
+    return exclude
 
 def _get_design(X, weights, standardize=False):
     if isinstance(X, Design):
@@ -433,17 +405,18 @@ def _wls_args(spec,
               design,
               y,
               weights,
+              exclude=[],
               warm=None):
 
     return _elnet_args(design,
                        y,
                        weights,
                        spec.lambda_val,
-                       spec.vp,
+                       spec.penalty_factor,
                        alpha=spec.alpha,
-                       intercept=spec.intercept,
+                       intercept=spec.fit_intercept,
                        penalty_factor=spec.penalty_factor,
-                       exclude=spec.exclude,
+                       exclude=exclude,
                        lower_limits=spec.lower_limits,
                        upper_limits=spec.upper_limits,
                        thresh=spec.control.thresh,

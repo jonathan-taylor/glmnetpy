@@ -3,73 +3,58 @@ from dataclasses import fields, dataclass
 _docstrings = {
     'X':'''
 X: Union[np.ndarray, scipy.sparse, DesignSpec]
-
-    Input matrix, of shape `(nobs, nvars)`; each row is an
-    observation vector. If it is a sparse matrix, it is assumed to
-    be unstandardized.  If it is not a sparse matrix, it is
-    assumed that any standardization needed has already been done.
-    ''',
+    Input matrix, of shape `(nobs, nvars)`; each row is an observation
+    vector. If it is a sparse matrix, it is assumed to be
+    unstandardized.  If it is not a sparse matrix, a copy is made and
+    standardized.''',
 
     'y':'''
 y: np.ndarray
-
-    Quantitative response variable.
-    ''',
+    Response variable.''',
 
     'standardize':'''
 standardize: bool
-
-    Standardize columns of X according to weights? Default is False.
-    ''',
+    Standardize columns of X according to weights? Default is False.''',
     
     'weights':'''
 weights: Optional[np.ndarray]
+    Observation weights. These are not standardized in the fit.''',
 
-    Observation weights. These are not standardized in the fit.
-    ''',
-
+    'sample_weight':'''
+sample_weight: Optional[np.ndarray]
+    Sample weights.''',
+    
     'lambda_val':'''
 lambda_val: float
-
-    A single value for the `lambda` hyperparameter.
-    ''',
+    A single value for the `lambda` hyperparameter.''',
 
     'alpha':r'''
 alpha: Optional[float]
-
     The elasticnet mixing parameter in [0,1].  The penalty is
     defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
     `alpha=1` is the lasso penalty, and `alpha=0` the ridge
-    penalty. Defaults to 1.
-    ''',
+    penalty. Defaults to 1.''',
 
-    'intercept':'''
-intercept: bool
-
-    Should intercept be fitted (default=`True`) or set to zero (`False`)?
-    ''',
+    'fit_intercept':'''
+fit_intercept: bool
+    Should intercept be fitted (default=`True`) or set to zero (`False`)?''',
 
     'thresh':'''
 thresh: float
-
     Convergence threshold for coordinate descent. Each inner
     coordinate-descent loop continues until the maximum change in the
     objective after any coefficient update is less than thresh times
-    the null deviance.  Default value is `1e-7`.
-    ''',
+    the null deviance.  Default value is `1e-7`.''',
 
     'maxit':'''
 maxit: int
-
     Maximum number of passes over the data; default is
     `10^5`.  (If a warm start object is provided, the number
     of passes the warm start object performed is included.)
-    Default: 25.
-    ''',
+    Default: 25.''',
 
     'penalty_factor':'''
 penalty_factor: np.ndarray (optional)
-
     Separate penalty factors can be applied to each
     coefficient. This is a number that multiplies `lambda_val` to
     allow differential shrinkage. Can be 0 for some variables,
@@ -77,169 +62,140 @@ penalty_factor: np.ndarray (optional)
     included in the model. Default is 1 for all variables (and
     implicitly infinity for variables listed in `exclude`). Note:
     the penalty factors are internally rescaled to sum to
-    `nvars=X.shape[1]`.
-    ''',
+    `nvars=X.shape[1]`.''',
 
     'exclude':'''
 exclude: list
-
     Indices of variables to be excluded from the model. Default is
-    `[]`. Equivalent to an infinite penalty factor.
-    ''',
+    `[]`. Equivalent to an infinite penalty factor.''',
 
     'lower_limits':'''
 lower_limits: Union[float, np.ndarray]
-
     Vector of lower limits for each coefficient; default
     `-np.inf`. Each of these must be non-positive. Can be
     presented as a single value (which will then be replicated),
-    else a vector of length `nvars`.
-    ''',
+    else a vector of length `nvars`.''',
 
     'upper_limits':'''
 upper_limits: Union[float, np.ndarray]
-
     Vector of upper limits for each coefficient; default
-    `np.inf`. See `lower_limits`.
-    ''',
+    `np.inf`. See `lower_limits`.''',
 
     'warm':'''
 warm: Optional[Union[ElNetWarmStart,dict]]
-
     A dict-like with keys `beta` and `a0` containing coefficients
     and intercept respectively which can be used as a warm start.
-    For internal use only.
-    ''',
+    For internal use only.''',
 
     'big':'''
 big: float = 9.9e35
-
-    A large float, effectively `np.inf`
-''',
+    A large float, effectively `np.inf`.''',
     
     'a0':'''
 a0: float
-
-    Intercept value
-    ''',
+    Intercept value.''',
     
     'beta':'''
 beta: scipy.sparse.csc_array
-
-    Matrix of coefficients, stored in sparse matrix format
-''',
+    Matrix of coefficients, stored in sparse matrix format.''',
     
     'df':'''
 df: int
-
-    The number of nonzero coefficients.
-    ''',
+    The number of nonzero coefficients.''',
 
     'dim': '''
 dim: (int, int)
-
-    Dimension of coefficient matrix.
-    ''',
+    Dimension of coefficient matrix.''',
 
     'dev_ratio': '''
 dev_ratio: float
-
     The fraction of (null) deviance explained.  The deviance
     calculations incorporate weights if present in the model. The
     deviance is defined to be 2*(loglike_sat - loglike), where
     loglike_sat is the log-likelihood for the saturated model (a model
     with a free parameter per observation).  Hence
-    dev_ratio=1-dev/nulldev.
-
-    ''',
+    dev_ratio=1-dev/nulldev.''',
 
     'nulldev':'''
 nulldev: float
-
     Null deviance (per observation).  This is defined to be
     2*(loglike_sat -loglike(Null)). The null model refers to the
-    intercept model.
-    ''',
+    intercept model.''',
     
     'npasses':'''
 npasses: int
-    
-    Total passes over the data.
-    ''',
+    Total passes over the data.''',
 
     'jerr':'''
 jerr: int
-
-    Error flag, for warnings and errors (largely for internal debugging).
-    ''',
+    Error flag, for warnings and errors (largely for internal debugging).''',
 
     'nobs':'''
 nobs: int
-
-    Number of observations.
-    ''',
+    Number of observations.''',
     
     'warm_fit': '''
 warm_fit: Optional(ElNetWarmStart)
-
-    Used for warm starts.
-    ''',
+    Used for warm starts.''',
     
+    'warm_glm': '''
+warm: Optional(dict, ElNetWarmStart)
+    Either a dict-like object with keys "coef_" and "intercept_" or an
+    `ElNetWarmStart` instance.''',
+
     'control_elnet': '''
 control: Optional(ElNetControl)
-
-    Parameters to control the solver.
-    ''',
+    Parameters to control the solver.''',
     
     'control_glm': '''
 control: Optional(GLMNetControl)
-
-    Parameters to control the solver.
-    ''',
+    Parameters to control the solver.''',
     
     'mxitnr':'''
 mxitnr: int
-
-    Maximum number of quasi Newton iterations.
-    ''',
+    Maximum number of quasi Newton iterations.''',
 
     'epsnr':'''
 epsnr: float
-
-    Tolerance for quasi Newton iterations.
-    ''',
+    Tolerance for quasi Newton iterations.''',
 
     'offset':'''
 offset: np.ndarray
-
-    Offset for linear predictor.
-    ''',
+    Offset for linear predictor.''',
     
     'family':'''
 family: Family
-
-    One-parameter exponential family (from `statsmodels`).
-    ''',
+    One-parameter exponential family (from `statsmodels`).''',
 
     'converged':'''
 converged: bool
-
-    Did the algorithm converge?
-    ''',
+    Did the algorithm converge?''',
 
     'boundary':'''
 boundary: bool
-
-    Was backtracking required due to getting near boundary of valid mean / natural parameters.
-    ''',
+    Was backtracking required due to getting near boundary of valid mean / natural parameters.''',
 
     'obj_function':'''
 obj_function: float
+    Value of objective function (deviance + penalty).''',
 
-    Value of objective function (deviance + penalty).
-    ''',
+    'warm_start':'''
+warm_start: bool
+    When set to True, reuse the solution of the previous call to fit
+    and add more estimators to the ensemble, otherwise, just erase the
+    previous solution.''',
 
-    }
+    'prediction':'''
+prediction: np.ndarray
+    Predictions on the mean scale for family of a GLM.''',
+
+    'prediction_type':'''
+prediction_type: str
+    One of "mean" or "linear". If "mean" return a prediction on the mean scale,
+    "linear" on the link scale.'''
+
+}
+
 
 def make_docstring(*fieldnames):
 
