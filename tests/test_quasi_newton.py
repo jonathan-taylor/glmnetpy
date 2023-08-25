@@ -199,3 +199,58 @@ def test_IRLS(n=100, p=5):
         assert np.allclose(glm_state.coef, res.params[1:], rtol=1e-3, atol=1e-3)
         assert np.allclose(glm_state.intercept, res.params[0], rtol=1e-3, atol=1e-3)
 
+def test_GLM(n=100, p=5):
+
+    rng = np.random.default_rng(0)
+
+    y = rng.standard_normal(n) > 0
+    F = sm.families.Binomial()
+    L = sm.families.links.Probit()
+    F2 = sm.families.Binomial(link=L)
+    
+    Xv = rng.standard_normal((n, p))
+    WU = rng.uniform(0, 1, size=(n,))
+
+    for W, s, F in product([WU, np.ones(n)],
+                           [False,True],
+                           [F, F2]):
+
+        GLM = GLMEstimator(0, family=F, standardize=s)
+        X = Xv
+        design = Design(X, W, standardize=s)
+        GLM.fit(X, y, weights=W)
+        res = GLM.result_
+
+        X_1 = np.concatenate([np.ones((n,1)), X], axis=1)
+        res = sm.GLM(y, X_1, family=F, var_weights=W).fit()
+
+        sm_state = GLMState(res.params[1:], res.params[0])
+        sm_state.update(design,
+                        GLM.family,
+                        GLM.offset)
+        print(_obj_function(y,
+                            sm_state.mu,
+                            W,
+                            GLM.family,
+                            GLM.lambda_val,
+                            GLM.alpha,
+                            sm_state.coef,
+                            GLM.vp), 'sm_val')
+
+        glm_state = GLMState(GLM.coef_, GLM.intercept_)
+        glm_state.update(design,
+                         GLM.family,
+                         GLM.offset)
+
+        print(_obj_function(y,
+                            glm_state.mu,
+                            W,
+                            GLM.family,
+                            GLM.lambda_val,
+                            GLM.alpha,
+                            glm_state.coef,
+                            GLM.vp), 'glm_val')
+
+        assert np.allclose(glm_state.coef, res.params[1:], rtol=1e-3, atol=1e-3)
+        assert np.allclose(glm_state.intercept, res.params[0], rtol=1e-3, atol=1e-3)
+        

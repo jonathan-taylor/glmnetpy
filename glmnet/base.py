@@ -186,6 +186,15 @@ class Penalty(object):
     upper_limits: float = np.inf
     penalty_factor: Optional[Union[float, np.ndarray]] = None
 
+    def penalty(self, coef):
+
+        if np.any(coef < self.lower_limits - 1e-3) or np.any(self > self.upper_limits + 1e-3):
+            return np.inf
+        val = self.lambda_val * (
+            self.alpha * (self.penalty_factor * np.fabs(coef)).sum() + 
+            (1 - self.alpha) * np.linalg.norm(coef)**2)
+        return val
+
 @add_dataclass_docstring
 @dataclass
 class Options(object):
