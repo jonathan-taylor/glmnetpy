@@ -155,22 +155,6 @@ class GLMEstimator(BaseEstimator,
         if boundary:
             warnings.warn("fitting IRLS: algorithm stopped at boundary value")
 
-        # create a GLMNetResult
-
-        # args = asdict(fit)
-        # args['offset'] = self.offset is not None
-        # args['nulldev'] = nulldev
-
-        # args['dev_ratio'] = (1 - _dev / nulldev)
-        # args['family'] = self.family
-        # args['converged'] = converged
-        # args['boundary'] = boundary
-        # args['obj_function'] = state.obj_val
-
-        # self.result_ = GLMResult(**args)
-        # self.coef_ = self.result_.warm_fit['a']
-        # self.intercept_ = self.result_.warm_fit['aint']
-
         _dev = _dev_function(y,
                              state.mu,
                              sample_weight,
@@ -495,14 +479,6 @@ def _quasi_newton_step(spec,
     
     coefnew = lm.coef_
     intnew = lm.intercept_
-    
-    n, p = design.X.shape
-    X1 = np.concatenate([np.ones((n, 1)), design.X], axis=1)
-    Q = X1.T @ (w[:,None] * X1)
-    val = np.linalg.inv(Q) @ X1.T @ (w * z)
-
-    assert( np.allclose(val[1:], coefnew))
-    assert( np.allclose(val[0], intnew))    
     
     state = GLMState(coefnew,
                      intnew,
