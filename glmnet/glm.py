@@ -15,44 +15,63 @@ from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 import statsmodels.api as sm
 
-from ._utils import (_jerr_elnetfit,
-                     _obj_function,
+from ._utils import (_obj_function,
                      _dev_function,
                      _parent_dataclass_from_child)
 
-from .base import (Options,
-                   Design)
+from .base import Design, _get_design
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
 
-from .elnet import (ElNetResult,
-                    Design,
-                    ElNetEstimator,
-                    ElNetControl,
-                    _check_and_set_limits,
-                    _check_and_set_vp,
-                    _get_design)
+from .elnet import ElNetEstimator
 
 @add_dataclass_docstring
 @dataclass
-class GLMControl(ElNetControl):
+class GLMControl(object):
 
     mxitnr: int = 25
     epsnr: float = 1e-6
+    big: float = 9.9e35
 
 @dataclass
-class GLMMixin(Options):
+class GLMSpec(object):
 
+    fit_intercept: bool = True
     offset: np.ndarray = None
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     control: GLMControl = field(default_factory=GLMControl)
-add_dataclass_docstring(GLMMixin, subs={'control':'control_glm'})
+add_dataclass_docstring(GLMSpec, subs={'control':'control_glm'})
+
+@add_dataclass_docstring
+@dataclass
+class GLMResult(object):
+
+    family: sm_family.Family
+    offset: bool
+    converged: bool
+    boundary: bool
+    obj_function: float
 
 @dataclass
-class GLMSpec(GLMMixin, Options):
-    pass
-add_dataclass_docstring(GLMSpec, subs={'control':'control_glm'})
+class GLMState(object):
+
+    coef: np.ndarray
+    intercept: np.ndarray
+    obj_val: float = np.inf
+    obj_val_old: float = np.inf
+    
+    def update(self,
+               design,
+               family,
+               offset):
+        '''pin the mu/eta values to coef/intercept'''
+        self.eta = design.linear_map(self.coef,
+                                     self.intercept)
+        if offset is None:
+            self.mu = family.link.inverse(self.eta)
+        else:
+            self.mu = family.link.inverse(self.eta + offset)    
 
 @dataclass
 class GLMEstimator(BaseEstimator,
@@ -116,11 +135,6 @@ class GLMEstimator(BaseEstimator,
                      self.family,
                      self.offset)
 
-        # this is just a WLS solver
-        wls_est = ElNetEstimator(lambda_val=0.,
-                                 fit_intercept=self.fit_intercept,
-                                 standardize=False)
-
         def obj_function(y, family, vp, state):
             return _obj_function(y,
                                  state.mu,
@@ -132,11 +146,6 @@ class GLMEstimator(BaseEstimator,
                                  vp)
         obj_function = partial(obj_function, y, self.family, np.ones(nvar))
         
-        def _fit(wls_est, exclude, X, y, sample_weight):
-            return wls_est.fit(X, y, sample_weight, exclude=exclude)
-
-        _fit = partial(_fit, wls_est, exclude)
-        
         (fit,
          converged,
          boundary,
@@ -146,7 +155,6 @@ class GLMEstimator(BaseEstimator,
                                 y,
                                 sample_weight,
                                 state,
-                                _fit,
                                 obj_function)
 
         # checks on convergence and fitted values
@@ -235,9 +243,6 @@ score: float
     Deviance of family for (X, y).
 '''.format(**_docstrings).strip()
 
-
-
-
     # non-sklearn methods
 
     def summarize(self, dispersion=None):
@@ -265,178 +270,15 @@ score: float
                              't': T,
                              'P>|t|': 2 * normal_dbn.sf(np.fabs(T))},
                             index=index)
-    
-
-
 add_dataclass_docstring(GLMEstimator, subs={'control':'control_glm'})
-    
-    # # private methods
 
-    # def _get_start(self):
-
-    #     (design,
-    #      y,
-    #      weights,
-    #      family,
-    #      intercept,
-    #      is_offset,
-    #      offset,
-    #      exclude,
-    #      vp,
-    #      alpha) = (self.design,
-    #                self.y,
-    #                self.weights,
-    #                self.family,
-    #                self.intercept,
-    #                self.is_offset,
-    #                self.offset,
-    #                self.exclude,
-    #                self.vp,
-    #                self.alpha)
-
-    #     X = design.X
-    #     nobs, nvars = X.shape
-
-    #     # compute mu and null deviance
-    #     # family = binomial() gives us warnings due to non-integer weights
-    #     # to avoid, suppress warnings
-    #     if intercept:
-    #         if is_offset:
-    #             fit = sm.GLM(y,
-    #                          np.ones((y.shape,1)),
-    #                          family,
-    #                          offset=offset,
-    #                          var_weights=weights)
-    #             mu = fit.fitted
-    #         else:
-    #             mu = np.ones(y.shape) * (weights * y).sum() / weights.sum()
-
-    #     else:
-    #         mu = family.link.inverse(offset)
-
-    #     nulldev = _dev_function(y, mu, weights, family)
-
-    #     # if some penalty factors are zero, we have to recompute mu
-
-    #     vp_zero = sorted(set(exclude).difference(np.nonzero(vp == 0)[0]))
-    #     if vp_zero:
-    #         tempX = X[:,vp_zero]
-
-    #         if scipy.sparse.issparse(X):
-    #             tempX = X.toarray()
-
-    #         if intercept:
-    #             tempX = sm.add_constant(tempX)
-
-    #         tempfit = sm.GLM(y,
-    #                          tempX,
-    #                          family,
-    #                          offset=offset,
-    #                          var_weights=weights)
-    #         mu = tempfit.fittedvalues
-
-    #     # compute lambda max
-    #     ju = np.ones(nvars)
-    #     ju[exclude] = 0 # we have already included constant variables in exclude
-
-    #     r = y - mu
-    #     eta = family.link(mu)
-    #     v = family.variance(mu)
-    #     m_e = family.link.inverse_deriv(eta)
-    #     weights = weights / weights.sum()
-
-    #     rv = r / v * m_e * weights
-
-    #     if scipy.sparse.issparse(X):
-    #         xm, xs = design.xm, design.xs
-    #         g = np.abs((X.T @ rv - np.sum(rv) * xm) / xs)
-    #     else:
-    #         g = np.abs(X.T @ rv)
-
-    #     g = g * ju / (vp + (vp <= 0))
-    #     lambda_max = np.max(g) / max(alpha, 1e-3)
-
-    #     return {'nulldev':nulldev,
-    #             'mu':mu,
-    #             'lambda_max':lambda_max}
-
-    # def _get_initial_state(self,
-    #                        warm=None):
-
-    #     nobs, nvars = self.X.shape
-
-    #     # get offset
-
-    #     is_offset = self.offset is not None
-
-    #     if not warm:
-    #         start_val = self._get_start()
-    #         nulldev = start_val['nulldev']
-    #         mu = start_val['mu']
-    #         fit = None
-    #         coefold = np.zeros(nvars)   # initial coefs = 0
-    #         eta = self.family.link(mu)
-    #         intold = (eta - self.offset)[0]
-
-    #     else:
-    #         fit = warm
-    #         if 'warm_fit' in warm:
-    #             nulldev = fit['nulldev']
-    #             coefold = fit.warm_fit.a   # prev value for coefficients
-    #             intold = fit.warm_fit.aint    # prev value for intercept
-    #         elif 'a0' in warm and 'beta' in warm:
-    #             nulldev = self._get_start()['nulldev']
-
-    #             coefold = warm['beta']   # prev value for coefficients
-    #             intold = warm['a0']      # prev value for intercept
-    #         else:
-    #             raise ValueError("Invalid warm start object")
-
-    #     state = GLMState(coef=coefold,
-    #                      intercept=intold)
-    #     state.update(self.design,
-    #                  self.family,
-    #                  self.offset)
-
-    #     return state, nulldev
-
-
-@add_dataclass_docstring
-@dataclass
-class GLMResult(ElNetResult):
-
-    family: sm_family.Family
-    offset: bool
-    converged: bool
-    boundary: bool
-    obj_function: float
-
-@dataclass
-class GLMState(object):
-
-    coef: np.ndarray
-    intercept: np.ndarray
-    obj_val: float = np.inf
-    obj_val_old: float = np.inf
-    
-    def update(self,
-               design,
-               family,
-               offset):
-        '''pin the mu/eta values to coef/intercept'''
-        self.eta = design.linear_map(self.coef,
-                                     self.intercept)
-        if offset is None:
-            self.mu = family.link.inverse(self.eta)
-        else:
-            self.mu = family.link.inverse(self.eta + offset)    
+# private functions
 
 def _quasi_newton_step(spec,
                        design,
                        y,
                        weights,
                        state,
-                       elnet_solver,
                        objective,
                        fit=None):
 
@@ -574,7 +416,6 @@ def _IRLS(spec,
           y,
           weights,
           state,
-          elnet_solver,
           objective):
 
     coefold, intold = state.coef, state.intercept
@@ -593,7 +434,6 @@ def _IRLS(spec,
                                       y,
                                       weights,
                                       state,
-                                      elnet_solver,
                                       objective,
                                       fit=fit)
 

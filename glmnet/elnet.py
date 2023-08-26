@@ -10,10 +10,15 @@ from sklearn.utils import check_X_y
 
 from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
-from .base import Base, Penalty, Options, Design
-from ._utils import _jerr_elnetfit, _parent_dataclass_from_child
-from .docstrings import make_docstring, add_dataclass_docstring
-
+from .base import (Base,
+                   Penalty,
+                   Options,
+                   Design,
+                   _get_design)
+from ._utils import (_jerr_elnetfit,
+                     _parent_dataclass_from_child)
+from .docstrings import (make_docstring,
+                         add_dataclass_docstring)
 
 @add_dataclass_docstring
 @dataclass
@@ -109,9 +114,12 @@ class ElNetEstimator(BaseEstimator,
         else:
             # can use LinearRegression
 
-            lm = LinearRegression(fit_intercept=self.fit_intercept,
-                                  copy_X=False)
-            lm.fit(design.X, y, sample_weight)
+            lm = LinearRegression(fit_intercept=self.fit_intercept)
+            if scipy.sparse.issparse(design.X):
+                X_s = scipy.sparse.csc_matrix(design.X)
+            else:
+                X_s = design.X
+            lm.fit(X_s, y, sample_weight)
 
             # degenerate warm start
             warm_fit = ElNetWarmStart(aint=lm.intercept_,
@@ -359,7 +367,7 @@ def _elnet_args(design,
              'nlp':nlp,
              'jerr':jerr}
 
-    _args.update(**design._wls_args())
+    _args.update(**_design_wls_args(design))
 
     return _args, nulldev
 
@@ -419,13 +427,15 @@ def _check_and_set_vp(spec, nvars, exclude):
 
     return exclude
 
-def _get_design(X, sample_weight, standardize=False):
-    if isinstance(X, Design):
-        return X
+def _design_wls_args(design):
+    if not scipy.sparse.issparse(design.X):
+        return {'x':design.X}
     else:
-        if sample_weight is None:
-            sample_weight = np.ones(X.shape[0])
-        return Design(X, sample_weight, standardize=standardize)
+        return {'x_data_array':design.X.data,
+                'x_indices_array':design.X.indices,
+                'x_indptr_array':design.X.indptr,
+                'xm':design.xm,
+                'xs':design.xs}
 
 def _wls_args(spec,
               design,
