@@ -165,17 +165,14 @@ class Design(object):
         Q[0,0] = G_sum
         
         return Q
-    # private methods
-    
-    def _wls_args(self):
-        if not scipy.sparse.issparse(self.X):
-            return {'x':self.X}
-        else:
-            return {'x_data_array':self.X.data,
-                    'x_indices_array':self.X.indices,
-                    'x_indptr_array':self.X.indptr,
-                    'xm':self.xm,
-                    'xs':self.xs}
+
+def _get_design(X, sample_weight, standardize=False):
+    if isinstance(X, Design):
+        return X
+    else:
+        if sample_weight is None:
+            sample_weight = np.ones(X.shape[0])
+        return Design(X, sample_weight, standardize=standardize)
 
 @add_dataclass_docstring
 @dataclass

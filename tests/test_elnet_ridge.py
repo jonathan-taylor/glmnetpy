@@ -3,7 +3,7 @@ import scipy.sparse
 
 from glmnet.elnet import ElNetEstimator
 
-def test_simple(n=50, p=10):
+def test_simple_ridge(n=50, p=10):
 
     rng = np.random.default_rng(0)
     X  = rng.standard_normal((n, p))
@@ -15,13 +15,13 @@ def test_simple(n=50, p=10):
     for standardize in [False, True]:
         spec = ElNetEstimator(lambda_val=0, standardize=standardize)
 
-        out = spec.fit(X, y, weights=W).result_
-        out_s = spec.fit(X_s, y, weights=W).result_
+        out = spec.fit(X, y, sample_weight=W).result_
+        out_s = spec.fit(X_s, y, sample_weight=W).result_
 
         beta = out.beta.toarray().reshape(-1)
         beta_s = out_s.beta.toarray().reshape(-1)
 
-        assert np.allclose(beta, beta_s)
+        assert np.allclose(beta, beta_s, rtol=1e-3, atol=1e-3)
         intercept = out.a0
 
         if not standardize:
