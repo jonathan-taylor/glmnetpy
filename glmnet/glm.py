@@ -474,12 +474,27 @@ def _quasi_newton_step(spec,
 
     # should maybe do smarter with sparse scipy.linalg.LinearOperator?
     
-    lm = LinearRegression(fit_intercept=spec.fit_intercept)
-    lm.fit(design.X, z, sample_weight=w)
-    
-    coefnew = lm.coef_
-    intnew = lm.intercept_
-    
+    if scipy.sparse.issparse(design.X):
+        lm = LinearRegression(fit_intercept=spec.fit_intercept)
+        lm.fit(design.X, z, sample_weight=w)
+
+        coefnew = lm.coef_
+        intnew = lm.intercept_
+
+    else:
+        sqrt_w = np.sqrt(w)
+        XW = design.X * sqrt_w[:, None]
+        if spec.fit_intercept:
+            XW = np.concatenate([sqrt_w.reshape((-1,1)), XW], axis=1)
+            Q = XW.T @ XW
+            V = XW.T @ (sqrt_w * z)
+            beta = np.linalg.solve(Q, V)
+            coefnew = beta[1:]
+            intnew = beta[0]
+        else:
+            coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
+            intnew = 0
+
     state = GLMState(coefnew,
                      intnew,
                      obj_val_old=state.obj_val)
