@@ -4,12 +4,13 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import scipy.sparse
+from scipy.sparse.linalg import LinearOperator
 
 from .docstrings import add_dataclass_docstring
 
 @add_dataclass_docstring
 @dataclass
-class Design(object):
+class Design(LinearOperator):
 
     """
     Linear map representing multiply with [1,X] and its transpose.
@@ -21,7 +22,9 @@ class Design(object):
     
     def __post_init__(self):
 
-        n, p = self.shape = self.X.shape
+        self.shape = (self.X.shape[0], self.X.shape[1]+1)
+        n = self.shape[0]
+        
         X, weights = self.X, self.weights
 
         # if standardizing, then the effective matrix is
@@ -34,18 +37,27 @@ class Design(object):
             xm2 = (X*X).T @ weights / sum_w
             self.xs = np.sqrt(xm2 - self.xm**2)
         else:
-            self.xm = np.zeros(self.shape[1])
-            self.xs = np.ones(self.shape[1])
-
+            self.xm = np.zeros(self.shape[1]-1) # -1 for intercept
+            self.xs = np.ones(self.shape[1]-1)
+            
         if scipy.sparse.issparse(self.X):
             self.X = self.X.tocsc()
         else:
             self.X = self.X - np.multiply.outer(np.ones(n), self.xm)
             self.X = self.X / self.xs[None,:]
             self.X = np.asfortranarray(self.X)
-            self.xm = np.zeros(self.shape[1])
-            self.xs = np.ones(self.shape[1])
+            self.xm = np.zeros(self.shape[1]-1)
+            self.xs = np.ones(self.shape[1]-1)
 
+    # LinearOperator API
+
+    def _matvec(self, x):
+        return self.linear_map(x[1:], x[0])
+
+    def _rmatvec(self, y):
+        r1, r2 = self.adjoint_map(y)
+        return np.hstack([r2, r1])
+    
     # the map presumes X has column of 1's appended
     
     def linear_map(self,
@@ -101,13 +113,13 @@ class Design(object):
         # A'G1 = S^{-1}(X' - xm 1')G1 = S^{-1}X'G1 - S^{-1}xm 1'G1
         # A'GA = S^{-1}X'GXS^{-1} - S^{-1}X'G1 xm/xs' - xm/xs 1'GXS^{-1} + xm/xs 1'G1 (xm/xs)'
         
-        n, p = self.X.shape
+        n, p = self.shape[0], self.shape[1] - 1
         
         if columns is None:
             X_R = self.X
-            columns_R = slice(0, p)
+            columns = slice(0, p)
         else:
-            X_R = self.X[:,columns_R]
+            X_R = self.X[:,columns]
 
         if G is None:
             XX_block = self.X.T @ X_R # have to assume this is not too expensive
@@ -199,11 +211,3 @@ class Penalty(object):
             self.alpha * (self.penalty_factor * np.fabs(coef)).sum() + 
             (1 - self.alpha) * np.linalg.norm(coef)**2)
         return val
-
-@add_dataclass_docstring
-@dataclass
-class Options(object):
-    
-    fit_intercept: bool = True
-    standardize: bool = False
-    warm_start: bool = True

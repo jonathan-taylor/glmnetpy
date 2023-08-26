@@ -3,11 +3,12 @@ from functools import partial
 import warnings
    
 import numpy as np
+from numpy.linalg import LinAlgError
 import pandas as pd
-from scipy.stats import norm as normal_dbn
 import scipy.sparse
+from scipy.stats import norm as normal_dbn
 
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator
 from sklearn.utils import check_X_y
 from sklearn.linear_model import LinearRegression
 
@@ -38,9 +39,10 @@ class GLMControl(object):
 class GLMSpec(object):
 
     fit_intercept: bool = True
-    offset: np.ndarray = None
+    summarize: bool = False
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     control: GLMControl = field(default_factory=GLMControl)
+
 add_dataclass_docstring(GLMSpec, subs={'control':'control_glm'})
 
 @add_dataclass_docstring
@@ -81,8 +83,10 @@ class GLMEstimator(BaseEstimator,
             X,
             y,
             sample_weight=None,
-            warm=None,
-            exclude=[]):
+            warm=None,             # last 4 options non sklearn API
+            exclude=[],
+            dispersion=1,
+            offset=None):
 
         self.exclude_ = exclude
         nobs, nvar = X.shape
@@ -110,6 +114,7 @@ class GLMEstimator(BaseEstimator,
             sample_weight = np.ones(nobs)
 
         design = _get_design(X, sample_weight)
+        self.design_ = design
         
         nulldev = np.inf
         if not warm:
@@ -133,7 +138,7 @@ class GLMEstimator(BaseEstimator,
 
         state.update(design,
                      self.family,
-                     self.offset)
+                     offset)
 
         def obj_function(y, family, vp, state):
             return _obj_function(y,
@@ -153,6 +158,7 @@ class GLMEstimator(BaseEstimator,
          final_weights) = _IRLS(self,
                                 design,
                                 y,
+                                offset,
                                 sample_weight,
                                 state,
                                 obj_function)
@@ -174,9 +180,32 @@ class GLMEstimator(BaseEstimator,
         if isinstance(self.family, sm_family.Gaussian):
             self.dispersion_ = _dev / (n-p-1) # usual estimate of sigma^2
         else:
-            self.dispersion_ = 1
+            self.dispersion_ = dispersion
 
-        self.unscaled_precision_ = design.quadratic_form(final_weights)
+        if self.summarize:
+            self.unscaled_precision_ = design.quadratic_form(final_weights)
+            keep = np.ones(self.unscaled_precision_.shape[0]-1, bool)
+            if self.exclude_ is not []:
+                keep[self.exclude_] = 0
+            keep = np.hstack([self.fit_intercept, keep]).astype(bool)
+            self.covariance_ = dispersion * np.linalg.inv(self.unscaled_precision_[keep][:,keep])
+
+            SE = np.sqrt(np.diag(self.covariance_)) 
+            index = self.feature_names_in_
+            if self.fit_intercept:
+                coef = np.hstack([self.intercept_, self.coef_])
+                T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
+                index = ['intercept'] + index
+            else:
+                coef = self.coef_
+                T = self.coef_ / SE
+
+            self.summary_ = pd.DataFrame({'coef':coef,
+                                          'std err': SE,
+                                          't': T,
+                                          'P>|t|': 2 * normal_dbn.sf(np.fabs(T))},
+                                         index=index)
+            
         return self
     fit.__doc__ = '''
 Fit a GLM.
@@ -189,7 +218,9 @@ Parameters
 {weights}
 {warm_glm}
 {exclude}
-
+{summarize}
+{offset}
+    
 Returns
 -------
 
@@ -243,33 +274,6 @@ score: float
     Deviance of family for (X, y).
 '''.format(**_docstrings).strip()
 
-    # non-sklearn methods
-
-    def summarize(self, dispersion=None):
-
-        dispersion = dispersion or self.dispersion_
-
-        keep = np.ones(self.unscaled_precision_.shape[0]-1, bool)
-        if self.exclude_ is not []:
-            keep[self.exclude_] = 0
-        keep = np.hstack([self.fit_intercept, keep]).astype(bool)
-        self.covariance_ = dispersion * np.linalg.inv(self.unscaled_precision_[keep][:,keep])
-        SE = np.sqrt(np.diag(self.covariance_)) 
-
-        index = self.feature_names_in_
-        if self.fit_intercept:
-            coef = np.hstack([self.intercept_, self.coef_])
-            T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
-            index = ['intercept'] + index
-        else:
-            coef = self.coef_
-            T = self.coef_ / SE
-
-        return pd.DataFrame({'coef':coef,
-                             'std err': SE,
-                             't': T,
-                             'P>|t|': 2 * normal_dbn.sf(np.fabs(T))},
-                            index=index)
 add_dataclass_docstring(GLMEstimator, subs={'control':'control_glm'})
 
 # private functions
@@ -277,6 +281,7 @@ add_dataclass_docstring(GLMEstimator, subs={'control':'control_glm'})
 def _quasi_newton_step(spec,
                        design,
                        y,
+                       offset,
                        weights,
                        state,
                        objective,
@@ -294,8 +299,8 @@ def _quasi_newton_step(spec,
     if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
 
     # compute working response and weights
-    if spec.offset is not None:
-        z = (state.eta - spec.offset) + (y - state.mu) / dmu_deta
+    if offset is not None:
+        z = (state.eta - offset) + (y - state.mu) / dmu_deta
     else:
         z = state.eta + (y - state.mu) / dmu_deta
     
@@ -306,8 +311,8 @@ def _quasi_newton_step(spec,
     # and it anyway in wls.f)
 
     if fit is not None:
-        if spec.offset is not None:
-            fit.warm_fit.r = w * (z - state.eta + spec.offset)
+        if offset is not None:
+            fit.warm_fit.r = w * (z - state.eta + offset)
         else:
             fit.warm_fit.r = w * (z - state.eta)
         warm = fit.warm_fit
@@ -315,11 +320,11 @@ def _quasi_newton_step(spec,
         warm = None
 
     # should maybe do smarter with sparse scipy.linalg.LinearOperator?
+    # if not standardized can just use LinearRegression...
     
     if scipy.sparse.issparse(design.X):
         lm = LinearRegression(fit_intercept=spec.fit_intercept)
         lm.fit(design.X, z, sample_weight=w)
-
         coefnew = lm.coef_
         intnew = lm.intercept_
 
@@ -327,12 +332,18 @@ def _quasi_newton_step(spec,
         sqrt_w = np.sqrt(w)
         XW = design.X * sqrt_w[:, None]
         if spec.fit_intercept:
+            Wz = sqrt_w * z
             XW = np.concatenate([sqrt_w.reshape((-1,1)), XW], axis=1)
             Q = XW.T @ XW
-            V = XW.T @ (sqrt_w * z)
-            beta = np.linalg.solve(Q, V)
+            V = XW.T @ Wz
+            try:
+                beta = np.linalg.solve(Q, V)
+            except LinAlgError as e:
+                warnings.warn("error in solve: possible singular matrix, trying pseudo-inverse")
+                beta = np.linalg.pinv(XW) @ Wz
             coefnew = beta[1:]
             intnew = beta[0]
+
         else:
             coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
             intnew = 0
@@ -343,7 +354,7 @@ def _quasi_newton_step(spec,
 
     state.update(design,
                  spec.family,
-                 spec.offset)
+                 offset)
 
     state.obj_val = objective(state)
 
@@ -405,7 +416,7 @@ def _quasi_newton_step(spec,
                                  obj_val_old=state.obj_val_old)
                 state.update(design,
                              spec.family,
-                             spec.offset)
+                             offset)
                 state.obj_val = objective(state)
                 check, boundary_, halved_ = test(state)
 
@@ -414,6 +425,7 @@ def _quasi_newton_step(spec,
 def _IRLS(spec,
           design,
           y,
+          offset,
           weights,
           state,
           objective):
@@ -432,6 +444,7 @@ def _IRLS(spec,
          halved) = _quasi_newton_step(spec,
                                       design,
                                       y,
+                                      offset,
                                       weights,
                                       state,
                                       objective,

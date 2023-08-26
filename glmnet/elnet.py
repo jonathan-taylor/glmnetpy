@@ -12,7 +12,6 @@ from .glmnetpp import wls as dense_wls
 from .glmnetpp import spwls as sparse_wls
 from .base import (Base,
                    Penalty,
-                   Options,
                    Design,
                    _get_design)
 from ._utils import (_jerr_elnetfit,
@@ -30,8 +29,7 @@ class ElNetControl(object):
 
 
 @dataclass
-class ElNetSpec(Options,
-                Penalty):
+class ElNetSpec(Penalty):
 
     control: ElNetControl = field(default_factory=ElNetControl)
 
