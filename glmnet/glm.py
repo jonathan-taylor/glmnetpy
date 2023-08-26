@@ -9,6 +9,7 @@ import scipy.sparse
 
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils import check_X_y
+from sklearn.linear_model import LinearRegression
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -136,13 +137,17 @@ class GLMEstimator(BaseEstimator,
 
         _fit = partial(_fit, wls_est, exclude)
         
-        fit, converged, boundary, state = _IRLS(self,
-                                                design,
-                                                y,
-                                                sample_weight,
-                                                state,
-                                                _fit,
-                                                obj_function)
+        (fit,
+         converged,
+         boundary,
+         state,
+         final_weights) = _IRLS(self,
+                                design,
+                                y,
+                                sample_weight,
+                                state,
+                                _fit,
+                                obj_function)
 
         # checks on convergence and fitted values
         if not converged:
@@ -152,30 +157,34 @@ class GLMEstimator(BaseEstimator,
 
         # create a GLMNetResult
 
-        args = asdict(fit)
-        args['offset'] = self.offset is not None
-        args['nulldev'] = nulldev
+        # args = asdict(fit)
+        # args['offset'] = self.offset is not None
+        # args['nulldev'] = nulldev
+
+        # args['dev_ratio'] = (1 - _dev / nulldev)
+        # args['family'] = self.family
+        # args['converged'] = converged
+        # args['boundary'] = boundary
+        # args['obj_function'] = state.obj_val
+
+        # self.result_ = GLMResult(**args)
+        # self.coef_ = self.result_.warm_fit['a']
+        # self.intercept_ = self.result_.warm_fit['aint']
 
         _dev = _dev_function(y,
                              state.mu,
                              sample_weight,
                              self.family)
-        args['dev_ratio'] = (1 - _dev / nulldev)
-        args['family'] = self.family
-        args['converged'] = converged
-        args['boundary'] = boundary
-        args['obj_function'] = state.obj_val
 
-        self.result_ = GLMResult(**args)
-        self.coef_ = self.result_.warm_fit['a']
-        self.intercept_ = self.result_.warm_fit['aint']
-
+        self.coef_ = state.coef
+        self.intercept_ = state.intercept
+        
         if isinstance(self.family, sm_family.Gaussian):
             self.dispersion_ = _dev / (n-p-1) # usual estimate of sigma^2
         else:
             self.dispersion_ = 1
 
-        self.unscaled_precision_ = design.quadratic_form(self.result_.weights) # use final IRLS weights
+        self.unscaled_precision_ = design.quadratic_form(final_weights)
         return self
     fit.__doc__ = '''
 Fit a GLM.
@@ -479,17 +488,22 @@ def _quasi_newton_step(spec,
     else:
         warm = None
 
-    fit = elnet_solver(design, z, sample_weight=w).result_
+    # should maybe do smarter with sparse scipy.linalg.LinearOperator?
+    
+    lm = LinearRegression(fit_intercept=spec.fit_intercept)
+    lm.fit(design.X, z, sample_weight=w)
+    
+    coefnew = lm.coef_
+    intnew = lm.intercept_
+    
+    n, p = design.X.shape
+    X1 = np.concatenate([np.ones((n, 1)), design.X], axis=1)
+    Q = X1.T @ (w[:,None] * X1)
+    val = np.linalg.inv(Q) @ X1.T @ (w * z)
 
-    if fit.jerr != 0:
-        errmsg = _jerr_elnetfit(fit.jerr, spec.control.maxit)
-        raise ValueError(errmsg['msg'])
-
-    # update coefficients, eta, mu and obj_val
-    # based on full quasi-newton step
-
-    coefnew = fit.warm_fit.a
-    intnew = fit.warm_fit.aint
+    assert( np.allclose(val[1:], coefnew))
+    assert( np.allclose(val[0], intnew))    
+    
     state = GLMState(coefnew,
                      intnew,
                      obj_val_old=state.obj_val)
@@ -504,9 +518,6 @@ def _quasi_newton_step(spec,
 
     boundary = False
     halved = False  # did we have to halve the step size?
-
-    # if objective function is not finite, keep halving the stepsize until it is finite
-    # for the halving step, we probably have to adjust fit$g as well?
 
     # three checks we'll apply
 
@@ -565,14 +576,6 @@ def _quasi_newton_step(spec,
                 state.obj_val = objective(state)
                 check, boundary_, halved_ = test(state)
 
-    # if we did any halving, we have to update the coefficients, intercept
-    # and weighted residual in the warm_fit object
-    if halved:
-        fit.warm_fit.a = state.coef
-        fit.warm_fit.aint = state.intercept
-        fit.warm_fit.r =  w * (z - state.eta)
-
-    # test for convergence
     return state, fit, boundary, halved
 
 def _IRLS(spec,
@@ -583,24 +586,13 @@ def _IRLS(spec,
           elnet_solver,
           objective):
 
-    # would be good to have objective and elnet_solver as args
-
     coefold, intold = state.coef, state.intercept
 
     state.obj_val_old = objective(state)
-    # y,
-    #                                   state.mu,
-    #                                   weights,
-    #                                   spec.family,
-    #                                   spec.lambda_val,
-    #                                   spec.alpha,
-    #                                   state.coef,
-    #                                   spec.vp)
-
     converged = False
     fit = None
 
-    for iter in range(spec.control.mxitnr):
+    for _ in range(spec.control.mxitnr):
 
         (state,
          fit,
@@ -619,4 +611,4 @@ def _IRLS(spec,
             converged = True
             break
 
-    return fit, converged, boundary, state
+    return fit, converged, boundary, state, weights
