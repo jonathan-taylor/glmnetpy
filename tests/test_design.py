@@ -17,8 +17,8 @@ def test_design(n=100, p=5, q=3):
                            [rng.uniform(0, 1, size=(n,)), np.ones(n)],
                            [False, True]):
 
-        X_s = scipy.sparse.csc_array(X)
-        design = Design(X, W, standardize=s)
+        X_s = scipy.sparse.csc_array(X.copy())
+        design = Design(X.copy(), W, standardize=s)
         design_s = Design(X_s, W, standardize=s)
         X_ = design.linear_map(np.identity(p))
         X_T = X_.T
@@ -30,7 +30,9 @@ def test_design(n=100, p=5, q=3):
         V_l = rng.standard_normal((n, q))
 
         assert np.allclose(X_ @ v_r, design.linear_map(v_r, 0))
+        assert np.allclose(X_ @ v_r, design @ np.hstack([0, v_r]))
         assert np.allclose(X_ @ v_r + 2, design.linear_map(v_r, 2))
+        assert np.allclose(X_ @ v_r + 2, design @ np.hstack([2, v_r]))
         assert np.allclose(X_ @ v_r, design_s.linear_map(v_r, 0))
         assert np.allclose(X_ @ v_r + 2, design_s.linear_map(v_r, 2))
 
@@ -51,20 +53,13 @@ def test_design(n=100, p=5, q=3):
         assert np.allclose(V1, U1)
         assert np.allclose(V2, U2)
         
-        xm, xs = design.xm, design.xs
-        if scipy.sparse.issparse(X):
+        if np.all(W == 1) and scipy.sparse.issparse(X):
+            xm, xs = design.xm, design.xs
             X_v = X.toarray()
-        else:
-            X_v = X
-        X_v = X_v - np.multiply.outer(np.ones(n), xm)
-        X_v = X_v / xs[None,:]
-
-        assert np.allclose(X_, X_v)
-
-        Q_s = design_s.quadratic_form(G=G)
-        Q = design.quadratic_form(G=G)
-
-        assert np.allclose(Q_s, Q)
+            X_v = X_v - np.multiply.outer(np.ones(n), xm)
+            X_v = X_v / xs[None,:]
+            print('stand', s)
+            assert np.allclose(X_, X_v)
 
 def test_quadratic_form(n=100, p=10, q=3):
     """

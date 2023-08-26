@@ -194,8 +194,16 @@ prediction: np.ndarray
     'prediction_type':'''
 prediction_type: str
     One of "mean" or "linear". If "mean" return a prediction on the mean scale,
-    "linear" on the link scale.'''
+    "linear" on the link scale.''',
 
+    'dispersion':'''
+dispersion: float
+    Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
+    minimized deviance divided by degrees of freedom.''',
+
+    'summarize':'''
+summarize: bool
+    Compute a Wald-type statistical summary from fitted GLM.''',
 }
 
 
