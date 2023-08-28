@@ -76,6 +76,67 @@ class GLMState(object):
             self.mu = family.link.inverse(self.eta + offset)    
 
 @dataclass
+class GLMRegularizer(object):
+
+    fit_intercept: bool = False
+    warm_fit: dict = field(default_factory=dict)
+
+    def quasi_newton_step(self,
+                          design,
+                          pseudo_response,
+                          sample_weight):
+
+        z = pseudo_response
+        w = sample_weight
+
+        if scipy.sparse.issparse(design.X):
+            lm = LinearRegression(fit_intercept=self.fit_intercept)
+            lm.fit(design.X, z, sample_weight=w)
+            coefnew = lm.coef_
+            intnew = lm.intercept_
+
+        else:
+            sqrt_w = np.sqrt(w)
+            XW = design.X * sqrt_w[:, None]
+            if self.fit_intercept:
+                Wz = sqrt_w * z
+                XW = np.concatenate([sqrt_w.reshape((-1,1)), XW], axis=1)
+                Q = XW.T @ XW
+                V = XW.T @ Wz
+                try:
+                    beta = np.linalg.solve(Q, V)
+                except LinAlgError as e:
+                    warnings.warn("error in solve: possible singular matrix, trying pseudo-inverse")
+                    beta = np.linalg.pinv(XW) @ Wz
+                coefnew = beta[1:]
+                intnew = beta[0]
+
+            else:
+                coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
+                intnew = 0
+
+        self.warm_fit['coef_'] = coefnew
+        self.warm_fit['intercept_'] = intnew
+        
+        return coefnew, intnew
+
+    def get_warm_start(self):
+
+        if ('coef_' in self.warm_fit.keys() and
+            'intercept_' in self.warm_fit_keys()):
+
+            return (self.warm_fit['coef_'],
+                    self.warm_fit['intercept_']) 
+
+    def update_resid(self, r):
+        self.warm_fit['resid_'] = r
+        
+    def objective(self, state):
+        return 0
+add_dataclass_docstring(GLMRegularizer, subs={'warm_fit':'warm_glm'})
+# end of GLMRegularizer
+
+@dataclass
 class GLMEstimator(BaseEstimator,
                    GLMSpec):
 
@@ -83,10 +144,19 @@ class GLMEstimator(BaseEstimator,
             X,
             y,
             sample_weight=None,
-            warm=None,             # last 4 options non sklearn API
+            regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             dispersion=1,
             offset=None):
+
+        # for GLM there is no regularization, but this pattern
+        # is repeated for GLMNet
+        
+        # the regularizer stores the warm start
+
+        if regularizer is None:
+            regularizer = GLMRegularizer(fit_intercept=self.fit_intercept)
+        self.regularizer_ = regularizer
 
         self.exclude_ = exclude
         nobs, nvar = X.shape
@@ -117,21 +187,16 @@ class GLMEstimator(BaseEstimator,
         self.design_ = design
         
         nulldev = np.inf
-        if not warm:
+
+        warm_start = self.regularizer_.get_warm_start()
+        if warm_start is None:
             coefold = np.zeros(nvars)   # initial coefs = 0
             intold = self.family.link((y * sample_weight).sum() / sample_weight.sum())
-            mu = np.ones_like(y) * intold
-            eta = self.family.link(mu)
         else:
-            fit = warm
-            if 'warm_fit' in warm:
-                coefold = fit.warm_fit.a   # prev value for coefficients
-                intold = fit.warm_fit.aint    # prev value for intercept
-            elif 'intercept_' in warm and 'coef_' in warm:
-                coefold = warm['coef_']   # prev value for coefficients
-                intold = warm['intercept_']      # prev value for intercept
-            else:
-                raise ValueError("Invalid warm start object")
+            coefold, intold = warm_start
+
+        mu = np.ones_like(y) * intold
+        eta = self.family.link(mu)
 
         state = GLMState(coef=coefold,
                          intercept=intold)
@@ -140,28 +205,26 @@ class GLMEstimator(BaseEstimator,
                      self.family,
                      offset)
 
-        def obj_function(y, family, vp, state):
-            return _obj_function(y,
+        def obj_function(y, family, regularizer, state):
+            return (_dev_function(y,
                                  state.mu,
                                  sample_weight,
-                                 family,
-                                 0,
-                                 1,
-                                 state.coef,
-                                 vp)
-        obj_function = partial(obj_function, y, self.family, np.ones(nvar))
+                                 family) +
+                    regularizer.objective(state))
+        obj_function = partial(obj_function, y, self.family, regularizer)
         
-        (fit,
-         converged,
+        (converged,
          boundary,
          state,
-         final_weights) = _IRLS(self,
+         final_weights) = _IRLS(regularizer,
+                                self.family,
                                 design,
                                 y,
                                 offset,
                                 sample_weight,
                                 state,
-                                obj_function)
+                                obj_function,
+                                self.control)
 
         # checks on convergence and fitted values
         if not converged:
@@ -278,24 +341,25 @@ add_dataclass_docstring(GLMEstimator, subs={'control':'control_glm'})
 
 # private functions
 
-def _quasi_newton_step(spec,
+def _quasi_newton_step(regularizer,
+                       family,
                        design,
                        y,
                        offset,
                        weights,
                        state,
                        objective,
-                       fit=None):
+                       control):
 
     coefold, intold = state.coef, state.intercept
 
     # some checks for NAs/zeros
-    varmu = spec.family.variance(state.mu)
+    varmu = family.variance(state.mu)
     if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
 
     if np.any(varmu == 0): raise ValueError("0s in V(mu)")
 
-    dmu_deta = spec.family.link.inverse_deriv(state.eta)
+    dmu_deta = family.link.inverse_deriv(state.eta)
     if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
 
     # compute working response and weights
@@ -306,54 +370,14 @@ def _quasi_newton_step(spec,
     
     w = (weights * dmu_deta**2)/varmu
 
-    # have to update the weighted residual in our fit object
-    # (in theory g and iy should be updated too, but we actually recompute g
-    # and it anyway in wls.f)
-
-    if fit is not None:
-        if offset is not None:
-            fit.warm_fit.r = w * (z - state.eta + offset)
-        else:
-            fit.warm_fit.r = w * (z - state.eta)
-        warm = fit.warm_fit
-    else:
-        warm = None
-
-    # should maybe do smarter with sparse scipy.linalg.LinearOperator?
-    # if not standardized can just use LinearRegression...
-    
-    if scipy.sparse.issparse(design.X):
-        lm = LinearRegression(fit_intercept=spec.fit_intercept)
-        lm.fit(design.X, z, sample_weight=w)
-        coefnew = lm.coef_
-        intnew = lm.intercept_
-
-    else:
-        sqrt_w = np.sqrt(w)
-        XW = design.X * sqrt_w[:, None]
-        if spec.fit_intercept:
-            Wz = sqrt_w * z
-            XW = np.concatenate([sqrt_w.reshape((-1,1)), XW], axis=1)
-            Q = XW.T @ XW
-            V = XW.T @ Wz
-            try:
-                beta = np.linalg.solve(Q, V)
-            except LinAlgError as e:
-                warnings.warn("error in solve: possible singular matrix, trying pseudo-inverse")
-                beta = np.linalg.pinv(XW) @ Wz
-            coefnew = beta[1:]
-            intnew = beta[0]
-
-        else:
-            coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
-            intnew = 0
+    coefnew, intnew = regularizer.quasi_newton_step(design, z, w)
 
     state = GLMState(coefnew,
                      intnew,
                      obj_val_old=state.obj_val)
 
     state.update(design,
-                 spec.family,
+                 family,
                  offset)
 
     state.obj_val = objective(state)
@@ -374,7 +398,7 @@ def _quasi_newton_step(spec,
     def finite_objective(state):
         boundary = True
         halved = True
-        return np.isfinite(state.obj_val) and state.obj_val < spec.control.big, boundary, halved
+        return np.isfinite(state.obj_val) and state.obj_val < control.big, boundary, halved
 
     def valid(state):
         boundary = True
@@ -407,7 +431,7 @@ def _quasi_newton_step(spec,
                 halved = halved or halved_
 
             while not check:
-                if ii > spec.control.mxitnr:
+                if ii > control.mxitnr:
                     raise ValueError(f"inner loop {test}; cannot correct step size")
                 ii += 1
 
@@ -415,44 +439,50 @@ def _quasi_newton_step(spec,
                                  (state.intercept + intold)/2,
                                  obj_val_old=state.obj_val_old)
                 state.update(design,
-                             spec.family,
+                             family,
                              offset)
                 state.obj_val = objective(state)
                 check, boundary_, halved_ = test(state)
 
-    return state, fit, boundary, halved
+    if offset is not None:
+        regularizer.update_resid(w * (z - state.eta + offset))
+    else:
+        regularizer.update_resid(w * (z - state.eta))
 
-def _IRLS(spec,
+    return state, boundary, halved
+
+def _IRLS(regularizer,
+          family,
           design,
           y,
           offset,
           weights,
           state,
-          objective):
+          objective,
+          control):
 
     coefold, intold = state.coef, state.intercept
 
     state.obj_val_old = objective(state)
     converged = False
-    fit = None
 
-    for _ in range(spec.control.mxitnr):
+    for _ in range(control.mxitnr):
 
         (state,
-         fit,
          boundary,
-         halved) = _quasi_newton_step(spec,
+         halved) = _quasi_newton_step(regularizer,
+                                      family,
                                       design,
                                       y,
                                       offset,
                                       weights,
                                       state,
                                       objective,
-                                      fit=fit)
+                                      control)
 
         # test for convergence
-        if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < spec.control.epsnr):
+        if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr):
             converged = True
             break
 
-    return fit, converged, boundary, state, weights
+    return converged, boundary, state, weights
