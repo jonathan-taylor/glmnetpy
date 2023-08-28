@@ -87,6 +87,12 @@ warm: Optional[Union[ElNetWarmStart,dict]]
     and intercept respectively which can be used as a warm start.
     For internal use only.''',
 
+    'warm_glm':'''
+warm_fit: Optional[dict]
+    A dict-like with keys `coef_` and `intercept_` containing coefficients
+    and intercept respectively which can be used as a warm start.
+    For internal use only.''',
+
     'big':'''
 big: float = 9.9e35
     A large float, effectively `np.inf`.''',
@@ -153,6 +159,12 @@ control: Optional(GLMControl)
     Parameters to control the solver.
     ''',
     
+    'control_glmnet': '''
+control: Optional(GLMNetControl)
+
+    Parameters to control the solver.
+    ''',
+
     'mxitnr':'''
 mxitnr: int
     Maximum number of quasi Newton iterations.''',
