@@ -135,183 +135,23 @@ class GLMNetRegularizer(Penalty):
         return 0
 # end of GLMNetRegularizer
 
+from .glm import GLMEstimator
 @dataclass
-class GLMNetEstimator(BaseEstimator,
+class GLMNetEstimator(GLMEstimator,
                       GLMNetSpec):
 
-    def fit(self,
-            X,
-            y,
-            sample_weight=None,
-            regularizer=None,             # last 4 options non sklearn API
-            exclude=[],
-            dispersion=1,
-            offset=None):
+    control: GLMNetControl = field(default_factory=GLMNetControl)
 
-        # for GLM there is no regularization, but this pattern
-        # is repeated for GLMNet
-        
-        # the regularizer stores the warm start
+    def _get_regularizer(self,
+                         X):
 
-        self.exclude_ = exclude
-        nobs, nvar = X.shape
-        
-        if isinstance(X, pd.DataFrame):
-            self.feature_names_in_ = list(X.columns)
-        else:
-            self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
-
-        X, y = check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=False,
-                         estimator=self)
-
-        y = np.asarray(y)
-
-        if regularizer is None:
-            regularizer = GLMNetRegularizer(lambda_val=self.lambda_val,
-                                            penalty_factor=self.penalty_factor,
-                                            lower_limits=self.lower_limits,
-                                            upper_limits=self.upper_limits,
-                                            fit_intercept=self.fit_intercept,
-                                            nvars=X.shape[1],
-                                            control=self.control)
-        self.regularizer_ = regularizer
-
-        if self.control is None:
-            self.control = GLMNetControl()
-        elif type(self.control) == dict:
-            self.control = _parent_dataclass_from_child(GLMNetControl,
-                                                        self.control)
-        nobs, nvars = n, p = X.shape
-        
-        if sample_weight is None:
-            sample_weight = np.ones(nobs)
-
-        design = _get_design(X, sample_weight)
-        self.design_ = design
-        
-        nulldev = np.inf
-
-        warm_start = self.regularizer_.get_warm_start()
-        if warm_start is None:
-            coefold = np.zeros(nvars)   # initial coefs = 0
-            intold = self.family.link((y * sample_weight).sum() / sample_weight.sum())
-        else:
-            coefold, intold = warm_start
-
-        mu = np.ones_like(y) * intold
-        eta = self.family.link(mu)
-
-        state = GLMState(coef=coefold,
-                         intercept=intold)
-
-        state.update(design,
-                     self.family,
-                     offset)
-
-        def obj_function(y, family, regularizer, state):
-            return (_dev_function(y,
-                                 state.mu,
-                                 sample_weight,
-                                 family) +
-                    regularizer.objective(state))
-        obj_function = partial(obj_function, y, self.family, regularizer)
-        
-        (converged,
-         boundary,
-         state,
-         final_weights) = _IRLS(regularizer,
-                                self.family,
-                                design,
-                                y,
-                                offset,
-                                sample_weight,
-                                state,
-                                obj_function,
-                                self.control)
-
-        # checks on convergence and fitted values
-        if not converged:
-            warnings.warn("fitting IRLS: algorithm did not converge")
-        if boundary:
-            warnings.warn("fitting IRLS: algorithm stopped at boundary value")
-
-        _dev = _dev_function(y,
-                             state.mu,
-                             sample_weight,
-                             self.family)
-
-        self.coef_ = state.coef
-        self.intercept_ = state.intercept
-        
-        return self
-    fit.__doc__ = '''
-Fit a GLMNet.
-
-Parameters
-----------
-
-{X}
-{y}
-{weights}
-{warm_glm}
-{exclude}
-{summarize}
-{offset}
-    
-Returns
--------
-
-self: object
-        GLMNetEstimator class instance.
-        '''.format(**_docstrings)
-    
-    def predict(self, X, prediction_type='mean'):
-
-        eta = X @ self.coef_ + self.intercept_
-        if prediction_type == 'linear':
-            return eta
-        elif prediction_type == 'mean':
-            return self.family.link.inverse(eta)
-        else:
-            raise ValueError("prediction should be one of 'mean' or 'linear'")
-    predict.__doc__ = '''
-Predict outcome of corresponding family.
-
-Parameters
-----------
-
-{X}
-{prediction_type}
-
-Returns
--------
-
-{prediction}'''.format(**_docstrings).strip()
-
-    def score(self, X, y, sample_weight=None):
-
-        mu = self.predict(X, prediction_type='mean')
-        if sample_weight is None:
-            sample_weight = np.ones_like(y)
-        return -_dev_function(y, mu, sample_weight, self.family) / 2 
-    score.__doc__ = '''
-Compute log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model.
-
-Parameters
-----------
-
-{X}
-{y}
-{sample_weight}    
-
-Returns
--------
-
-score: float
-    Deviance of family for (X, y).
-'''.format(**_docstrings).strip()
+        return GLMNetRegularizer(lambda_val=self.lambda_val,
+                                 penalty_factor=self.penalty_factor,
+                                 lower_limits=self.lower_limits,
+                                 upper_limits=self.upper_limits,
+                                 fit_intercept=self.fit_intercept,
+                                 nvars=X.shape[1],
+                                 control=self.control)
 
 add_dataclass_docstring(GLMNetEstimator, subs={'control':'control_glm'})
 

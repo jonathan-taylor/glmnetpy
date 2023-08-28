@@ -140,6 +140,10 @@ add_dataclass_docstring(GLMRegularizer, subs={'warm_fit':'warm_glm'})
 class GLMEstimator(BaseEstimator,
                    GLMSpec):
 
+    def _get_regularizer(self,
+                         X):
+        return GLMRegularizer(fit_intercept=self.fit_intercept)
+
     def fit(self,
             X,
             y,
@@ -155,7 +159,7 @@ class GLMEstimator(BaseEstimator,
         # the regularizer stores the warm start
 
         if regularizer is None:
-            regularizer = GLMRegularizer(fit_intercept=self.fit_intercept)
+            regularizer = self._get_regularizer(X)
         self.regularizer_ = regularizer
 
         self.exclude_ = exclude
