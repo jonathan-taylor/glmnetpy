@@ -31,6 +31,8 @@ class ElNetControl(object):
 @dataclass
 class ElNetSpec(Penalty):
 
+    fit_intercept: bool = False
+    standardize: bool = True
     control: ElNetControl = field(default_factory=ElNetControl)
 
 add_dataclass_docstring(ElNetSpec, subs={'control':'control_elnet'})
