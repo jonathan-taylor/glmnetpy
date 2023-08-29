@@ -1,89 +1,112 @@
+from dataclasses import dataclass, asdict, field, InitVar
 from typing import Union, Optional
-from dataclasses import dataclass, asdict, field, fields, make_dataclass
    
 import numpy as np
-import scipy.sparse
+
+from sklearn.base import BaseEstimator
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
-import statsmodels.api as sm
 
-from ._utils import (_jerr_elnetfit,
-                     _obj_function,
-                     _dev_function)
+from .base import Design, _get_design, Penalty
+from .docstrings import add_dataclass_docstring
 
-from .glmnet_fit import (glmnet_fit,
-                         GLMNetResult,
-                         GLMNetSpec,
-                         GLMNetControl)
-
-from .elnet_fit import (BaseSpec,
-                        DesignSpec,
-                        _set_limits,
-                        _set_vp,
-                        _set_design)
+from .glmnet import (GLMNetControl,
+                     GLMNetEstimator)
+from .glm import GLMEstimator, GLMState
 
 @dataclass
-class GLMNetPathSpec(BaseSpec):
+class GLMNetPathSpec(object):
 
-    lambda_fracs: np.ndarray
+    lambda_values : np.ndarray
+    lambda_fractional: bool = True
     alpha: float = 1.0
-    lower_limits: Union[float, np.ndarray] = -np.inf
-    upper_limits: Union[float, np.ndarray] = np.inf
-    exclude: list = field(default_factory=list)
-    penalty_factor: Optional[Union[np.ndarray, float]] = None
-    weights: Optional[np.ndarray] = None
-    intercept: bool = True
-    offset: np.ndarray = None
+    lower_limits: float = -np.inf
+    upper_limits: float = np.inf
+    penalty_factor: Optional[Union[float, np.ndarray]] = None
+    fit_intercept: bool = True
+    standardize: bool = True
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     control: GLMNetControl = field(default_factory=GLMNetControl)
 
-    def __post_init__(self):
+add_dataclass_docstring(GLMNetPathSpec, subs={'control':'control_glmnet'})
 
-        if self.control is None:
-            self.control = GLMNetControl()
-        elif type(self.control) == dict:
-            self.control = GLMNetControl(**self.control)
+@dataclass
+class GLMNetPathEstimator(BaseEstimator,
+                          GLMNetPathSpec):
 
-        if self.exclude is None:
-            self.exclude = []
-            
-        if self.offset is None:
-            self.is_offset = False
-            self.offset = np.zeros(self.y.shape)
+    def fit(self,
+            X,
+            y,
+            sample_weight=None,
+            regularizer=None,             # last 4 options non sklearn API
+            exclude=[],
+            offset=None):
+
+        self.glmnet_est_ = GLMNetEstimator(lambda_val=self.control.big,
+                                           alpha=self.alpha,
+                                           penalty_factor=self.penalty_factor,
+                                           lower_limits=self.lower_limits,
+                                           upper_limits=self.upper_limits,
+                                           fit_intercept=self.fit_intercept,
+                                           control=self.control)
+        self.glmnet_est_.fit(X, y, sample_weight)
+        regularizer_ = self.glmnet_est_.regularizer_
+
+        state, keep_ = self._get_initial_state(X,
+                                               y,
+                                               sample_weight,
+                                               exclude,
+                                               offset)
+        score_ = (self.glmnet_est_.design_.T @ (y - self.glmnet_est_.design_ @ state._stack))[1:]
+        pf = regularizer_.penalty_factor
+        score_ /= (pf + (pf ==0))
+        score_[exclude] = 0
+        self.lambda_max_ = np.fabs(score_).max()
+
+        if self.lambda_fractional:
+            self.lambda_values_ = np.sort(self.lambda_max_ * self.lambda_values)[::-1]
         else:
-            self.is_offset = True
+            self.lambda_values_ = np.sort(self.lambda_values)[::-1]
 
-        _set_limits(self)
-        _set_vp(self)
-        _set_design(self)
+        coefs_ = []
+        intercepts_ = []
+        for l in self.lambda_values_:
 
-def _get_glm_subproblem(glm_path,
-                        lambda_val):
+            self.glmnet_est_.lambda_val = regularizer_.lambda_val = l
+            self.glmnet_est_.fit(X,
+                                 y,
+                                 sample_weight,
+                                 offset=offset,
+                                 regularizer=regularizer_)
+            coefs_.append(self.glmnet_est_.coef_.copy())
+            intercepts_.append(self.glmnet_est_.intercept_)
 
-    glm_dict = asdict(glm_path)
-    glm_dict['lambda_val'] = lambda_val
-    del(glm_dict['lambda_fracs'])
-    glm_dict['X'] = glm_path.design
-    return GLMNetSpec(**glm_dict)
+        self.coefs_ = np.array(coefs_)
+        self.intercepts_ = np.array(intercepts_)
 
-# # setup the GLMNetPathSpec dataclass
+    def _get_initial_state(self,
+                           X,
+                           y,
+                           sample_weight,
+                           exclude,
+                           offset):
 
-# _glmnet_path_fields = ([(f.name, f.type, f) for
-#                        f in fields(GLMNetSpec) if f.name != 'lambda_val'] +
-#                        [('lambda_values', np.ndarray)])
-# _glmnet_path_dict = {f[0]:f for f in _glmnet_path_fields}
-# _final_fields = []
-# _required = ['X', 'y', 'lambda_values']
-# for k in _required:
-#     _final_fields.append(_glmnet_path_dict[k])
-# _final_fields = _final_fields + [_glmnet_path_dict[k[0]] for k in _glmnet_path_fields if
-#                                  k[0] not in _required]
+        n, p = X.shape
+        keep = self.glmnet_est_.regularizer_.penalty_factor == 0
+        keep[exclude] = 0
 
-# GLMNetPathSpecBase = make_dataclass('GLMNetPathSpec',
-#                                     _final_fields)
+        coef_ = np.zeros(p)
 
-# @dataclass
-# class GLMNetPathSpec(GLMNetPathPreSpec,PathSpec):
+        if keep.sum() > 0:
+            X_keep = X[:,keep]
 
-#     pass
+            glm = GLMEstimator(fit_intercept=self.fit_intercept,
+                               family=self.family)
+            glm.fit(X_keep, y, sample_weight, offset=offset)
+            coef_[keep] = glm.coef_
+            intercept_ = glm.intercept_
+        else:
+            intercept_ = self.family.link(y.mean())
+        return GLMState(coef_, intercept_), keep.astype(float)
+

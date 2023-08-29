@@ -29,50 +29,6 @@ def _parent_dataclass_from_child(cls,
     _cls_args.update(**modified_args)
     return cls(**_cls_args)
 
-#' Elastic net objective function value
-#'
-#' Returns the elastic net objective function value.
-#'
-#' @param y Quantitative response variable.
-#' @param mu Model's predictions for \code{y}.
-#' @param weights Observation weights.
-#' @param family A description of the error distribution and link function to be
-#' used in the model. This is the result of a call to a family function.
-#' @param lambda A single value for the \code{lambda} hyperparameter.
-#' @param alpha The elasticnet mixing parameter, with \eqn{0 \le \alpha \le 1}.
-#' @param coefficients The model's coefficients (excluding intercept).
-#' @param vp Penalty factors for each of the coefficients.
-def _obj_function(y,
-                  mu,
-                  weights,
-                  family,
-                  lambda_val,
-                  alpha,
-                  coefficients,
-                  vp):
-    return (_dev_function(y, mu, weights, family) / 2 +
-            lambda_val * _pen_function(coefficients, alpha, vp))
-
-
-#' Elastic net penalty value
-#'
-#' Returns the elastic net penalty value without the \code{lambda} factor.
-#'
-#' The penalty is defined as
-#' \deqn{(1-\alpha)/2 \sum vp_j \beta_j^2 + \alpha \sum vp_j |\beta|.}
-#' Note the omission of the multiplicative \code{lambda} factor.
-#'
-#' @param alpha The elasticnet mixing parameter, with \eqn{0 \le \alpha \le 1}.
-#' @param coefficients The model's coefficients (excluding intercept).
-#' @param vp Penalty factors for each of the coefficients.
-def _pen_function(coefficients,
-                  alpha = 1.0,
-                  vp = 1.0):
-    coefficients = coefficients.reshape(-1)
-    vp = vp.reshape(-1)
-    return np.sum(vp * (alpha * np.abs(coefficients) + (1-alpha)/2 * coefficients**2))
-
-
 #' Elastic net deviance value
 #'
 #' Returns the elastic net deviance value.

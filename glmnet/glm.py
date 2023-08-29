@@ -15,8 +15,7 @@ from sklearn.linear_model import LinearRegression
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
-from ._utils import (_obj_function,
-                     _dev_function,
+from ._utils import (_dev_function,
                      _parent_dataclass_from_child)
 
 from .base import Design, _get_design
@@ -381,7 +380,6 @@ def _quasi_newton_step(regularizer,
     # could have the quasi_newton_step return state instead?
     
     coefnew, intnew = regularizer.quasi_newton_step(design, z, w)
-
     state = GLMState(coefnew,
                      intnew,
                      obj_val_old=state.obj_val)
