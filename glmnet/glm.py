@@ -125,8 +125,9 @@ class GLMRegularizer(object):
         if ('coef_' in self.warm_fit.keys() and
             'intercept_' in self.warm_fit_keys()):
 
-            return (self.warm_fit['coef_'],
-                    self.warm_fit['intercept_']) 
+            state = GLMState(self.warm_fit['coef_'],
+                             self.warm_fit['intercept_'])
+            return state
 
     def update_resid(self, r):
         self.warm_fit['resid_'] = r
@@ -198,18 +199,12 @@ class GLMEstimator(BaseEstimator,
         
         nulldev = np.inf
 
-        warm_start = self.regularizer_.get_warm_start()
-        if warm_start is None:
+        state = self.regularizer_.get_warm_start()
+        if state is None:
             coefold = np.zeros(nvars)   # initial coefs = 0
             intold = self.family.link((y * sample_weight).sum() / sample_weight.sum())
-        else:
-            coefold, intold = warm_start
-
-        mu = np.ones_like(y) * intold
-        eta = self.family.link(mu)
-
-        state = GLMState(coef=coefold,
-                         intercept=intold)
+            state = GLMState(coef=coefold,
+                             intercept=intold)
 
         state.update(design,
                      self.family,
@@ -380,6 +375,8 @@ def _quasi_newton_step(regularizer,
     
     w = (weights * dmu_deta**2)/varmu
 
+    # could have the quasi_newton_step return state instead?
+    
     coefnew, intnew = regularizer.quasi_newton_step(design, z, w)
 
     state = GLMState(coefnew,
