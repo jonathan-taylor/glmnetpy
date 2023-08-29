@@ -14,7 +14,6 @@ from sklearn.linear_model import LinearRegression
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
-import statsmodels.api as sm
 
 from ._utils import (_obj_function,
                      _dev_function,
