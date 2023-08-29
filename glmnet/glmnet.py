@@ -153,5 +153,33 @@ class GLMNetEstimator(GLMEstimator,
                                  nvars=X.shape[1],
                                  control=self.control)
 
+    # no standardization for GLM
+    def _get_design(self,
+                    X,
+                    sample_weight):
+        return _get_design(X,
+                           sample_weight,
+                           standardize=self.standardize,
+                           intercept=self.fit_intercept)
+
+    def fit(self,
+            X,
+            y,
+            sample_weight=None,
+            regularizer=None,             # last 4 options non sklearn API
+            exclude=[],
+            offset=None):
+        super().fit(X,
+                    y,
+                    sample_weight=sample_weight,
+                    regularizer=regularizer,
+                    exclude=exclude,
+                    dispersion=1,
+                    offset=offset)
+        if self.standardize:
+            self.scaling_ = self.design_.scaling_
+            self.coef_ /= self.scaling_
+            self.intercept_ -= (self.coef_ * self.design_.centers_).sum()
+
 add_dataclass_docstring(GLMNetEstimator, subs={'control':'control_glm'})
 

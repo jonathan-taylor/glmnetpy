@@ -144,6 +144,12 @@ class GLMEstimator(BaseEstimator,
                          X):
         return GLMRegularizer(fit_intercept=self.fit_intercept)
 
+    # no standardization for GLM
+    def _get_design(self,
+                    X,
+                    sample_weight):
+        return _get_design(X, sample_weight)
+
     def fit(self,
             X,
             y,
@@ -187,7 +193,7 @@ class GLMEstimator(BaseEstimator,
         if sample_weight is None:
             sample_weight = np.ones(nobs)
 
-        design = _get_design(X, sample_weight)
+        design = self._get_design(X, sample_weight)
         self.design_ = design
         
         nulldev = np.inf

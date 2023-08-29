@@ -12,6 +12,11 @@ X: Union[np.ndarray, scipy.sparse, DesignSpec]
 y: np.ndarray
     Response variable.''',
 
+    'dtype':'''
+dtype: np.dtype
+    The dtype for Design as a LinearOperator.
+    ''',
+    
     'standardize':'''
 standardize: bool
     Standardize columns of X according to weights? Default is False.''',
