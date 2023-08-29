@@ -2,8 +2,10 @@ from dataclasses import asdict
 
 import numpy as np
 import scipy.sparse
-from glmnet.elnet_fit import elnet_fit
-from glmnet.glmnet_fit import glmnet_fit
+import statsmodels.api as sm
+
+from glmnet.elnet import ElNetEstimator
+from glmnet.glmnet import GLMNetEstimator
 
 def test_compare_glmnet_elnet():
 
@@ -17,27 +19,29 @@ def test_compare_glmnet_elnet():
     lambda_val = 0.5 / np.sqrt(n)
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
 
-    elnet = elnet_fit(X, 
-                      y,
-                      weights,
-                      lambda_val)
+    elnet = ElNetEstimator(lambda_val)
+    elnet.fit(X, 
+              y,
+              weights)
 
-    glmnet, spec = glmnet_fit(X, 
-                              y,
-                              weights,
-                              lambda_val)
+    glmnet = GLMNetEstimator(lambda_val)
+    glmnet.fit(X, 
+               y,
+               weights)
 
-    if not np.allclose(elnet.a0, glmnet.a0, rtol=1e-4):
+    if not np.allclose(elnet.intercept_, glmnet.intercept_, rtol=1e-4):
         raise ValueError('intercepts not close')
-    if not np.linalg.norm(elnet.beta.toarray() - glmnet.beta.toarray()) / np.linalg.norm(glmnet.beta.toarray()) < 1e-4:
+    if not np.linalg.norm(elnet.coef_ - glmnet.coef_) / np.linalg.norm(glmnet.coef_) < 1e-4:
         raise ValueError('coefs not close')
 
     elnet_dict = asdict(elnet)
     glmnet_dict = asdict(glmnet)
 
-    eta = X @ glmnet_dict['beta'].toarray().reshape(-1) + glmnet_dict['a0']
+    eta = X @ glmnet.coef_ + glmnet.intercept_
     dev = np.sum(weights * (y - eta)**2) 
     dev_ratio = 1 - dev / glmnet_dict['nulldev']
+
+    # check the regularizer 
     assert(dev_ratio == glmnet_dict['dev_ratio'])
     
     del(elnet_dict['a0']) # compared above
@@ -70,46 +74,49 @@ def test_compare_sparse_elnet():
     lambda_val = 2 * np.sqrt(n)
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
 
-    elnet = elnet_fit(X, 
-                      y,
-                      weights,
-                      lambda_val)
+    elnet = ElNetEstimator(lambda_val)
+    elnet.fit(X, 
+              y,
+              weights)
 
     Xs = scipy.sparse.csc_array(X).tocsc()
-    elnet_s = elnet_fit(Xs, 
-                        y,
-                        weights,
-                        lambda_val)
+    elnet_s = ElNetEstimator(lambda_val)
+    elnet_s.fit(Xs, 
+                y,
+                weights)
 
-    if not np.allclose(elnet.a0, elnet_s.a0):
+    if not np.allclose(elnet.intercept_, elnet_s.intercept_):
         raise ValueError('intercepts not close')
-    if not np.allclose(elnet.beta.toarray(), elnet_s.beta.toarray()):
+    if not np.allclose(elnet.coef_, elnet_s.coef_):
         raise ValueError('coefs not close')
 
 def test_compare_sparse_glmnet():
 
-    n, p = 30, 22
+    n, p = 300, 22
     rng = np.random.default_rng(0)
 
     X = rng.normal(size=(n,p))
-    y = rng.normal(size=n)
+    beta = np.zeros(p)
+    beta[:2] = [2,-2.3]
+    y = rng.normal(size=n) + X @ beta
     lambda_val = 2 * np.sqrt(n)
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
+    weights *= n / weights.sum()
 
-    glmnet = glmnet_fit(X, 
-                        y,
-                        weights,
-                        lambda_val)
+    glmnet = GLMNetEstimator(lambda_val)
+    glmnet.fit(X.copy(), 
+               y,
+               sample_weight=weights)
 
-    Xs = scipy.sparse.csc_array(X).tocsc()
-    glmnet_s = glmnet_fit(Xs, 
-                          y,
-                          weights,
-                          lambda_val)
+    Xs = scipy.sparse.csc_array(X.copy()).tocsc()
+    glmnet_s = GLMNetEstimator(lambda_val)
+    glmnet_s.fit(Xs, 
+                 y,
+                 sample_weight=weights)
 
-    if not np.allclose(glmnet.a0, glmnet_s.a0):
+    if not np.allclose(glmnet.intercept_, glmnet_s.intercept_):
         raise ValueError('intercepts not close')
-    if not np.allclose(glmnet.beta.toarray(), glmnet_s.beta.toarray()):
+    if not np.allclose(glmnet.coef_, glmnet_s.coef_):
         raise ValueError('coefs not close')
     
 def test_logistic():
@@ -123,12 +130,12 @@ def test_logistic():
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
     weights /= weights.sum()
 
-    glmnet = glmnet_fit(X, 
-                        y,
-                        weights,
-                        lambda_val,
-                        family='Binomial')
-    print(glmnet.beta.toarray())
+    glmnet = GLMNetEstimator(lambda_val, family=sm.families.Binomial())
+    glmnet.fit(X, 
+               y,
+               weights,
+               )
+    print(glmnet.coef_)
 
 def test_probit():
 
@@ -141,11 +148,11 @@ def test_probit():
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
     weights /= weights.sum()
 
-    glmnet = glmnet_fit(X, 
-                        y,
-                        weights,
-                        lambda_val,
-                        family='Binomial',
-                        link='Probit')
-    print(glmnet.beta.toarray())
+    link = sm.families.links.Probit()
+    glmnet = GLMNetEstimator(lambda_val, family=sm.families.Binomial(link=link))
+
+    glmnet.fit(X, 
+               y,
+               weights)
+    print(glmnet.coef_)
     
