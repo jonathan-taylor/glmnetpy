@@ -55,26 +55,6 @@ class GLMNetResult(object):
     obj_function: float
 
 @dataclass
-class GLMState(object):
-
-    coef: np.ndarray
-    intercept: np.ndarray
-    obj_val: float = np.inf
-    obj_val_old: float = np.inf
-    
-    def update(self,
-               design,
-               family,
-               offset):
-        '''pin the mu/eta values to coef/intercept'''
-        self.eta = design.linear_map(self.coef,
-                                     self.intercept)
-        if offset is None:
-            self.mu = family.link.inverse(self.eta)
-        else:
-            self.mu = family.link.inverse(self.eta + offset)    
-
-@dataclass
 class GLMNetRegularizer(Penalty):
 
     fit_intercept: bool = False
@@ -179,7 +159,7 @@ class GLMNetEstimator(GLMEstimator,
         if self.standardize:
             self.scaling_ = self.design_.scaling_
             self.coef_ /= self.scaling_
-            self.intercept_ -= (self.coef_ * self.design_.centers_).sum()
+        self.intercept_ -= (self.coef_ * self.design_.centers_).sum()
 
 add_dataclass_docstring(GLMNetEstimator, subs={'control':'control_glm'})
 

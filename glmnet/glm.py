@@ -63,13 +63,17 @@ class GLMState(object):
     obj_val: float = np.inf
     obj_val_old: float = np.inf
     
+    def __post_init__(self):
+
+        self._stack = np.hstack([self.intercept,
+                                 self.coef])
+
     def update(self,
                design,
                family,
                offset):
         '''pin the mu/eta values to coef/intercept'''
-        self.eta = design.linear_map(self.coef,
-                                     self.intercept)
+        self.eta = design @ self._stack
         if offset is None:
             self.mu = family.link.inverse(self.eta)
         else:
