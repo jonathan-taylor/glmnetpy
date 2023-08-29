@@ -8,17 +8,15 @@ from sklearn.base import BaseEstimator
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
-from ._utils import (_obj_function,
-                     _dev_function,
-                     _parent_dataclass_from_child)
-
 from .base import Design, _get_design, Penalty
-from .docstrings import (make_docstring,
-                         add_dataclass_docstring,
-                         _docstrings)
+from .docstrings import add_dataclass_docstring
 
-from .elnet import ElNetEstimator, ElNetControl, ElNetSpec
-from .glm import GLMState, _IRLS
+from .elnet import (ElNetEstimator,
+                    ElNetControl,
+                    ElNetSpec)
+from .glm import (GLMState,
+                  _IRLS,
+                  GLMEstimator)
 
 @add_dataclass_docstring
 @dataclass
@@ -83,6 +81,15 @@ class GLMNetRegularizer(Penalty):
         z = pseudo_response
         w = sample_weight
 
+        # make sure to set lambda_val to self.lambda_val
+        self.elnet_estimator = ElNetEstimator(lambda_val=self.lambda_val,
+                                              alpha=self.alpha,
+                                              control=self.elnet_estimator.control,
+                                              lower_limits=self.lower_limits,
+                                              upper_limits=self.upper_limits,
+                                              fit_intercept=self.fit_intercept,
+                                              standardize=False)
+        
         out = self.elnet_estimator.fit(design, z, sample_weight=sample_weight).result_
         coefnew = out.beta.toarray().reshape(-1) # this will not have been scaled by `xs/scaling_`
         intnew = out.a0
@@ -95,10 +102,10 @@ class GLMNetRegularizer(Penalty):
     def get_warm_start(self):
 
         if ('coef_' in self.warm_fit.keys() and
-            'intercept_' in self.warm_fit_keys()):
+            'intercept_' in self.warm_fit.keys()):
 
-            return (self.warm_fit['coef_'],
-                    self.warm_fit['intercept_']) 
+            return GLMState(self.warm_fit['coef_'],
+                            self.warm_fit['intercept_']) 
 
     def update_resid(self, r):
         self.warm_fit['resid_'] = r
@@ -107,7 +114,6 @@ class GLMNetRegularizer(Penalty):
         return 0
 # end of GLMNetRegularizer
 
-from .glm import GLMEstimator
 @dataclass
 class GLMNetEstimator(GLMEstimator,
                       GLMNetSpec):
@@ -149,6 +155,7 @@ class GLMNetEstimator(GLMEstimator,
                     exclude=exclude,
                     dispersion=1,
                     offset=offset)
+
         if self.standardize:
             self.scaling_ = self.design_.scaling_
             self.coef_ /= self.scaling_

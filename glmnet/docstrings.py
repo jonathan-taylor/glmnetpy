@@ -33,6 +33,14 @@ sample_weight: Optional[np.ndarray]
 lambda_val: float
     A single value for the `lambda` hyperparameter.''',
 
+    'lambda_values':'''
+lambda_values: np.ndarray
+    An array of `lambda` hyperparameters.''',
+
+    'lambda_fractional':'''
+lambda_fractional: bool
+    Are `lambda_values` a fraction of `lambda_max` or absolute?.''',
+
     'alpha':r'''
 alpha: Optional[float]
     The elasticnet mixing parameter in [0,1].  The penalty is
