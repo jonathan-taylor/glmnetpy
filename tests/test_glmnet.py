@@ -16,10 +16,12 @@ n, p = 30, 10
 @pytest.mark.parametrize('fit_intercept', [True, False])
 @pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
 @pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
+@pytest.mark.parametrize('alpha', [0, 0.5, 1])
 def test_compare_glmnet_elnet(standardize,
                               fit_intercept,
                               sample_weight,
-                              lambda_val):
+                              lambda_val,
+                              alpha):
 
     sample_weight = sample_weight(n)
     X = rng.normal(size=(n,p))
@@ -28,6 +30,7 @@ def test_compare_glmnet_elnet(standardize,
     y = rng.normal(size=n) + 1 + X @ coefs
 
     elnet = ElNetEstimator(lambda_val,
+                           alpha=alpha,
                            standardize=standardize,
                            fit_intercept=fit_intercept)
     elnet.fit(X, 
@@ -35,8 +38,10 @@ def test_compare_glmnet_elnet(standardize,
               sample_weight)
 
     glmnet = GLMNetEstimator(lambda_val,
+                             alpha=alpha,
                              standardize=standardize,
                              fit_intercept=fit_intercept)
+    print('glmnet alpha', glmnet.alpha)
     glmnet.fit(X, 
                y,
                sample_weight)
@@ -154,7 +159,7 @@ def test_logistic(standardize,
                   sample_weight,
                   lambda_val):
 
-
+    n, p = 100, 10
     sample_weight = sample_weight(n)
 
     X = rng.normal(size=(n,p))
@@ -180,6 +185,7 @@ def test_probit(standardize,
                 sample_weight,
                 lambda_val):
 
+    n, p = 100, 10
     sample_weight = sample_weight(n)
 
     X = rng.normal(size=(n,p))

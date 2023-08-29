@@ -1,20 +1,12 @@
 from dataclasses import dataclass, asdict, field, InitVar
-from functools import partial
-import warnings
+from typing import Union, Optional
    
 import numpy as np
-from numpy.linalg import LinAlgError
-import pandas as pd
-import scipy.sparse
-from scipy.stats import norm as normal_dbn
 
 from sklearn.base import BaseEstimator
-from sklearn.utils import check_X_y
-from sklearn.linear_model import LinearRegression
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
-import statsmodels.api as sm
 
 from ._utils import (_obj_function,
                      _dev_function,
@@ -126,6 +118,7 @@ class GLMNetEstimator(GLMEstimator,
                          X):
 
         return GLMNetRegularizer(lambda_val=self.lambda_val,
+                                 alpha=self.alpha,
                                  penalty_factor=self.penalty_factor,
                                  lower_limits=self.lower_limits,
                                  upper_limits=self.upper_limits,

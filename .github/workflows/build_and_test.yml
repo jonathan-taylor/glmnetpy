@@ -47,4 +47,5 @@ jobs:
       run: |
         pip install pytest
         pytest tests/test_glmnetpp.py
-
+        pytest tests/test_design.py
+        pytest tests/test_glmnet.py

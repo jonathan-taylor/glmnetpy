@@ -28,9 +28,11 @@ rng = np.random.default_rng(0)
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('intercept', [True, False])
 @pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
+@pytest.mark.parametrize('alpha', [0, 0.5, 1])
 def test_glmnet_R(standardize,
                   intercept,
                   sample_weight,
+                  alpha,
                   n=1000,
                   p=50):
 
@@ -52,7 +54,8 @@ def test_glmnet_R(standardize,
 
     # with np_cv_rules.context():
     if True:
-        G = glmnetR.glmnet(X, y, weights=sample_weight, intercept=intercept, standardize=standardize)
+        G = glmnetR.glmnet(X, y, weights=sample_weight, intercept=intercept, standardize=standardize,
+                           alpha=alpha)
         B = glmnetR.predict_glmnet(G, s=2 / np.sqrt(n), type="coef", exact=True, x=X, y=y, weights=sample_weight)
         soln_R = baseR.as_numeric(B)
         intercept_R = soln_R[0]
@@ -60,6 +63,7 @@ def test_glmnet_R(standardize,
 
     fac = sample_weight.sum() / n
     G = GLMNetEstimator(lambda_val=2 * np.sqrt(n) * fac, 
+                        alpha=alpha,
                         standardize=standardize, 
                         fit_intercept=intercept)
     G.fit(X, y, sample_weight=sample_weight)
