@@ -111,8 +111,8 @@ class GLMNetRegularizer(Penalty):
         z = pseudo_response
         w = sample_weight
 
-        out = self.elnet_estimator.fit(design.X, z, sample_weight=sample_weight).result_
-        coefnew = out.beta.toarray().reshape(-1)
+        out = self.elnet_estimator.fit(design, z, sample_weight=sample_weight).result_
+        coefnew = out.beta.toarray().reshape(-1) # this will not have been scaled by `xs/scaling_`
         intnew = out.a0
         
         self.warm_fit['coef_'] = coefnew

@@ -31,7 +31,7 @@ class ElNetControl(object):
 @dataclass
 class ElNetSpec(Penalty):
 
-    fit_intercept: bool = False
+    fit_intercept: bool = True
     standardize: bool = True
     control: ElNetControl = field(default_factory=ElNetControl)
 
@@ -44,9 +44,12 @@ class ElNetEstimator(BaseEstimator,
 
     def fit(self, X, y, sample_weight=None, warm=None, exclude=[]):
 
-        design = _get_design(X, sample_weight, standardize=self.standardize)
+        design = _get_design(X,
+                             sample_weight,
+                             standardize=self.standardize,
+                             intercept=self.fit_intercept)
 
-        if self.lambda_val > 0 or not (np.all(design.xm == 0) and np.all(design.xs == 1)):
+        if self.lambda_val > 0 or not (np.all(design.centers_ == 0) and np.all(design.scaling_ == 1)):
 
             self.exclude_ = exclude
             if self.control is None:
@@ -54,7 +57,7 @@ class ElNetEstimator(BaseEstimator,
             elif type(self.control) == dict:
                 self.control = _parent_dataclass_from_child(ElNetControl,
                                                             self.control)
-            nobs, nvars = X.shape
+            nobs, nvars = design.X.shape
 
             if sample_weight is None:
                 sample_weight = np.ones(nobs)
@@ -71,7 +74,7 @@ class ElNetEstimator(BaseEstimator,
             exclude = _check_and_set_vp(self, nvars, exclude)
 
             args, nulldev = _wls_args(self, design, y, sample_weight, warm=warm, exclude=exclude)
-
+            
             if scipy.sparse.issparse(design.X):
                 wls_fit = sparse_wls(**args)
             else:
@@ -99,6 +102,7 @@ class ElNetEstimator(BaseEstimator,
 
             beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
 
+            intercept_ = wls_fit['aint']
             result = ElNetResult(a0=wls_fit['aint'],
                                  beta=beta,
                                  df=np.sum(np.abs(beta) > 0),
@@ -127,6 +131,7 @@ class ElNetEstimator(BaseEstimator,
             
             beta = scipy.sparse.csc_array(lm.coef_)
 
+            intercept_ = lm.intercept_
             result = ElNetResult(a0=lm.intercept_,
                                  beta=beta,
                                  df=X.shape[1]+self.fit_intercept,
@@ -141,6 +146,9 @@ class ElNetEstimator(BaseEstimator,
                                  sample_weight=sample_weight)
 
         self.result_ = result
+        self.design_ = design
+        self.coef_ = beta.toarray() / design.scaling_
+        self.intercept_ = intercept_ - (self.coef_ * self.design_.centers_).sum()
         return self
 
 add_dataclass_docstring(ElNetEstimator, subs={'control':'control_elnet'})
@@ -434,8 +442,8 @@ def _design_wls_args(design):
         return {'x_data_array':design.X.data,
                 'x_indices_array':design.X.indices,
                 'x_indptr_array':design.X.indptr,
-                'xm':design.xm,
-                'xs':design.xs}
+                'xm':design.centers_,
+                'xs':design.scaling_}
 
 def _wls_args(spec,
               design,
