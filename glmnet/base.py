@@ -1,6 +1,6 @@
 import warnings
 from typing import Union, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 
 import numpy as np
 import scipy.sparse
@@ -18,9 +18,12 @@ class Design(LinearOperator):
 
     X: Union[np.ndarray, scipy.sparse._csc.csc_array]
     weights: np.ndarray
-    standardize: bool = False
+    dtype: np.dtype = float
+    standardize: InitVar[bool] = False
+    intercept: InitVar[bool] = True
+
     
-    def __post_init__(self):
+    def __post_init__(self, standardize, intercept):
 
         self.shape = (self.X.shape[0], self.X.shape[1]+1)
         n = self.shape[0]
@@ -28,26 +31,28 @@ class Design(LinearOperator):
         X, weights = self.X, self.weights
 
         # if standardizing, then the effective matrix is
+        # xs = scaling_
         # (X - (1'W)^{-1} 1 W'X) S^{-1}
         # (X - 1 xm') @ diag(1/xs) = XS^{-1} - 1 xm/xs'
 
-        if self.standardize:
+        if standardize:
             sum_w = weights.sum()
-            self.xm = X.T @ weights / sum_w
+            self.centers_ = X.T @ weights / sum_w
             xm2 = (X*X).T @ weights / sum_w
-            self.xs = np.sqrt(xm2 - self.xm**2)
+            self.scaling_ = np.sqrt(xm2 - self.centers_**2)
         else:
-            self.xm = np.zeros(self.shape[1]-1) # -1 for intercept
-            self.xs = np.ones(self.shape[1]-1)
+            self.centers_ = np.zeros(self.shape[1]-1) # -1 for intercept
+            self.scaling_ = np.ones(self.shape[1]-1)
             
+        if not intercept:
+            self.centers_ *= 0
+
         if scipy.sparse.issparse(self.X):
             self.X = self.X.tocsc()
         else:
-            self.X = self.X - np.multiply.outer(np.ones(n), self.xm)
-            self.X = self.X / self.xs[None,:]
+            self.X = self.X - np.multiply.outer(np.ones(n), self.centers_)
+            self.X = self.X / self.scaling_[None,:]
             self.X = np.asfortranarray(self.X)
-            self.xm = np.zeros(self.shape[1]-1)
-            self.xs = np.ones(self.shape[1]-1)
 
     # LinearOperator API
 
@@ -66,7 +71,7 @@ class Design(LinearOperator):
     
         X = self.X
         if scipy.sparse.issparse(X):
-            xm, xs = self.xm, self.xs
+            xm, xs = self.centers_, self.scaling_
             if coef.ndim == 1:
                 coef = coef / xs
                 eta = X @ coef - np.sum(coef * xm) + intercept
@@ -83,7 +88,7 @@ class Design(LinearOperator):
    
         X = self.X
         if scipy.sparse.issparse(X):
-            xm, xs = self.xm, self.xs
+            xm, xs = self.centers_, self.scaling_
             if r.ndim == 1:
                 V1 = (X.T @ r - np.sum(r) * xm) / xs
             else:
@@ -154,17 +159,19 @@ class Design(LinearOperator):
             
         # correct XX_block for standardize
         
-        if columns is not None:
-            XX_block -= (np.multiply.outer(X1_block, self.xm[columns]) + np.multiply.outer(self.xm, X1_block[columns]))
-            XX_block += np.multiply.outer(self.xm, self.xm[columns]) * G_sum
-            XX_block /= np.multiply.outer(self.xs, self.xs[columns])
-        else:
-            XX_block -= (np.multiply.outer(X1_block, self.xm) + np.multiply.outer(self.xm, X1_block))
-            XX_block += np.multiply.outer(self.xm, self.xm) * G_sum
-            XX_block /= np.multiply.outer(self.xs, self.xs)
+        xm, xs = self.centers_, self.scaling_
 
-        X1_block -= G_sum * self.xm
-        X1_block /= self.xs
+        if columns is not None:
+            XX_block -= (np.multiply.outer(X1_block, xm[columns]) + np.multiply.outer(xm, X1_block[columns]))
+            XX_block += np.multiply.outer(xm, xm[columns]) * G_sum
+            XX_block /= np.multiply.outer(xs, xs[columns])
+        else:
+            XX_block -= (np.multiply.outer(X1_block, xm) + np.multiply.outer(xm, X1_block))
+            XX_block += np.multiply.outer(xm, xm) * G_sum
+            XX_block /= np.multiply.outer(xs, xs)
+
+        X1_block -= G_sum * xm
+        X1_block /= xs
         
         Q = np.zeros((XX_block.shape[0] + 1,
                       XX_block.shape[1] + 1))
@@ -178,13 +185,19 @@ class Design(LinearOperator):
         
         return Q
 
-def _get_design(X, sample_weight, standardize=False):
+def _get_design(X,
+                sample_weight,
+                standardize=False,
+                intercept=True):
     if isinstance(X, Design):
         return X
     else:
         if sample_weight is None:
             sample_weight = np.ones(X.shape[0])
-        return Design(X, sample_weight, standardize=standardize)
+        return Design(X,
+                      sample_weight,
+                      standardize=standardize,
+                      intercept=intercept)
 
 @add_dataclass_docstring
 @dataclass
