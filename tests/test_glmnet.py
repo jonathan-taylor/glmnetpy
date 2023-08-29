@@ -1,5 +1,7 @@
 from dataclasses import asdict
 
+import pytest
+
 import numpy as np
 import scipy.sparse
 import statsmodels.api as sm
@@ -7,27 +9,37 @@ import statsmodels.api as sm
 from glmnet.elnet import ElNetEstimator
 from glmnet.glmnet import GLMNetEstimator
 
-def test_compare_glmnet_elnet():
+rng = np.random.default_rng(0)
+n, p = 30, 10
 
-    n, p = 30, 10
-    rng = np.random.default_rng(0)
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
+@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
+def test_compare_glmnet_elnet(standardize,
+                              fit_intercept,
+                              sample_weight,
+                              lambda_val):
 
+    sample_weight = sample_weight(n)
     X = rng.normal(size=(n,p))
     coefs = np.zeros(p)
     coefs[[2,3]] = 3 / np.sqrt(n)
     y = rng.normal(size=n) + 1 + X @ coefs
-    lambda_val = 0.5 / np.sqrt(n)
-    weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
 
-    elnet = ElNetEstimator(lambda_val)
+    elnet = ElNetEstimator(lambda_val,
+                           standardize=standardize,
+                           fit_intercept=fit_intercept)
     elnet.fit(X, 
               y,
-              weights)
+              sample_weight)
 
-    glmnet = GLMNetEstimator(lambda_val)
+    glmnet = GLMNetEstimator(lambda_val,
+                             standardize=standardize,
+                             fit_intercept=fit_intercept)
     glmnet.fit(X, 
                y,
-               weights)
+               sample_weight)
 
     if not np.allclose(elnet.intercept_, glmnet.intercept_, rtol=1e-4):
         raise ValueError('intercepts not close')
@@ -38,7 +50,7 @@ def test_compare_glmnet_elnet():
     glmnet_dict = asdict(glmnet)
 
     eta = X @ glmnet.coef_ + glmnet.intercept_
-    dev = np.sum(weights * (y - eta)**2) 
+    dev = np.sum(sample_weight * (y - eta)**2) 
     # dev_ratio = 1 - dev / glmnet_dict['nulldev']
 
     # # check the regularizer 
@@ -63,95 +75,124 @@ def test_compare_glmnet_elnet():
     # if failures:
     #     raise ValueError(';'.join(failures))
 
-def test_compare_sparse_elnet():
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
+@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
+def test_compare_sparse_elnet(standardize,
+                              fit_intercept,
+                              sample_weight,
+                              lambda_val):
 
-    n, p = 30, 22
-    rng = np.random.default_rng(0)
-
-
+    sample_weight = sample_weight(n)
     X = rng.normal(size=(n,p))
     y = rng.normal(size=n)
-    lambda_val = 2 * np.sqrt(n)
-    weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
 
-    elnet = ElNetEstimator(lambda_val)
+    elnet = ElNetEstimator(lambda_val,
+                           standardize=standardize,
+                           fit_intercept=fit_intercept)
     elnet.fit(X, 
               y,
-              weights)
+              sample_weight)
 
     Xs = scipy.sparse.csc_array(X).tocsc()
-    elnet_s = ElNetEstimator(lambda_val)
+    elnet_s = ElNetEstimator(lambda_val,
+                             standardize=standardize,
+                             fit_intercept=fit_intercept)
     elnet_s.fit(Xs, 
                 y,
-                weights)
+                sample_weight)
 
     if not np.allclose(elnet.intercept_, elnet_s.intercept_):
         raise ValueError('intercepts not close')
     if not np.allclose(elnet.coef_, elnet_s.coef_):
         raise ValueError('coefs not close')
 
-def test_compare_sparse_glmnet():
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
+@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
+def test_compare_sparse_glmnet(standardize,
+                               fit_intercept,
+                               sample_weight,
+                               lambda_val):
 
-    n, p = 300, 22
     rng = np.random.default_rng(0)
 
     X = rng.normal(size=(n,p))
     beta = np.zeros(p)
     beta[:2] = [2,-2.3]
     y = rng.normal(size=n) + X @ beta
-    lambda_val = 2 * np.sqrt(n)
-    weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
+    sample_weight = sample_weight(n)
 
-    glmnet = GLMNetEstimator(lambda_val)
+    glmnet = GLMNetEstimator(lambda_val,
+                             standardize=standardize,
+                             fit_intercept=fit_intercept)
     glmnet.fit(X,
                y,
-               sample_weight=weights)
+               sample_weight=sample_weight)
 
     Xs = scipy.sparse.csc_array(X).tocsc()
-    glmnet_s = GLMNetEstimator(lambda_val)
+    glmnet_s = GLMNetEstimator(lambda_val,
+                               standardize=standardize,
+                               fit_intercept=fit_intercept)
     glmnet_s.fit(Xs,
                  y,
-                 sample_weight=weights)
+                 sample_weight=sample_weight)
 
     if not np.allclose(glmnet.intercept_, glmnet_s.intercept_):
         raise ValueError('intercepts not close')
     if not np.allclose(glmnet.coef_, glmnet_s.coef_):
         raise ValueError('coefs not close')
     
-def test_logistic():
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
+@pytest.mark.parametrize('lambda_val', [0, 0.5 / np.sqrt(n)])
+def test_logistic(standardize,
+                  fit_intercept,
+                  sample_weight,
+                  lambda_val):
 
-    n, p = 30, 10
-    rng = np.random.default_rng(0)
 
-    X = rng.normal(size=(n,p))
-    y = rng.choice([0,1], size=n, replace=True)
-    lambda_val = 0.5 / np.sqrt(n)
-    weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
-    weights /= weights.sum()
-
-    glmnet = GLMNetEstimator(lambda_val, family=sm.families.Binomial())
-    glmnet.fit(X, 
-               y,
-               weights,
-               )
-    print(glmnet.coef_)
-
-def test_probit():
-
-    n, p = 30, 10
-    rng = np.random.default_rng(0)
+    sample_weight = sample_weight(n)
 
     X = rng.normal(size=(n,p))
     y = rng.choice([0,1], size=n, replace=True)
-    lambda_val = 0.5 / np.sqrt(n)
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
     weights /= weights.sum()
 
-    link = sm.families.links.Probit()
-    glmnet = GLMNetEstimator(lambda_val, family=sm.families.Binomial(link=link))
-
+    glmnet = GLMNetEstimator(lambda_val,
+                             standardize=standardize,
+                             fit_intercept=fit_intercept,
+                             family=sm.families.Binomial())
     glmnet.fit(X, 
                y,
                weights)
     print(glmnet.coef_)
-    
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
+@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
+def test_probit(standardize,
+                fit_intercept,
+                sample_weight,
+                lambda_val):
+
+    sample_weight = sample_weight(n)
+
+    X = rng.normal(size=(n,p))
+    y = rng.choice([0,1], size=n, replace=True)
+    weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
+    weights /= weights.sum()
+
+    link = sm.families.links.Probit()
+    glmnet = GLMNetEstimator(lambda_val,
+                             standardize=standardize,
+                             fit_intercept=fit_intercept,
+                             family=sm.families.Binomial(link=link))
+    glmnet.fit(X, 
+               y,
+               weights)
+    print(glmnet.coef_)

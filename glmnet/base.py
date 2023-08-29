@@ -35,14 +35,14 @@ class Design(LinearOperator):
         # (X - (1'W)^{-1} 1 W'X) S^{-1}
         # (X - 1 xm') @ diag(1/xs) = XS^{-1} - 1 xm/xs'
 
+        sum_w = weights.sum()
+        self.centers_ = X.T @ weights / sum_w
+
         if standardize:
-            sum_w = weights.sum()
-            self.centers_ = X.T @ weights / sum_w
             xm2 = (X*X).T @ weights / sum_w
             self.scaling_ = np.sqrt(xm2 - self.centers_**2)
         else:
-            self.centers_ = np.zeros(self.shape[1]-1) # -1 for intercept
-            self.scaling_ = np.ones(self.shape[1]-1)
+            self.scaling_ = np.ones(self.shape[1]-1) # -1 for intercept
             
         if not intercept:
             self.centers_ *= 0
@@ -50,54 +50,46 @@ class Design(LinearOperator):
         if scipy.sparse.issparse(self.X):
             self.X = self.X.tocsc()
         else:
-            self.X = self.X - np.multiply.outer(np.ones(n), self.centers_)
-            self.X = self.X / self.scaling_[None,:]
+            self.X = (self.X - self.centers_[None,:]) / self.scaling_[None,:]
             self.X = np.asfortranarray(self.X)
 
     # LinearOperator API
 
     def _matvec(self, x):
-        return self.linear_map(x[1:], x[0])
-
-    def _rmatvec(self, y):
-        r1, r2 = self.adjoint_map(y)
-        return np.hstack([r2, r1])
-    
-    # the map presumes X has column of 1's appended
-    
-    def linear_map(self,
-                   coef,
-                   intercept=0):
-    
+        intercept = x[0]
+        coef = x[1:]
+        
         X = self.X
         if scipy.sparse.issparse(X):
             xm, xs = self.centers_, self.scaling_
             if coef.ndim == 1:
                 coef = coef / xs
-                eta = X @ coef - np.sum(coef * xm) + intercept
+                prod_ = X @ coef - np.sum(coef * xm) + intercept
             else:
                 coef = coef / xs[:,None]
                 prod1 = xm @ coef
-                eta = X @ coef - prod1[None,:] + intercept
+                prod_ = X @ coef - prod1[None,:] + intercept
         else:
-            eta = X @ coef + intercept
-        return eta
+            prod_ = X @ coef + intercept
+        return prod_
 
-    def adjoint_map(self,
-                    r):
-   
+    def _rmatvec(self, r):
+
         X = self.X
         if scipy.sparse.issparse(X):
             xm, xs = self.centers_, self.scaling_
             if r.ndim == 1:
-                V1 = (X.T @ r - np.sum(r) * xm) / xs
+                XtR = (X.T @ r - np.sum(r) * xm) / xs
             else:
                 val1 = X.T @ r
                 val2 = np.multiply.outer(xm, r.sum(0))
-                V1 = (val1 - val2) / xs[:,None]
-            return V1, r.sum(0)
+                XtR = (val1 - val2) / xs[:,None]
         else:
-            return X.T @ r, r.sum(0) 
+            XtR = X.T @ r
+        if r.ndim == 1:
+            return np.hstack([r.sum(0), XtR])
+        else:
+            return np.concatenate([r.sum(0).reshape((-1,1)), XtR], axis=0)
 
     def quadratic_form(self,
                        G=None,
