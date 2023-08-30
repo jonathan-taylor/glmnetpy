@@ -17,7 +17,7 @@ class Design(LinearOperator):
     """
 
     X: Union[np.ndarray, scipy.sparse._csc.csc_array]
-    weights: np.ndarray
+    weights: Optional[np.ndarray] = None
     dtype: np.dtype = float
     standardize: InitVar[bool] = False
     intercept: InitVar[bool] = True
@@ -27,6 +27,9 @@ class Design(LinearOperator):
 
         self.shape = (self.X.shape[0], self.X.shape[1]+1)
         n = self.shape[0]
+
+        if self.weights is None:
+            self.weights = np.ones(n)
         
         X, weights = self.X, self.weights
 
