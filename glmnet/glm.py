@@ -23,7 +23,7 @@ from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
 
-from .elnet import ElNetEstimator
+from .elnet import ElNet
 
 @add_dataclass_docstring
 @dataclass
@@ -151,8 +151,8 @@ add_dataclass_docstring(GLMRegularizer, subs={'warm_fit':'warm_glm'})
 # end of GLMRegularizer
 
 @dataclass
-class GLMEstimator(BaseEstimator,
-                   GLMSpec):
+class GLM(BaseEstimator,
+          GLMSpec):
 
     def _get_regularizer(self,
                          X):
@@ -306,7 +306,7 @@ Returns
 -------
 
 self: object
-        GLMEstimator class instance.
+        GLM class instance.
         '''.format(**_docstrings)
     
     def predict(self, X, prediction_type='mean'):
@@ -355,7 +355,7 @@ score: float
     Deviance of family for (X, y).
 '''.format(**_docstrings).strip()
 
-add_dataclass_docstring(GLMEstimator, subs={'control':'control_glm'})
+add_dataclass_docstring(GLM, subs={'control':'control_glm'})
 
 # private functions
 

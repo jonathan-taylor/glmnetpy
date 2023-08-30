@@ -3,7 +3,7 @@ from itertools import product
 import numpy as np
 import scipy.sparse
 
-from glmnet.elnet import ElNetEstimator
+from glmnet.elnet import ElNet
 
 def test_small_penalty(n=50, p=10):
 
@@ -16,9 +16,9 @@ def test_small_penalty(n=50, p=10):
 
     for intercept, standardize in product([False, True],
                                           [False, True]):
-        spec = ElNetEstimator(lambda_val=0.5,
-                              standardize=standardize,
-                              fit_intercept=intercept)
+        spec = ElNet(lambda_val=0.5,
+                     standardize=standardize,
+                     fit_intercept=intercept)
 
         out = spec.fit(X, y, sample_weight=W).result_
         out_s = spec.fit(X_s, y, sample_weight=W).result_
