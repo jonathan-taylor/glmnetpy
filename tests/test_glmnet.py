@@ -6,8 +6,8 @@ import numpy as np
 import scipy.sparse
 import statsmodels.api as sm
 
-from glmnet.elnet import ElNetEstimator
-from glmnet.glmnet import GLMNetEstimator
+from glmnet.elnet import ElNet
+from glmnet.glmnet import GLMNet
 
 rng = np.random.default_rng(0)
 n, p = 30, 10
@@ -29,7 +29,7 @@ def test_compare_glmnet_elnet(standardize,
     coefs[[2,3]] = 3 / np.sqrt(n)
     y = rng.normal(size=n) + 1 + X @ coefs
 
-    elnet = ElNetEstimator(lambda_val,
+    elnet = ElNet(lambda_val,
                            alpha=alpha,
                            standardize=standardize,
                            fit_intercept=fit_intercept)
@@ -37,10 +37,10 @@ def test_compare_glmnet_elnet(standardize,
               y,
               sample_weight)
 
-    glmnet = GLMNetEstimator(lambda_val,
-                             alpha=alpha,
-                             standardize=standardize,
-                             fit_intercept=fit_intercept)
+    glmnet = GLMNet(lambda_val,
+                    alpha=alpha,
+                    standardize=standardize,
+                    fit_intercept=fit_intercept)
     print('glmnet alpha', glmnet.alpha)
     glmnet.fit(X, 
                y,
@@ -93,7 +93,7 @@ def test_compare_sparse_elnet(standardize,
     X = rng.normal(size=(n,p))
     y = rng.normal(size=n)
 
-    elnet = ElNetEstimator(lambda_val,
+    elnet = ElNet(lambda_val,
                            standardize=standardize,
                            fit_intercept=fit_intercept)
     elnet.fit(X, 
@@ -101,7 +101,7 @@ def test_compare_sparse_elnet(standardize,
               sample_weight)
 
     Xs = scipy.sparse.csc_array(X).tocsc()
-    elnet_s = ElNetEstimator(lambda_val,
+    elnet_s = ElNet(lambda_val,
                              standardize=standardize,
                              fit_intercept=fit_intercept)
     elnet_s.fit(Xs, 
@@ -130,17 +130,17 @@ def test_compare_sparse_glmnet(standardize,
     y = rng.normal(size=n) + X @ beta
     sample_weight = sample_weight(n)
 
-    glmnet = GLMNetEstimator(lambda_val,
-                             standardize=standardize,
-                             fit_intercept=fit_intercept)
+    glmnet = GLMNet(lambda_val,
+                    standardize=standardize,
+                    fit_intercept=fit_intercept)
     glmnet.fit(X,
                y,
                sample_weight=sample_weight)
 
     Xs = scipy.sparse.csc_array(X).tocsc()
-    glmnet_s = GLMNetEstimator(lambda_val,
-                               standardize=standardize,
-                               fit_intercept=fit_intercept)
+    glmnet_s = GLMNet(lambda_val,
+                      standardize=standardize,
+                      fit_intercept=fit_intercept)
     glmnet_s.fit(Xs,
                  y,
                  sample_weight=sample_weight)
@@ -167,10 +167,10 @@ def test_logistic(standardize,
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
     weights /= weights.sum()
 
-    glmnet = GLMNetEstimator(lambda_val,
-                             standardize=standardize,
-                             fit_intercept=fit_intercept,
-                             family=sm.families.Binomial())
+    glmnet = GLMNet(lambda_val,
+                    standardize=standardize,
+                    fit_intercept=fit_intercept,
+                    family=sm.families.Binomial())
     glmnet.fit(X, 
                y,
                weights)
@@ -194,10 +194,10 @@ def test_probit(standardize,
     weights /= weights.sum()
 
     link = sm.families.links.Probit()
-    glmnet = GLMNetEstimator(lambda_val,
-                             standardize=standardize,
-                             fit_intercept=fit_intercept,
-                             family=sm.families.Binomial(link=link))
+    glmnet = GLMNet(lambda_val,
+                    standardize=standardize,
+                    fit_intercept=fit_intercept,
+                    family=sm.families.Binomial(link=link))
     glmnet.fit(X, 
                y,
                weights)

@@ -12,8 +12,8 @@ from .base import Design, _get_design, Penalty
 from .docstrings import add_dataclass_docstring
 
 from .glmnet import (GLMNetControl,
-                     GLMNetEstimator)
-from .glm import GLMEstimator, GLMState
+                     GLMNet)
+from .glm import GLM, GLMState
 
 @dataclass
 class GLMNetPathSpec(object):
@@ -32,8 +32,8 @@ class GLMNetPathSpec(object):
 add_dataclass_docstring(GLMNetPathSpec, subs={'control':'control_glmnet'})
 
 @dataclass
-class GLMNetPathEstimator(BaseEstimator,
-                          GLMNetPathSpec):
+class GLMNetPath(BaseEstimator,
+                 GLMNetPathSpec):
 
     def fit(self,
             X,
@@ -43,14 +43,14 @@ class GLMNetPathEstimator(BaseEstimator,
             exclude=[],
             offset=None):
 
-        self.glmnet_est_ = GLMNetEstimator(lambda_val=self.control.big,
-                                           family=self.family,
-                                           alpha=self.alpha,
-                                           penalty_factor=self.penalty_factor,
-                                           lower_limits=self.lower_limits,
-                                           upper_limits=self.upper_limits,
-                                           fit_intercept=self.fit_intercept,
-                                           control=self.control)
+        self.glmnet_est_ = GLMNet(lambda_val=self.control.big,
+                                  family=self.family,
+                                  alpha=self.alpha,
+                                  penalty_factor=self.penalty_factor,
+                                  lower_limits=self.lower_limits,
+                                  upper_limits=self.upper_limits,
+                                  fit_intercept=self.fit_intercept,
+                                  control=self.control)
         self.glmnet_est_.fit(X, y, sample_weight)
         regularizer_ = self.glmnet_est_.regularizer_
 
@@ -110,8 +110,8 @@ class GLMNetPathEstimator(BaseEstimator,
         if keep.sum() > 0:
             X_keep = X[:,keep]
 
-            glm = GLMEstimator(fit_intercept=self.fit_intercept,
-                               family=self.family)
+            glm = GLM(fit_intercept=self.fit_intercept,
+                      family=self.family)
             glm.fit(X_keep, y, sample_weight, offset=offset)
             coef_[keep] = glm.coef_
             intercept_ = glm.intercept_

@@ -11,12 +11,12 @@ from statsmodels.genmod.families import links as sm_links
 from .base import Design, _get_design, Penalty
 from .docstrings import add_dataclass_docstring
 
-from .elnet import (ElNetEstimator,
+from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
 from .glm import (GLMState,
                   _IRLS,
-                  GLMEstimator)
+                  GLM)
 
 @add_dataclass_docstring
 @dataclass
@@ -65,13 +65,13 @@ class GLMNetRegularizer(Penalty):
 
         self.penalty_factor *= nvars / self.penalty_factor.sum() 
             
-        self.elnet_estimator = ElNetEstimator(lambda_val=self.lambda_val,
-                                              alpha=self.alpha,
-                                              control=control,
-                                              lower_limits=self.lower_limits,
-                                              upper_limits=self.upper_limits,
-                                              fit_intercept=self.fit_intercept,
-                                              standardize=False)
+        self.elnet_estimator = ElNet(lambda_val=self.lambda_val,
+                                     alpha=self.alpha,
+                                     control=control,
+                                     lower_limits=self.lower_limits,
+                                     upper_limits=self.upper_limits,
+                                     fit_intercept=self.fit_intercept,
+                                     standardize=False)
 
     def quasi_newton_step(self,
                           design,
@@ -82,13 +82,7 @@ class GLMNetRegularizer(Penalty):
         w = sample_weight
 
         # make sure to set lambda_val to self.lambda_val
-        self.elnet_estimator = ElNetEstimator(lambda_val=self.lambda_val,
-                                              alpha=self.alpha,
-                                              control=self.elnet_estimator.control,
-                                              lower_limits=self.lower_limits,
-                                              upper_limits=self.upper_limits,
-                                              fit_intercept=self.fit_intercept,
-                                              standardize=False)
+        self.elnet_estimator.lambda_val = self.lambda_val
         
         out = self.elnet_estimator.fit(design, z, sample_weight=sample_weight).result_
         coefnew = out.beta.toarray().reshape(-1) # this will not have been scaled by `xs/scaling_`
@@ -115,8 +109,8 @@ class GLMNetRegularizer(Penalty):
 # end of GLMNetRegularizer
 
 @dataclass
-class GLMNetEstimator(GLMEstimator,
-                      GLMNetSpec):
+class GLMNet(GLM,
+             GLMNetSpec):
 
     control: GLMNetControl = field(default_factory=GLMNetControl)
 
@@ -163,5 +157,5 @@ class GLMNetEstimator(GLMEstimator,
 
         return self
 
-add_dataclass_docstring(GLMNetEstimator, subs={'control':'control_glm'})
+add_dataclass_docstring(GLMNet, subs={'control':'control_glm'})
 

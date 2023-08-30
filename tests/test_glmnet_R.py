@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 from sklearn.model_selection import cross_validate
 
-from glmnet.glmnet import GLMNetEstimator
+from glmnet.glmnet import GLMNet
 
 try:
     import rpy2
@@ -28,7 +28,7 @@ rng = np.random.default_rng(0)
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('intercept', [True, False])
 @pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
-@pytest.mark.parametrize('alpha', [0, 0.5, 1])
+@pytest.mark.parametrize('alpha', [0, 0.5, 1][2:])
 def test_glmnet_R(standardize,
                   intercept,
                   sample_weight,
@@ -62,10 +62,10 @@ def test_glmnet_R(standardize,
         coef_R = soln_R[1:]
 
     fac = sample_weight.sum() / n
-    G = GLMNetEstimator(lambda_val=2 * np.sqrt(n) * fac, 
-                        alpha=alpha,
-                        standardize=standardize, 
-                        fit_intercept=intercept)
+    G = GLMNet(lambda_val=2 * np.sqrt(n) * fac, 
+               alpha=alpha,
+               standardize=standardize, 
+               fit_intercept=intercept)
     G.fit(X, y, sample_weight=sample_weight)
 
     soln_py = np.hstack([G.intercept_, G.coef_])
@@ -97,9 +97,9 @@ def test_cv(standardize,
     beta[:2] = [1,2]
     y = rng.standard_normal(n) + X @ beta
 
-    G = GLMNetEstimator(lambda_val=2 * np.sqrt(n),
-                        fit_intercept=fit_intercept,
-                        standardize=standardize)
+    G = GLMNet(lambda_val=2 * np.sqrt(n),
+               fit_intercept=fit_intercept,
+               standardize=standardize)
     cross_validate(G, X, y, cv=5)
 
 

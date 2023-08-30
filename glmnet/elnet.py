@@ -38,9 +38,9 @@ class ElNetSpec(Penalty):
 add_dataclass_docstring(ElNetSpec, subs={'control':'control_elnet'})
 
 @dataclass
-class ElNetEstimator(BaseEstimator,
-                     RegressorMixin,
-                     ElNetSpec):
+class ElNet(BaseEstimator,
+            RegressorMixin,
+            ElNetSpec):
 
     def fit(self, X, y, sample_weight=None, warm=None, exclude=[]):
 
@@ -151,7 +151,7 @@ class ElNetEstimator(BaseEstimator,
         self.intercept_ = intercept_ - (self.coef_ * self.design_.centers_).sum()
         return self
 
-add_dataclass_docstring(ElNetEstimator, subs={'control':'control_elnet'})
+add_dataclass_docstring(ElNet, subs={'control':'control_elnet'})
 
 @dataclass
 class ElNetWarmStart(object):
