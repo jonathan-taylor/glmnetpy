@@ -44,6 +44,7 @@ class GLMNetPathEstimator(BaseEstimator,
             offset=None):
 
         self.glmnet_est_ = GLMNetEstimator(lambda_val=self.control.big,
+                                           family=self.family,
                                            alpha=self.alpha,
                                            penalty_factor=self.penalty_factor,
                                            lower_limits=self.lower_limits,
@@ -58,7 +59,13 @@ class GLMNetPathEstimator(BaseEstimator,
                                                sample_weight,
                                                exclude,
                                                offset)
-        score_ = (self.glmnet_est_.design_.T @ (y - self.glmnet_est_.design_ @ state._stack))[1:]
+        state.update(self.glmnet_est_.design_,
+                     self.family,
+                     offset)
+
+        logl_score = state.logl_score(self.family,
+                                      y)
+        score_ = (self.glmnet_est_.design_.T @ (sample_weight * logl_score))[1:]
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf ==0))
         score_[exclude] = 0
@@ -85,6 +92,8 @@ class GLMNetPathEstimator(BaseEstimator,
         self.coefs_ = np.array(coefs_)
         self.intercepts_ = np.array(intercepts_)
 
+        return self
+    
     def _get_initial_state(self,
                            X,
                            y,

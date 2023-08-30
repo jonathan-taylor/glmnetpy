@@ -77,6 +77,17 @@ class GLMState(object):
         else:
             self.mu = family.link.inverse(self.eta + offset)    
 
+    def logl_score(self,
+                   family,
+                   y):
+
+        varmu = family.variance(self.mu)
+        dmu_deta = family.link.inverse_deriv(self.eta)
+        
+        # compute working residual
+        r = (y - self.mu) 
+        return r / varmu * dmu_deta
+
 @dataclass
 class GLMRegularizer(object):
 
@@ -216,7 +227,7 @@ class GLMEstimator(BaseEstimator,
             return (_dev_function(y,
                                  state.mu,
                                  sample_weight,
-                                 family) +
+                                 family) / 2 +
                     regularizer.objective(state))
         obj_function = partial(obj_function, y, self.family, regularizer)
         
