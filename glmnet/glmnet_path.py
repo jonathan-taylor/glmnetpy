@@ -43,6 +43,9 @@ class GLMNetPath(BaseEstimator,
             exclude=[],
             offset=None):
 
+        if sample_weight is None:
+            sample_weight = np.ones(X.shape[0])
+
         self.glmnet_est_ = GLMNet(lambda_val=self.control.big,
                                   family=self.family,
                                   alpha=self.alpha,
@@ -50,6 +53,7 @@ class GLMNetPath(BaseEstimator,
                                   lower_limits=self.lower_limits,
                                   upper_limits=self.upper_limits,
                                   fit_intercept=self.fit_intercept,
+                                  standardize=self.standardize,
                                   control=self.control)
         self.glmnet_est_.fit(X, y, sample_weight)
         regularizer_ = self.glmnet_est_.regularizer_
@@ -67,7 +71,7 @@ class GLMNetPath(BaseEstimator,
                                       y)
         score_ = (self.glmnet_est_.design_.T @ (sample_weight * logl_score))[1:]
         pf = regularizer_.penalty_factor
-        score_ /= (pf + (pf ==0))
+        score_ /= (pf + (pf <= 0))
         score_[exclude] = 0
         self.lambda_max_ = np.fabs(score_).max()
 
@@ -116,6 +120,9 @@ class GLMNetPath(BaseEstimator,
             coef_[keep] = glm.coef_
             intercept_ = glm.intercept_
         else:
-            intercept_ = self.family.link(y.mean())
+            if self.fit_intercept:
+                intercept_ = self.family.link(y.mean())
+            else:
+                intercept_ = 0
         return GLMState(coef_, intercept_), keep.astype(float)
 
