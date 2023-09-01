@@ -142,6 +142,7 @@ class GLMNet(GLM,
             regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             offset=None):
+
         super().fit(X,
                     y,
                     sample_weight=sample_weight,

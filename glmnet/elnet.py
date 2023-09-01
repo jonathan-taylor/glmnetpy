@@ -60,7 +60,7 @@ class ElNet(BaseEstimator,
             nobs, nvars = design.X.shape
 
             if sample_weight is None:
-                sample_weight = np.ones(nobs)
+                sample_weight = np.ones(nobs) / nobs
 
             # because _get_design ignores `standardize` if X is a `Design`, then if `X`
             # is a `Design` this will ignore `self.standardize

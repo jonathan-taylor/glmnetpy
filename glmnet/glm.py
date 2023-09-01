@@ -205,8 +205,9 @@ class GLM(BaseEstimator,
         nobs, nvars = n, p = X.shape
         
         if sample_weight is None:
-            sample_weight = np.ones(nobs)
-
+            sample_weight = np.ones(nobs) / nobs
+        sample_weight = sample_weight / sample_weight.sum()
+        
         design = self._get_design(X, sample_weight)
         self.design_ = design
         
@@ -336,11 +337,11 @@ Returns
 
         mu = self.predict(X, prediction_type='mean')
         if sample_weight is None:
-            sample_weight = np.ones_like(y) 
+            sample_weight = np.ones_like(y) / y.shape[0]
         return -_dev_function(y, mu, sample_weight, self.family) / 2 
     score.__doc__ = '''
 Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
-default to `np.ones_like(y)`.
+default to `np.ones_like(y) / y.shape[0]`.
 
 Parameters
 ----------
