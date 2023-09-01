@@ -53,8 +53,9 @@ class GLMNetPath(BaseEstimator,
                                                     100))
 
         if sample_weight is None:
-            sample_weight = np.ones(X.shape[0])
-
+            sample_weight = np.ones(X.shape[0]) / X.shape[0]
+        self.sample_weight_ = sample_weight = sample_weight / sample_weight.sum()
+        
         self.glmnet_est_ = GLMNet(lambda_val=self.control.big,
                                   family=self.family,
                                   alpha=self.alpha,

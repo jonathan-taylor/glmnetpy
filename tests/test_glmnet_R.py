@@ -49,7 +49,7 @@ def test_glmnet_R_path(standardize,
         sample_weight = np.ones(n)
     else:
         sample_weight = sample_weight(n)
-        
+
     X = rng.standard_normal((n, p))
     X[:,4] *= 4.5
     X[:,2] *= 1.3
@@ -72,8 +72,7 @@ def test_glmnet_R_path(standardize,
         intercept_R = soln_R[0]
         coef_R = soln_R[1:]
 
-    fac = sample_weight.sum() / n
-    G = GLMNet(lambda_val=2 * np.sqrt(n) * fac, 
+    G = GLMNet(lambda_val=2 / np.sqrt(n), 
                alpha=alpha,
                standardize=standardize, 
                fit_intercept=intercept)
@@ -84,8 +83,8 @@ def test_glmnet_R_path(standardize,
     yhat_py = G.design_ @ soln_py
     yhat_R = G.design_ @ soln_R 
 
-    fit_match = np.allclose(yhat_py, yhat_R, atol=1e-2, rtol=1e-2)
-    intercept_match = np.fabs(G.intercept_ - intercept_R) < 1e-2
+    fit_match = np.allclose(yhat_py, yhat_R, atol=1e-3, rtol=1e-3)
+    intercept_match = np.fabs(G.intercept_ - intercept_R) < 1e-3
     coef_match = np.fabs(coef_R - G.coef_).max() / np.linalg.norm(G.coef_) < 1e-3
 
     print(f'fit: {fit_match}, intercept: {intercept_match}, coef:{coef_match}')
@@ -111,7 +110,8 @@ def test_glmnet_R(standardize,
         sample_weight = np.ones(n)
     else:
         sample_weight = sample_weight(n)
-        
+    sample_weight /= sample_weight.sum()
+    
     X = rng.standard_normal((n, p))
     X[:,4] *= 4.5
     X[:,2] *= 1.3
@@ -140,8 +140,7 @@ def test_glmnet_R(standardize,
         intercept_R = soln_R[0]
         coef_R = soln_R[1:]
 
-    fac = sample_weight.sum() / n
-    G = GLMNet(lambda_val=2 * np.sqrt(n) * fac, 
+    G = GLMNet(lambda_val=2 / np.sqrt(n),
                alpha=alpha,
                standardize=standardize, 
                fit_intercept=intercept)
@@ -152,8 +151,8 @@ def test_glmnet_R(standardize,
     yhat_py = G.design_ @ soln_py
     yhat_R = G.design_ @ soln_R 
 
-    fit_match = np.allclose(yhat_py, yhat_R, atol=1e-2, rtol=1e-2)
-    intercept_match = np.fabs(G.intercept_ - intercept_R) < 1e-2
+    fit_match = np.allclose(yhat_py, yhat_R, atol=1e-3, rtol=1e-3)
+    intercept_match = np.fabs(G.intercept_ - intercept_R) < 1e-3
     coef_match = np.fabs(coef_R - G.coef_).max() / np.linalg.norm(G.coef_) < 1e-3
 
     print(f'fit: {fit_match}, intercept: {intercept_match}, coef:{coef_match}')
