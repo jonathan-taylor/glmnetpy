@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.model_selection import cross_validate
 import statsmodels.api as sm
 
-from glmnet.glmnet import GLMNetEstimator
+from glmnet.glmnet import GLMNet
 
 try:
     import rpy2
@@ -17,13 +17,12 @@ if has_rpy2:
     from rpy2.robjects.packages import importr
     from rpy2.robjects import numpy2ri
     from rpy2.robjects import default_converter
-    numpy2ri.activate()
 
     np_cv_rules = default_converter + numpy2ri.converter
 
     glmnetR = importr('glmnet')
     baseR = importr('base')
-
+    statR = importr('stats')
 rng = np.random.default_rng(0)
 
 @pytest.mark.parametrize('standardize', [True, False])
@@ -51,20 +50,19 @@ def test_glmnet_R(standardize,
     X[:,1] *= 0.8
     beta = np.zeros(p)
     beta[:2] = [1,2]
-    y = (rng.standard_normal(n) + X @ beta > 0).astype(int) # really a probit link but...
 
-    # with np_cv_rules.context():
-    if True:
-        yR = baseR.as_numeric(y).astype(int)
+    with np_cv_rules.context():
+        binomial = statR.binomial
+        yR = statR.rbinom(n, 1, 0.5)
         sample_weightR = baseR.as_numeric(sample_weight)
-        print(type(yR), yR.dtype)
-        G = glmnetR.glmnet(X,
-                           yR,
-                           weights=sample_weightR,
-                           intercept=intercept,
-                           standardize=standardize,
-                           family='binomial',
-                           alpha=alpha)
+        print(yR)
+        G = glmnetR.glmnet_path(X,
+                                yR,
+                                weights=sample_weightR,
+                                intercept=intercept,
+                                standardize=standardize,
+                                family=binomial,
+                                alpha=alpha)
         B = glmnetR.predict_glmnet(G,
                                    s=0.5 / np.sqrt(n),
                                    type="coef",
@@ -76,12 +74,12 @@ def test_glmnet_R(standardize,
         intercept_R = soln_R[0]
         coef_R = soln_R[1:]
 
-    fac = sample_weight.sum() / n
-    G = GLMNetEstimator(lambda_val=0.5 * np.sqrt(n) * fac, 
-                        family=sm.families.Binomial(),
-                        alpha=alpha,
-                        standardize=standardize, 
-                        fit_intercept=intercept)
+    G = GLMNet(lambda_val=0.5 / np.sqrt(n),
+               family=sm.families.Binomial(),
+               alpha=alpha,
+               standardize=standardize, 
+               fit_intercept=intercept)
+    y = np.asarray(yR)
     G.fit(X, y, sample_weight=sample_weight)
 
     soln_py = np.hstack([G.intercept_, G.coef_])
@@ -113,10 +111,10 @@ def test_cv(standardize,
     beta[:2] = [1,2]
     y = (rng.standard_normal(n) + X @ beta > 0)
 
-    G = GLMNetEstimator(lambda_val=0.5 * np.sqrt(n),
-                        family=sm.families.Binomial(),
-                        fit_intercept=fit_intercept,
-                        standardize=standardize)
+    G = GLMNet(lambda_val=0.5 / np.sqrt(n),
+               family=sm.families.Binomial(),
+               fit_intercept=fit_intercept,
+               standardize=standardize)
     cross_validate(G, X, y, cv=5)
 
 

@@ -16,7 +16,6 @@ if has_rpy2:
     from rpy2.robjects.packages import importr
     from rpy2.robjects import numpy2ri
     from rpy2.robjects import default_converter
-    numpy2ri.activate()
 
     np_cv_rules = default_converter + numpy2ri.converter
 
@@ -59,8 +58,7 @@ def test_glmnet_R_path(standardize,
     beta[:2] = [1,2]
     y = 2 * rng.standard_normal(n) + X @ beta
 
-    # with np_cv_rules.context():
-    if True:
+    with np_cv_rules.context():
         G = glmnetR.glmnet_path(X,
                                 y,
                                 weights=sample_weight,
@@ -127,8 +125,7 @@ def test_glmnet_R(standardize,
         w_std = np.sqrt(((y - w_mean)**2 * sample_weight).sum() / sample_weight.sum())
         y /= w_std
         
-    # with np_cv_rules.context():
-    if True:
+    with np_cv_rules.context():
         G = glmnetR.glmnet(X,
                            y,
                            weights=sample_weight,
