@@ -257,7 +257,8 @@ class GLM(BaseEstimator,
 
         self.coef_ = state.coef
         self.intercept_ = state.intercept
-        
+        self.intercept_ -= (self.coef_ * self.design_.centers_).sum()
+
         if isinstance(self.family, sm_family.Gaussian):
             self.dispersion_ = _dev / (n-p-1) # usual estimate of sigma^2
         else:
@@ -265,6 +266,7 @@ class GLM(BaseEstimator,
 
         if self.summarize:
             self.unscaled_precision_ = design.quadratic_form(final_weights)
+
             keep = np.ones(self.unscaled_precision_.shape[0]-1, bool)
             if self.exclude_ is not []:
                 keep[self.exclude_] = 0
@@ -336,10 +338,11 @@ Returns
 
         mu = self.predict(X, prediction_type='mean')
         if sample_weight is None:
-            sample_weight = np.ones_like(y)
+            sample_weight = np.ones_like(y) 
         return -_dev_function(y, mu, sample_weight, self.family) / 2 
     score.__doc__ = '''
-Compute log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model.
+Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
+default to `np.ones_like(y)`.
 
 Parameters
 ----------
@@ -386,7 +389,7 @@ def _quasi_newton_step(regularizer,
     else:
         z = state.eta + (y - state.mu) / dmu_deta
     
-    w = (weights * dmu_deta**2)/varmu
+    newton_weights = w = (weights * dmu_deta**2)/varmu
 
     # could have the quasi_newton_step return state instead?
     
@@ -468,7 +471,7 @@ def _quasi_newton_step(regularizer,
     else:
         regularizer.update_resid(w * (z - state.eta))
 
-    return state, boundary, halved
+    return state, boundary, halved, newton_weights
 
 def _IRLS(regularizer,
           family,
@@ -489,19 +492,20 @@ def _IRLS(regularizer,
 
         (state,
          boundary,
-         halved) = _quasi_newton_step(regularizer,
-                                      family,
-                                      design,
-                                      y,
-                                      offset,
-                                      weights,
-                                      state,
-                                      objective,
-                                      control)
+         halved,
+         newton_weights) = _quasi_newton_step(regularizer,
+                                              family,
+                                              design,
+                                              y,
+                                              offset,
+                                              weights,
+                                              state,
+                                              objective,
+                                              control)
 
         # test for convergence
         if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr):
             converged = True
             break
 
-    return converged, boundary, state, weights
+    return converged, boundary, state, newton_weights

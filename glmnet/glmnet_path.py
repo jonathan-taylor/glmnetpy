@@ -47,9 +47,9 @@ class GLMNetPath(BaseEstimator,
 
         if self.lambda_values is None:
             self.lambda_fractional = True
-            lambda_min_ratio = 1e-2 if nobs < nvars else 1e-4
+            lambda_min_ratio = 1e-2 if nobs < nvar else 1e-4
             self.lambda_values = np.exp(np.linspace(np.log(1),
-                                                    np.lambda_min_ratio,
+                                                    np.log(lambda_min_ratio),
                                                     100))
 
         if sample_weight is None:
