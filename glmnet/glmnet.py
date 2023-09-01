@@ -150,11 +150,6 @@ class GLMNet(GLM,
                     dispersion=1,
                     offset=offset)
 
-        if self.standardize:
-            self.scaling_ = self.design_.scaling_
-            self.coef_ /= self.scaling_
-        self.intercept_ -= (self.coef_ * self.design_.centers_).sum()
-
         return self
 
 add_dataclass_docstring(GLMNet, subs={'control':'control_glm'})

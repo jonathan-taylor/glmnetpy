@@ -255,9 +255,7 @@ class GLM(BaseEstimator,
                              sample_weight,
                              self.family)
 
-        self.coef_ = state.coef
-        self.intercept_ = state.intercept
-        self.intercept_ -= (self.coef_ * self.design_.centers_).sum()
+        self._set_coef_intercept(state)
 
         if isinstance(self.family, sm_family.Gaussian):
             self.dispersion_ = _dev / (n-p-1) # usual estimate of sigma^2
@@ -358,7 +356,16 @@ score: float
     Deviance of family for (X, y).
 '''.format(**_docstrings).strip()
 
+    def _set_coef_intercept(self, state):
+        self.coef_ = state.coef
+        if self.standardize:
+            self.scaling_ = self.design_.scaling_
+            self.coef_ /= self.scaling_
+        self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()
+
 add_dataclass_docstring(GLM, subs={'control':'control_glm'})
+
+
 
 # private functions
 
