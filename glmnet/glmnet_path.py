@@ -18,7 +18,7 @@ from .glm import GLM, GLMState
 @dataclass
 class GLMNetPathSpec(object):
 
-    lambda_values : np.ndarray
+    lambda_values : Optional[np.ndarray] = None
     lambda_fractional: bool = True
     alpha: float = 1.0
     lower_limits: float = -np.inf
@@ -42,6 +42,15 @@ class GLMNetPath(BaseEstimator,
             regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             offset=None):
+
+        nobs, nvar = X.shape
+
+        if self.lambda_values is None:
+            self.lambda_fractional = True
+            lambda_min_ratio = 1e-2 if nobs < nvars else 1e-4
+            self.lambda_values = np.exp(np.linspace(np.log(1),
+                                                    np.lambda_min_ratio,
+                                                    100))
 
         if sample_weight is None:
             sample_weight = np.ones(X.shape[0])
@@ -73,7 +82,7 @@ class GLMNetPath(BaseEstimator,
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf <= 0))
         score_[exclude] = 0
-        self.lambda_max_ = np.fabs(score_).max()
+        self.lambda_max_ = np.fabs(score_).max() / max(self.alpha, 1e-3)
 
         if self.lambda_fractional:
             self.lambda_values_ = np.sort(self.lambda_max_ * self.lambda_values)[::-1]
