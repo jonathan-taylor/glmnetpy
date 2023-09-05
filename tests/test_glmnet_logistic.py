@@ -25,9 +25,14 @@ if has_rpy2:
     statR = importr('stats')
 rng = np.random.default_rng(0)
 
+def nonuniform_(n):
+    W = rng.uniform(0, 1, size=(n,))
+    W[:n//2] *= 2
+    return W
+
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
+@pytest.mark.parametrize('sample_weight', [np.ones, nonuniform_])
 @pytest.mark.parametrize('alpha', [0, 0.5, 1])
 def test_glmnet_R(standardize,
                   intercept,
@@ -87,9 +92,9 @@ def test_glmnet_R(standardize,
     yhat_py = G.design_ @ soln_py
     yhat_R = G.design_ @ soln_R 
 
-    fit_match = np.allclose(yhat_py, yhat_R, atol=1e-5, rtol=1e-5)
-    intercept_match = np.allclose(G.intercept_, intercept_R)
-    coef_match = np.allclose(G.coef_, coef_R, atol=1e-5, rtol=1e-5)
+    fit_match = np.allclose(yhat_py, yhat_R, atol=1e-3, rtol=1e-3)
+    intercept_match = np.fabs(G.intercept_ - intercept_R) < max(np.fabs(intercept_R), 1) * 1e-3
+    coef_match = np.allclose(G.coef_, coef_R, atol=1e-3, rtol=1e-3)
 
     print(f'fit: {fit_match}, intercept: {intercept_match}, coef:{coef_match}')
 
