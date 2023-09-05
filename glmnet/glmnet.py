@@ -54,11 +54,13 @@ class GLMNetRegularizer(Penalty):
     
     def __post_init__(self, nvars, control):
 
-        if self.lower_limits == -np.inf:
-            self.lower_limits = -np.ones(nvars) * control.big
+        self.lower_limits = np.asarray(self.lower_limits)
+        if self.lower_limits.shape == (): # a single float 
+            self.lower_limits = np.ones(nvars) * self.lower_limits
         
-        if self.upper_limits == np.inf:
-            self.upper_limits = np.ones(nvars) * control.big
+        self.upper_limits = np.asarray(self.upper_limits)
+        if self.upper_limits.shape == (): # a single float 
+            self.upper_limits = np.ones(nvars) * self.upper_limits
         
         if self.penalty_factor is None:
             self.penalty_factor = np.ones(nvars)
@@ -71,6 +73,7 @@ class GLMNetRegularizer(Penalty):
                                      lower_limits=self.lower_limits,
                                      upper_limits=self.upper_limits,
                                      fit_intercept=self.fit_intercept,
+                                     penalty_factor=self.penalty_factor,
                                      standardize=False)
 
     def quasi_newton_step(self,
@@ -116,11 +119,13 @@ class GLMNet(GLM,
     def _get_regularizer(self,
                          X):
 
+        # self.design_ will have been set by now
+
         return GLMNetRegularizer(lambda_val=self.lambda_val,
                                  alpha=self.alpha,
                                  penalty_factor=self.penalty_factor,
-                                 lower_limits=self.lower_limits,
-                                 upper_limits=self.upper_limits,
+                                 lower_limits=self.lower_limits * self.design_.scaling_,
+                                 upper_limits=self.upper_limits * self.design_.scaling_,
                                  fit_intercept=self.fit_intercept,
                                  nvars=X.shape[1],
                                  control=self.control)
