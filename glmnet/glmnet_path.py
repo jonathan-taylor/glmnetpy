@@ -53,8 +53,8 @@ class GLMNetPath(BaseEstimator,
                                                     100))
 
         if sample_weight is None:
-            sample_weight = np.ones(X.shape[0]) / X.shape[0]
-        self.sample_weight_ = sample_weight = sample_weight / sample_weight.sum()
+            sample_weight = np.ones(X.shape[0])
+        self.normed_sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
         self.glmnet_est_ = GLMNet(lambda_val=self.control.big,
                                   family=self.family,
@@ -65,12 +65,12 @@ class GLMNetPath(BaseEstimator,
                                   fit_intercept=self.fit_intercept,
                                   standardize=self.standardize,
                                   control=self.control)
-        self.glmnet_est_.fit(X, y, sample_weight)
+        self.glmnet_est_.fit(X, y, normed_sample_weight)
         regularizer_ = self.glmnet_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,
                                                y,
-                                               sample_weight,
+                                               normed_sample_weight,
                                                exclude,
                                                offset)
         state.update(self.glmnet_est_.design_,
@@ -79,7 +79,7 @@ class GLMNetPath(BaseEstimator,
 
         logl_score = state.logl_score(self.family,
                                       y)
-        score_ = (self.glmnet_est_.design_.T @ (sample_weight * logl_score))[1:]
+        score_ = (self.glmnet_est_.design_.T @ (normed_sample_weight * logl_score))[1:]
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf <= 0))
         score_[exclude] = 0
@@ -97,7 +97,7 @@ class GLMNetPath(BaseEstimator,
             self.glmnet_est_.lambda_val = regularizer_.lambda_val = l
             self.glmnet_est_.fit(X,
                                  y,
-                                 sample_weight,
+                                 normed_sample_weight,
                                  offset=offset,
                                  regularizer=regularizer_)
             coefs_.append(self.glmnet_est_.coef_.copy())

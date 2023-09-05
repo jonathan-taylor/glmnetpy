@@ -229,6 +229,40 @@ dispersion: float
     'summarize':'''
 summarize: bool
     Compute a Wald-type statistical summary from fitted GLM.''',
+
+    # Common attributes
+
+    'coef_':'''
+coef_: array-like of shape (n_features,)
+    Fitted coefficients.''',
+
+    'intercept_':'''
+intercept_: float
+    Fitted intercept.''',
+
+    'summary_':'''
+summary_: pd.DataFrame
+    Results of Wald tests for each fitted coefficient if `summarize` is True, else None.''',
+
+    'covariance_':'''
+covariance_: array, shape (n_features, n_features)
+    Estimated covariance matrix of fitted intercept and coefficients if `summarize` is True, else None.''',
+
+    'null_deviance_':'''
+null_deviance_: float
+    Null deviance.''',
+    
+    'deviance_':'''
+deviance_: float
+    Deviance of fitted model.''',
+    
+    'dispersion_':'''
+dispersion_: float
+    Estimated dispersion of model. For Gaussian this uses the usual unbiased estimate of variance.''',
+    
+    'regularizer_':'''
+regularizer_: object
+    Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.''',
 }
 
 
