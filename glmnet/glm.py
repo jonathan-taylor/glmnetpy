@@ -182,7 +182,6 @@ class GLM(BaseEstimator,
             regularizer = self._get_regularizer(X)
         self.regularizer_ = regularizer
 
-        self.exclude_ = exclude
         nobs, nvar = X.shape
         
         if isinstance(X, pd.DataFrame):
@@ -205,18 +204,25 @@ class GLM(BaseEstimator,
         nobs, nvars = n, p = X.shape
         
         if sample_weight is None:
-            sample_weight = np.ones(nobs) / nobs
-        sample_weight = sample_weight / sample_weight.sum()
+            sample_weight = np.ones(nobs) 
+        self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
-        design = self._get_design(X, sample_weight)
+        design = self._get_design(X, normed_sample_weight)
         self.design_ = design
         
-        nulldev = np.inf
+        if self.fit_intercept:
+            mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
+        else:
+            mu0 = self.family.link.inverse(np.zeros(y.shape, float))
+        self.null_deviance_ = _dev_function(y,
+                                            mu0,
+                                            sample_weight, # not normed_sample_weight!
+                                            self.family)
 
         state = self.regularizer_.get_warm_start()
         if state is None:
             coefold = np.zeros(nvars)   # initial coefs = 0
-            intold = self.family.link((y * sample_weight).sum() / sample_weight.sum())
+            intold = self.family.link(mu0[0])
             state = GLMState(coef=coefold,
                              intercept=intold)
 
@@ -226,9 +232,9 @@ class GLM(BaseEstimator,
 
         def obj_function(y, family, regularizer, state):
             return (_dev_function(y,
-                                 state.mu,
-                                 sample_weight,
-                                 family) / 2 +
+                                  state.mu,
+                                  normed_sample_weight,
+                                  family) / 2 +
                     regularizer.objective(state))
         obj_function = partial(obj_function, y, self.family, regularizer)
         
@@ -240,7 +246,7 @@ class GLM(BaseEstimator,
                                 design,
                                 y,
                                 offset,
-                                sample_weight,
+                                normed_sample_weight,
                                 state,
                                 obj_function,
                                 self.control)
@@ -251,26 +257,26 @@ class GLM(BaseEstimator,
         if boundary:
             warnings.warn("fitting IRLS: algorithm stopped at boundary value")
 
-        _dev = _dev_function(y,
-                             state.mu,
-                             sample_weight,
-                             self.family)
+        self.deviance_ = _dev_function(y,
+                                       state.mu,
+                                       sample_weight, # not the normalized weights!
+                                       self.family)
 
         self._set_coef_intercept(state)
 
         if isinstance(self.family, sm_family.Gaussian):
-            self.dispersion_ = _dev / (n-p-1) # usual estimate of sigma^2
+            self.dispersion_ = self.deviance_ / (n-p-self.fit_intercept) # usual estimate of sigma^2
         else:
             self.dispersion_ = dispersion
 
         if self.summarize:
-            self.unscaled_precision_ = design.quadratic_form(final_weights)
+            unscaled_precision_ = design.quadratic_form(final_weights)
 
-            keep = np.ones(self.unscaled_precision_.shape[0]-1, bool)
-            if self.exclude_ is not []:
-                keep[self.exclude_] = 0
+            keep = np.ones(unscaled_precision_.shape[0]-1, bool)
+            if exclude is not []:
+                keep[exclude] = 0
             keep = np.hstack([self.fit_intercept, keep]).astype(bool)
-            self.covariance_ = dispersion * np.linalg.inv(self.unscaled_precision_[keep][:,keep])
+            self.covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
 
             SE = np.sqrt(np.diag(self.covariance_)) 
             index = self.feature_names_in_
@@ -287,6 +293,8 @@ class GLM(BaseEstimator,
                                           't': T,
                                           'P>|t|': 2 * normal_dbn.sf(np.fabs(T))},
                                          index=index)
+        else:
+            self.summary_ = self.covariance_ = None
             
         return self
     fit.__doc__ = '''
@@ -337,7 +345,7 @@ Returns
 
         mu = self.predict(X, prediction_type='mean')
         if sample_weight is None:
-            sample_weight = np.ones_like(y) / y.shape[0]
+            sample_weight = np.ones_like(y)
         return -_dev_function(y, mu, sample_weight, self.family) / 2 
     score.__doc__ = '''
 Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
@@ -364,7 +372,27 @@ score: float
             self.coef_ /= self.scaling_
         self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()
 
-add_dataclass_docstring(GLM, subs={'control':'control_glm'})
+GLM.__doc__ = '''
+Class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
+
+Parameters
+----------
+{fit_intercept}
+{summarize}
+{family}
+{control_glm}
+
+Attributes
+__________
+{coef_}
+{intercept_}
+{summary_}
+{covariance_}
+{null_deviance_}
+{deviance_}
+{dispersion_}
+{regularizer_}
+'''.format(**_docstrings)
 
 
 

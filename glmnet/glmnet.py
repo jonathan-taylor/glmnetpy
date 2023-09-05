@@ -76,15 +76,14 @@ class GLMNetRegularizer(Penalty):
     def quasi_newton_step(self,
                           design,
                           pseudo_response,
-                          sample_weight):
+                          normed_sample_weight):
 
         z = pseudo_response
-        w = sample_weight
 
         # make sure to set lambda_val to self.lambda_val
         self.elnet_estimator.lambda_val = self.lambda_val
         
-        out = self.elnet_estimator.fit(design, z, sample_weight=sample_weight).result_
+        out = self.elnet_estimator.fit(design, z, sample_weight=normed_sample_weight).result_
         coefnew = out.beta.toarray().reshape(-1) # this will not have been scaled by `xs/scaling_`
         intnew = out.a0
         
