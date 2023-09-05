@@ -156,7 +156,7 @@ class GLM(BaseEstimator,
 
     def _get_regularizer(self,
                          X):
-        return GLMRegularizer(fit_intercept=self.fit_intercept)
+        return 
 
     # no standardization for GLM
     def _get_design(self,
@@ -172,15 +172,6 @@ class GLM(BaseEstimator,
             exclude=[],
             dispersion=1,
             offset=None):
-
-        # for GLM there is no regularization, but this pattern
-        # is repeated for GLMNet
-        
-        # the regularizer stores the warm start
-
-        if regularizer is None:
-            regularizer = self._get_regularizer(X)
-        self.regularizer_ = regularizer
 
         nobs, nvar = X.shape
         
@@ -218,6 +209,15 @@ class GLM(BaseEstimator,
                                             mu0,
                                             sample_weight, # not normed_sample_weight!
                                             self.family)
+
+        # for GLM there is no regularization, but this pattern
+        # is repeated for GLMNet
+        
+        # the regularizer stores the warm start
+
+        if regularizer is None:
+            regularizer = self._get_regularizer(X)
+        self.regularizer_ = regularizer
 
         state = self.regularizer_.get_warm_start()
         if state is None:
