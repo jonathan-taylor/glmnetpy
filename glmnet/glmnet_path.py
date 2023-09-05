@@ -108,6 +108,38 @@ class GLMNetPath(BaseEstimator,
 
         return self
     
+    def predict(self,
+                X,
+                prediction_type='mean',
+                exact=False,
+                lambda_values=None):
+
+        if lambda_values is not None:
+            if exact is False:
+                L = self.lambda_values
+                idx_ = np.searchsorted(L,
+                                       lambda_values, side='left')
+                W_ = 1 - (L[idx_] - v) / (L[idx_] - L[idx_-1])
+
+                coefs_ = []
+                for i_, w_ in zip(idx_, W_):
+                    coefs_.append(self.coefs_[i] * w_ + (1 - w_) * self.coefs_[i-1])
+                coefs_ = np.asarray(coefs_)
+            else:
+                raise NotImplementedError('refit the glmnet path?')
+        else:
+            coefs_ = self.coefs_
+
+        if prediction_type == 'coef':
+            return coefs_
+        elif prediction_type in ['mean', 'linear']:
+            linear_pred_ = coefs_ @ X.T + self.intercepts_[:, None]
+            if prediction_type == 'linear':
+                return linear_pred_
+            return self.family.link.inverse(linear_pred_)
+        else:
+            raise ValueError('prediction_type should be one of ["coef", "linear", "mean"]')
+        
     def _get_initial_state(self,
                            X,
                            y,
