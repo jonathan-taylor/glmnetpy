@@ -73,8 +73,23 @@ class ElNet(BaseEstimator,
             _check_and_set_limits(self, nvars)
             exclude = _check_and_set_vp(self, nvars, exclude)
 
-            args, nulldev = _wls_args(self, design, y, sample_weight, warm=warm, exclude=exclude)
+            # args, nulldev = _wls_args(self, design, y, sample_weight, warm=warm, exclude=exclude)
             
+            args, nulldev = _elnet_args(design,
+                                        y,
+                                        sample_weight,
+                                        self.lambda_val,
+                                        self.penalty_factor,
+                                        alpha=self.alpha,
+                                        intercept=self.fit_intercept,
+                                        penalty_factor=self.penalty_factor,
+                                        exclude=exclude,
+                                        lower_limits=self.lower_limits,
+                                        upper_limits=self.upper_limits,
+                                        thresh=self.control.thresh,
+                                        maxit=self.control.maxit,
+                                        warm=warm)
+
             if scipy.sparse.issparse(design.X):
                 wls_fit = sparse_wls(**args)
             else:
@@ -444,25 +459,3 @@ def _design_wls_args(design):
                 'x_indptr_array':design.X.indptr,
                 'xm':design.centers_,
                 'xs':design.scaling_}
-
-def _wls_args(spec,
-              design,
-              y,
-              sample_weight,
-              exclude=[],
-              warm=None):
-
-    return _elnet_args(design,
-                       y,
-                       sample_weight,
-                       spec.lambda_val,
-                       spec.penalty_factor,
-                       alpha=spec.alpha,
-                       intercept=spec.fit_intercept,
-                       penalty_factor=spec.penalty_factor,
-                       exclude=exclude,
-                       lower_limits=spec.lower_limits,
-                       upper_limits=spec.upper_limits,
-                       thresh=spec.control.thresh,
-                       maxit=spec.control.maxit,
-                       warm=warm)
