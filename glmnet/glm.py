@@ -318,15 +318,15 @@ self: object
         GLM class instance.
         '''.format(**_docstrings)
     
-    def predict(self, X, prediction_type='mean'):
+    def predict(self, X, prediction_type='response'):
 
         eta = X @ self.coef_ + self.intercept_
-        if prediction_type == 'linear':
+        if prediction_type == 'link':
             return eta
-        elif prediction_type == 'mean':
+        elif prediction_type == 'response':
             return self.family.link.inverse(eta)
         else:
-            raise ValueError("prediction should be one of 'mean' or 'linear'")
+            raise ValueError("prediction should be one of 'response' or 'link'")
     predict.__doc__ = '''
 Predict outcome of corresponding family.
 
