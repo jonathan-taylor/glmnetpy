@@ -27,7 +27,11 @@ def nonuniform_(n):
     W[:n//2] *= 2
     return W
 
+# some global variables for this test
 rng = np.random.default_rng(0)
+n, p = 1000, 50
+lower_limits = -np.ones(p)
+upper_limits = np.ones(p)
 
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('intercept', [True, False])
@@ -42,7 +46,6 @@ def test_glmnet_R_path(standardize,
     '''
     compare to glmnet:::glmnet.path
     '''
-    n, p = 1000, 50
 
     if sample_weight is None:
         sample_weight = np.ones(n)
