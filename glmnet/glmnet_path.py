@@ -236,7 +236,7 @@ class GLMNetPath(BaseEstimator,
                             for i in range(preds_.shape[1])])
         self.scores_ = np.array(scores_)
         self.dev_cv_mean_ = self.scores_.mean(0)
-        self.dev_cv_std_ = self.scores_.std(0) / len(test_splits) # assumes equal size splits!
+        self.dev_cv_std_ = self.scores_.std(0, ddof=1) / np.sqrt(self.scores_.shape[0]) # assumes equal size splits!
         self._min_idx = np.argmin(self.dev_cv_mean_)
         self.lambda_min_ = self.lambda_values_[self._min_idx]
         _mean_1se = (self.dev_cv_mean_ + self.dev_cv_std_)[self._min_idx]
@@ -272,7 +272,8 @@ class GLMNetPath(BaseEstimator,
         ax.set_ylabel(r'Coefficients ($\beta$)')
         ax.axhline(0, c='k', ls='--')
         if legend:
-            ax.legend(loc='upper left')
+            fig = ax.figure
+            fig.legend(loc='outside right upper')
         return ax
 
     def plot_cross_validation_path(self,
