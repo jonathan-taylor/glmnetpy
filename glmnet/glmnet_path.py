@@ -270,6 +270,7 @@ class GLMNetPath(BaseEstimator,
         ax = soln_path.plot(ax=ax, legend=False)
         ax.set_xlabel(index.name)
         ax.set_ylabel(r'Coefficients ($\beta$)')
+        ax.axhline(0, c='k', ls='--')
         if legend:
             ax.legend(loc='upper left')
         return ax
