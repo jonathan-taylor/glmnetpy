@@ -4,6 +4,7 @@ requires = ["setuptools>=42",
             "pybind11~=2.6.1",
             "numpy>=1.7.1",
             "scipy>=0.9",
+            "pandas>=1.1",
             "matplotlib>=3.3.3",
             "versioneer",
 	    "statsmodels"]
