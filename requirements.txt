@@ -2,3 +2,5 @@ numpy
 scipy
 pybind11
 pandas
+sklearn
+statsmodels
