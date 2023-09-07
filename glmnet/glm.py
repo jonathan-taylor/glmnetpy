@@ -60,6 +60,7 @@ class GLMState(object):
     intercept: np.ndarray
     obj_val: float = np.inf
     obj_val_old: float = np.inf
+    pmin: float=1e-3
     
     def __post_init__(self):
 
@@ -76,6 +77,8 @@ class GLMState(object):
             self.mu = family.link.inverse(self.eta)
         else:
             self.mu = family.link.inverse(self.eta + offset)    
+        if isinstance(family, sm_family.Binomial):
+            self.mu = np.clip(self.mu, self.pmin, 1-self.pmin)
 
     def logl_score(self,
                    family,
