@@ -271,7 +271,8 @@ class GLM(BaseEstimator,
             self.dispersion_ = dispersion
 
         if self.summarize:
-            unscaled_precision_ = design.quadratic_form(final_weights)
+            unscaled_precision_ = design.quadratic_form(final_weights * sample_weight.sum()) # IRLS used normalized weights,
+                                                                                             # this unnormalizes them...
 
             keep = np.ones(unscaled_precision_.shape[0]-1, bool)
             if exclude is not []:

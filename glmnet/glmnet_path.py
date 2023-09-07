@@ -26,7 +26,7 @@ from ._utils import _dev_function
 @dataclass
 class GLMNetPathSpec(object):
 
-    lambda_values : Optional[np.ndarray] = None
+    lambda_values: Optional[np.ndarray] = None
     lambda_fractional: bool = True
     alpha: float = 1.0
     lower_limits: float = -np.inf
