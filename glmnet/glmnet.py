@@ -48,10 +48,10 @@ class GLMNetResult(object):
 class GLMNetRegularizer(Penalty):
 
     fit_intercept: bool = False
-    warm_fit: dict = field(default_factory=dict)
+    warm_state: dict = field(default_factory=dict)
     nvars: InitVar[int] = None
     control: InitVar[GLMNetControl] = None
-    
+
     def __post_init__(self, nvars, control):
 
         self.lower_limits = np.asarray(self.lower_limits)
@@ -86,26 +86,37 @@ class GLMNetRegularizer(Penalty):
         # make sure to set lambda_val to self.lambda_val
         self.elnet_estimator.lambda_val = self.lambda_val
         
-        out = self.elnet_estimator.fit(design, z, sample_weight=normed_sample_weight).result_
+        if 'elnet_warm' in self.warm_state:
+            warm = self.warm_state['elnet_warm']
+        else:
+            warm = None
+
+        out = self.elnet_estimator.fit(design,
+                                       z,
+                                       sample_weight=normed_sample_weight,
+                                       warm=warm).result_
+
         coefnew = out.beta.toarray().reshape(-1) # this will not have been scaled by `xs/scaling_`
         intnew = out.a0
         
-        self.warm_fit['coef_'] = coefnew
-        self.warm_fit['intercept_'] = intnew
-        
+        self.warm_state['coef_'] = coefnew
+        self.warm_state['intercept_'] = intnew
+        self.warm_state['elnet_warm'] = out.warm_fit
         return coefnew, intnew
 
     def get_warm_start(self):
 
-        if ('coef_' in self.warm_fit.keys() and
-            'intercept_' in self.warm_fit.keys()):
+        if ('coef_' in self.warm_state.keys() and
+            'intercept_' in self.warm_state.keys()):
 
-            return GLMState(self.warm_fit['coef_'],
-                            self.warm_fit['intercept_']) 
+            return GLMState(self.warm_state['coef_'],
+                            self.warm_state['intercept_']) 
 
     def update_resid(self, r):
-        self.warm_fit['resid_'] = r
-        
+        self.warm_state['resid_'] = r
+        if 'elnet_warm' in self.warm_state:
+            self.warm_state['elnet_warm'].r = r
+            
     def objective(self, state):
         return 0
 # end of GLMNetRegularizer

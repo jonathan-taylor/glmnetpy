@@ -92,7 +92,7 @@ class GLMState(object):
 class GLMRegularizer(object):
 
     fit_intercept: bool = False
-    warm_fit: dict = field(default_factory=dict)
+    warm_state: dict = field(default_factory=dict)
 
     def quasi_newton_step(self,
                           design,
@@ -128,26 +128,26 @@ class GLMRegularizer(object):
                 coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
                 intnew = 0
 
-        self.warm_fit['coef_'] = coefnew
-        self.warm_fit['intercept_'] = intnew
+        self.warm_state['coef_'] = coefnew
+        self.warm_state['intercept_'] = intnew
         
         return coefnew, intnew
 
     def get_warm_start(self):
 
-        if ('coef_' in self.warm_fit.keys() and
-            'intercept_' in self.warm_fit_keys()):
+        if ('coef_' in self.warm_state.keys() and
+            'intercept_' in self.warm_state_keys()):
 
-            state = GLMState(self.warm_fit['coef_'],
-                             self.warm_fit['intercept_'])
+            state = GLMState(self.warm_state['coef_'],
+                             self.warm_state['intercept_'])
             return state
 
     def update_resid(self, r):
-        self.warm_fit['resid_'] = r
+        self.warm_state['resid_'] = r
         
     def objective(self, state):
         return 0
-add_dataclass_docstring(GLMRegularizer, subs={'warm_fit':'warm_glm'})
+add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_glm'})
 # end of GLMRegularizer
 
 @dataclass
@@ -156,7 +156,7 @@ class GLM(BaseEstimator,
 
     def _get_regularizer(self,
                          X):
-        return 
+        return GLMRegularizer(fit_intercept=self.fit_intercept)
 
     # no standardization for GLM
     def _get_design(self,
@@ -220,6 +220,7 @@ class GLM(BaseEstimator,
         self.regularizer_ = regularizer
 
         state = self.regularizer_.get_warm_start()
+
         if state is None:
             coefold = np.zeros(nvars)   # initial coefs = 0
             intold = self.family.link(mu0[0])
@@ -367,7 +368,7 @@ score: float
 
     def _set_coef_intercept(self, state):
         self.coef_ = state.coef
-        if self.standardize:
+        if hasattr(self, 'standardize') and self.standardize:
             self.scaling_ = self.design_.scaling_
             self.coef_ /= self.scaling_
         self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()

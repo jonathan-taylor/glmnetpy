@@ -258,9 +258,7 @@ def _elnet_args(design,
                 exclude=[],
                 lower_limits=-np.inf,
                 upper_limits=np.inf,
-                warm=None,
-                save_fit=False,
-                from_glmnet_fit=False):
+                warm=None):
     
     X = design.X
         
@@ -358,8 +356,7 @@ def _elnet_args(design,
     thr = float(thresh)                             # as.double(thresh)
     v = np.asarray(sample_weight, float).reshape((-1,1))  # as.double(weights)
 
-    a_new = a.copy()
-
+    a_new = a
     # take out components of x and run C++ subroutine
 
     _args = {'alm0':alm0,

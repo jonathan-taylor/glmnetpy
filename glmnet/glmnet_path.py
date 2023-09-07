@@ -106,6 +106,7 @@ class GLMNetPath(BaseEstimator,
 
         coefs_ = []
         intercepts_ = []
+        deviances_ = []
         for l in self.lambda_values_:
 
             self.glmnet_est_.lambda_val = regularizer_.lambda_val = l
@@ -116,10 +117,12 @@ class GLMNetPath(BaseEstimator,
                                  regularizer=regularizer_)
             coefs_.append(self.glmnet_est_.coef_.copy())
             intercepts_.append(self.glmnet_est_.intercept_)
-
+            deviances_.append(self.glmnet_est_.deviance_)
+            
         self.coefs_ = np.array(coefs_)
         self.intercepts_ = np.array(intercepts_)
-
+        self.deviances_ = np.array(deviances_)
+        
         if interpolation_grid is not None:
             L = self.lambda_values_
             interpolation_grid = np.clip(interpolation_grid, L.min(), L.max())
@@ -138,7 +141,7 @@ class GLMNetPath(BaseEstimator,
                     intercepts_.append(self.intercepts_[0])
             self.coefs_ = np.asarray(coefs_)
             self.intercepts_ = np.asarray(intercepts_)
-
+            
         return self
     
     def predict(self,
@@ -186,23 +189,23 @@ class GLMNetPath(BaseEstimator,
     def cross_validation_path(self,
                               X,
                               y,
-                              cv=5,
+                              cv=10,
                               groups=None,
                               n_jobs=None,
                               verbose=0,
                               fit_params={},
                               pre_dispatch='2*n_jobs',
-                              lambda_path='absolute'):
+                              alignment='absolute'):
 
-        if lambda_path not in ['absolute', 'relative']:
-            raise ValueError("lambda_path must be one of 'absolute' or 'relative'")
+        if alignment not in ['lambda', 'fraction']:
+            raise ValueError("alignment must be one of 'absolute' or 'relative'")
 
         # within each fold, lambda is fit fractionally
 
         fractional_path = clone(self)
         fractional_path.lambda_values = self.lambda_values_ / self.lambda_max_
         fractional_path.lambda_fractional = True
-        if lambda_path == 'absolute':
+        if alignment == 'lambda':
             fit_params.update(interpolation_grid=self.lambda_values_)
         else:
             fit_params = None
@@ -257,8 +260,11 @@ class GLMNetPath(BaseEstimator,
         elif xvar == 'norm':
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
+        elif xvar == 'dev':
+            index = pd.Index(1 - self.deviances_ / self.deviances_[0])
+            index.name = '% DEV explained'
         else:
-            raise ValueError("xvar should be one of 'lambda', 'norm'")
+            raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
 
         soln_path = pd.DataFrame(self.coefs_,
                                  columns=self.feature_names_in_,
@@ -299,8 +305,11 @@ class GLMNetPath(BaseEstimator,
         elif xvar == 'norm':
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
+        elif xvar == 'dev':
+            index = pd.Index(1 - self.deviances_ / self.null_deviance_)
+            index.name = '% DEV explained'
         else:
-            raise ValueError("xvar should be one of 'lambda', 'norm'")
+            raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
         dev_path = pd.DataFrame({label:self.dev_cv_mean_,
                                  'SD':self.dev_cv_std_},
                                 index=index)
