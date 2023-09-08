@@ -318,17 +318,17 @@ class GLMNetPath(BaseEstimator,
             fig.legend(loc='outside right upper')
         return ax
 
-    def plot_cross_validation_path(self,
-                                   xvar='lambda',
-                                   ax=None,
-                                   capsize=3,
-                                   legend=False,
-                                   label=None,
-                                   col_min='k',
-                                   ls_min='--',
-                                   col_1se='r',
-                                   ls_1se='--',
-                                   **plot_args):
+    def plot_cross_validation(self,
+                              xvar='lambda',
+                              ax=None,
+                              capsize=3,
+                              legend=False,
+                              label=None,
+                              col_min='k',
+                              ls_min='--',
+                              col_1se='r',
+                              ls_1se='--',
+                              **plot_args):
 
         if label is None:
             label = 'Mean(deviance)'

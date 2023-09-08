@@ -147,7 +147,7 @@ class ElNet(BaseEstimator,
 
             if wls_fit['jerr'] != 0:
                 errmsg = _jerr_elnetfit(wls_fit['jerr'], self.control.maxit)
-                raise ValueError(errmsg['msg'])
+                if LOG: logging.info(errmsg['msg'])
 
             if LOG: logging.debug(f'Elnet coef: {wls_fit["a"]}, Elnet intercept: {wls_fit["aint"]}')
 
