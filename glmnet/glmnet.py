@@ -94,10 +94,9 @@ class GLMNetRegularizer(Penalty):
                                              z,
                                              sample_weight=normed_sample_weight,
                                              warm=warm)
-        out = elnet_fit.result_
         
-        self.warm_state = GLMState(out.beta.toarray().reshape(-1),
-                                   out.a0)
+        self.warm_state = GLMState(elnet_fit.raw_coef_,
+                                   elnet_fit.raw_intercept_)
         return self.warm_state.coef, self.warm_state.intercept
 
     def objective(self, state):

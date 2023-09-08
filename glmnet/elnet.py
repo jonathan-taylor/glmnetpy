@@ -77,8 +77,8 @@ class ElNet(BaseEstimator,
             _check_and_set_limits(self, nvars)
             exclude = _check_and_set_vp(self, nvars, exclude)
 
-            if hasattr(self, "_wls_args") and warm is not None:
-                args = self._wls_args
+            if hasattr(self, "_wrapper_args") and warm is not None:
+                args = self._wrapper_args
                 nulldev = self._nulldev
                 
                 coef, intercept, linear_predictor = warm
@@ -96,20 +96,20 @@ class ElNet(BaseEstimator,
                 args['r'][:] = (sample_weight * (y - linear_predictor)).reshape((-1,1))
 
             else:
-                args, nulldev = _elnet_args(design,
-                                            y,
-                                            sample_weight,
-                                            self.lambda_val,
-                                            self.penalty_factor,
-                                            alpha=self.alpha,
-                                            intercept=self.fit_intercept,
-                                            penalty_factor=self.penalty_factor,
-                                            exclude=exclude,
-                                            lower_limits=self.lower_limits,
-                                            upper_limits=self.upper_limits,
-                                            thresh=self.control.thresh,
-                                            maxit=self.control.maxit)
-                self._wls_args = args
+                args, nulldev = _elnet_wrapper_args(design,
+                                                    y,
+                                                    sample_weight,
+                                                    self.lambda_val,
+                                                    self.penalty_factor,
+                                                    alpha=self.alpha,
+                                                    intercept=self.fit_intercept,
+                                                    penalty_factor=self.penalty_factor,
+                                                    exclude=exclude,
+                                                    lower_limits=self.lower_limits,
+                                                    upper_limits=self.upper_limits,
+                                                    thresh=self.control.thresh,
+                                                    maxit=self.control.maxit)
+                self._wrapper_args = args
                 self._nulldev = nulldev
                     
             # override to current values
@@ -144,20 +144,10 @@ class ElNet(BaseEstimator,
                 raise ValueError(errmsg['msg'])
 
             if LOG: logging.debug(f'Elnet coef: {wls_fit["a"]}, Elnet intercept: {wls_fit["aint"]}')
-            beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
-            
-            intercept_ = wls_fit['aint']
-            result = ElNetResult(a0=wls_fit['aint'],
-                                 beta=beta,
-                                 df=np.sum(np.abs(beta) > 0),
-                                 dim=beta.shape,
-                                 lambda_val=self.lambda_val,
-                                 dev_ratio=wls_fit['rsqc'],
-                                 nulldev=nulldev,
-                                 npasses=wls_fit['nlp'],
-                                 jerr=wls_fit['jerr'],
-                                 nobs=nobs,
-                                 sample_weight=sample_weight)
+
+            self.raw_coef_ = wls_fit['a'].reshape(-1)
+            self.raw_intercept_ = wls_fit['aint']
+
         else:
             # can use LinearRegression
 
@@ -168,93 +158,29 @@ class ElNet(BaseEstimator,
                 X_s = design.X
             lm.fit(X_s, y, sample_weight)
             
-            beta = scipy.sparse.csc_array(lm.coef_)
+            self.raw_coef_ = lm.coef_
+            self.raw_intercept_ = lm.intercept_
 
-            intercept_ = lm.intercept_
-            result = ElNetResult(a0=lm.intercept_,
-                                 beta=beta,
-                                 df=X.shape[1]+self.fit_intercept,
-                                 dim=beta.shape,
-                                 lambda_val=0,
-                                 dev_ratio=None,
-                                 nulldev=np.inf,
-                                 npasses=1,
-                                 jerr=0,
-                                 nobs=X.shape[1],
-                                 sample_weight=sample_weight)
-
-        self.result_ = result
         self.design_ = design
-        self.coef_ = beta.toarray() / design.scaling_
-        self.intercept_ = intercept_ - (self.coef_ * self.design_.centers_).sum()
-        self._args = args
+        self.coef_ = self.raw_coef_ / design.scaling_
+        self.intercept_ = self.raw_intercept_ - (self.coef_ * self.design_.centers_).sum()
         return self
 
 add_dataclass_docstring(ElNet, subs={'control':'control_elnet'})
 
-@add_dataclass_docstring
-@dataclass
-class ElNetResult(object):
-
-    a0: float 
-    beta: scipy.sparse._csc.csc_array 
-    df: int
-    dim: tuple
-    lambda_val: float
-    dev_ratio: float
-    nulldev: float
-    npasses: int
-    jerr: int
-    nobs: int
-    sample_weight: np.ndarray
-
-_elnet_fit_doc = r'''A wrapper around a C++ subroutine which minimizes
-
-.. math::
-
-    1/2 \sum w_i (y_i - X_i^T \beta)^2 + \sum \lambda \gamma_j [(1-\alpha)/2 \beta^2+\alpha|\beta|]
-
-over $\beta$, where $\gamma_j$ is the relative penalty factor on the
-j-th variable. If `intercept`, then the term in the first sum is
-$w_i (y_i - \beta_0 - X_i^T \beta)^2$, and we are minimizing over both
-$\beta_0$ and $\beta$.
-
-None of the inputs are standardized except for `penalty_factor`, which
-is standardized so that they sum up to `nvars`.
-
-{0}
-
-Returns
--------
-
-result: ElNetResult
-
-'''.format(make_docstring('X',
-                          'y',
-                          'sample_weight',
-                          'lambda_val',
-                          'alpha',
-                          'fit_intercept',
-                          'penalty_factor',
-                          'exclude',
-                          'lower_limits',
-                          'upper_limits',
-                          'thresh',
-                          'maxit'))
-
-def _elnet_args(design,
-                y,
-                sample_weight,
-                lambda_val,
-                vp, 
-                alpha=1.0,
-                intercept=True,
-                thresh=1e-7,
-                maxit=100000,
-                penalty_factor=None, 
-                exclude=[],
-                lower_limits=-np.inf,
-                upper_limits=np.inf):
+def _elnet_wrapper_args(design,
+                        y,
+                        sample_weight,
+                        lambda_val,
+                        vp, 
+                        alpha=1.0,
+                        intercept=True,
+                        thresh=1e-7,
+                        maxit=100000,
+                        penalty_factor=None, 
+                        exclude=[],
+                        lower_limits=-np.inf,
+                        upper_limits=np.inf):
     
     X = design.X
         
@@ -342,7 +268,7 @@ def _elnet_args(design,
              'nlp':nlp,
              'jerr':jerr}
 
-    _args.update(**_design_wls_args(design))
+    _args.update(**_design_wrapper_args(design))
 
     return _args, nulldev
 
@@ -402,7 +328,7 @@ def _check_and_set_vp(spec, nvars, exclude):
 
     return exclude
 
-def _design_wls_args(design):
+def _design_wrapper_args(design):
     if not scipy.sparse.issparse(design.X):
         return {'x':design.X}
     else:
