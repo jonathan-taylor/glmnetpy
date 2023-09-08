@@ -1,5 +1,4 @@
 import logging
-LOG = False
 
 import numpy as np
 from copy import deepcopy
@@ -90,7 +89,7 @@ def quasi_newton_step(regularizer,
                        "Objective did not decrease!")]:
 
         if not test(state)[0]:
-            if LOG: logging.debug(msg)
+            if control.logging: logging.debug(msg)
             regularizer.check_state(oldstate)
 
             ii = 1
@@ -112,7 +111,7 @@ def quasi_newton_step(regularizer,
                              objective)
                 check, boundary_, halved_ = test(state)
 
-    if LOG: logging.debug(f'old value: {oldstate.obj_val}, new value: {state.obj_val}') 
+    if control.logging: logging.debug(f'old value: {oldstate.obj_val}, new value: {state.obj_val}') 
 
     return state, boundary, halved, newton_weights
 
@@ -128,8 +127,7 @@ def IRLS(regularizer,
 
     converged = False
 
-    DEBUG = True
-    if LOG:
+    if control.logging:
         logging.info('Starting ISLR')
         logging.debug(f'{regularizer._debug_msg(state)}')
 
@@ -149,7 +147,7 @@ def IRLS(regularizer,
                                              objective,
                                              control)
 
-        if LOG:
+        if control.logging:
             logging.debug(f'Iteration {i}, {regularizer._debug_msg(state)}')
             logging.info(f'Objective: {state.obj_val}')
         # test for convergence
@@ -158,7 +156,7 @@ def IRLS(regularizer,
             converged = True
             break
 
-    if LOG:
+    if control.logging:
         logging.info(f'Terminating ISLR after {i+1} iterations.')
         logging.debug(f'{regularizer._debug_msg(state)}')
     return converged, boundary, state, newton_weights
