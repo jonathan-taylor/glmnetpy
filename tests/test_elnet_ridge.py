@@ -61,3 +61,4 @@ def test_simple_ridge(standardize,
         
     assert np.allclose(beta_wls, beta, rtol=1e-3, atol=1e-3)
     assert np.fabs((int_wls - intercept) / max(intercept, 1)) < 1e-3
+

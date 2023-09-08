@@ -2,5 +2,5 @@ numpy
 scipy
 pybind11
 pandas
-sklearn
+scikit-learn
 statsmodels

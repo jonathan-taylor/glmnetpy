@@ -1,5 +1,6 @@
 import logging
 LOG = False
+
 from typing import Union, List, Optional
 from dataclasses import dataclass, field
    
@@ -19,7 +20,6 @@ from .base import (Base,
 from ._utils import _jerr_elnetfit
 from .docstrings import (make_docstring,
                          add_dataclass_docstring)
-DEBUG = False
 
 @add_dataclass_docstring
 @dataclass
@@ -61,6 +61,7 @@ class ElNet(BaseEstimator,
             self.exclude_ = exclude
             if self.control is None:
                 self.control = ElNetControl()
+
             nobs, nvars = design.X.shape
 
             if sample_weight is None:
@@ -148,6 +149,7 @@ class ElNet(BaseEstimator,
             self.raw_coef_ = wls_fit['a'].reshape(-1)
             self.raw_intercept_ = wls_fit['aint']
 
+
         else:
             # can use LinearRegression
 
@@ -164,6 +166,7 @@ class ElNet(BaseEstimator,
         self.design_ = design
         self.coef_ = self.raw_coef_ / design.scaling_
         self.intercept_ = self.raw_intercept_ - (self.coef_ * self.design_.centers_).sum()
+
         return self
 
 add_dataclass_docstring(ElNet, subs={'control':'control_elnet'})
@@ -181,6 +184,7 @@ def _elnet_wrapper_args(design,
                         exclude=[],
                         lower_limits=-np.inf,
                         upper_limits=np.inf):
+
     
     X = design.X
         
@@ -229,6 +233,7 @@ def _elnet_wrapper_args(design,
     xv = np.zeros((nvars, 1))        # double(nvars)
 
 
+
     alpha = float(alpha)                            # as.double(alpha)
     almc = float(lambda_val)                        # as.double(lambda)
     intr = int(intercept)                           # as.integer(intercept)
@@ -238,6 +243,7 @@ def _elnet_wrapper_args(design,
     v = np.asarray(sample_weight, float).reshape((-1,1))  # as.double(weights)
 
     a_new = a # .copy() 
+
     # take out components of x and run C++ subroutine
 
     _args = {'alm0':alm0,

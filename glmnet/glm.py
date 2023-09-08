@@ -25,8 +25,6 @@ from .docstrings import (make_docstring,
                          _docstrings)
 from .islr import IRLS
 
-DEBUG = False
-
 @add_dataclass_docstring
 @dataclass
 class GLMControl(object):
@@ -280,6 +278,7 @@ class GLM(BaseEstimator,
         if boundary:
             if LOG: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
+
         self.deviance_ = _dev_function(y,
                                        state.mu,
                                        sample_weight, # not the normalized weights!
@@ -417,7 +416,6 @@ __________
 {dispersion_}
 {regularizer_}
 '''.format(**_docstrings)
-
 
 
 

@@ -16,7 +16,6 @@ from .elnet import (ElNet,
                     ElNetSpec)
 from .glm import (GLMState,
                   GLM)
-DEBUG = False
 
 @add_dataclass_docstring
 @dataclass
@@ -121,6 +120,7 @@ class GLMNetRegularizer(Penalty):
         lasso = self.alpha * np.fabs(state.coef).sum()
         ridge = (1 - self.alpha) * (state.coef**2).sum() / 2
         return self.lambda_val * (lasso + ridge)
+
 
 # end of GLMNetRegularizer
 

@@ -26,12 +26,12 @@ from .glmnet import (GLMNetControl,
 from .glm import GLM, GLMState
 from ._utils import _dev_function
 
-DEBUG = False
 
 @dataclass
 class GLMNetPathControl(GLMNetControl):
 
     fdev: float = 1e-5
+
 
 @dataclass
 class GLMNetPathSpec(object):
@@ -174,7 +174,7 @@ class GLMNetPath(BaseEstimator,
                     intercepts_.append(self.intercepts_[0])
             self.coefs_ = np.asarray(coefs_)
             self.intercepts_ = np.asarray(intercepts_)
-            
+           
         return self
     
     def predict(self,
