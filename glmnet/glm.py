@@ -76,12 +76,14 @@ class GLMState(object):
         '''pin the mu/eta values to coef/intercept'''
         self.eta = design @ self._stack
         if offset is None:
-            self.mu = family.link.inverse(self.eta)
+            self.linear_predictor = self.eta
         else:
-            self.mu = family.link.inverse(self.eta + offset)    
+            self.linear_predictor = self.eta + offset
+        self.mu = family.link.inverse(self.linear_predictor)
         if isinstance(family, sm_family.Binomial):
             self.mu = np.clip(self.mu, self.pmin, 1-self.pmin)
-            self.eta = family.link(self.mu)
+            self.linear_predictor = family.link(self.mu)
+
         if objective is not None:
             self.obj_val = objective(self)
         
@@ -106,9 +108,7 @@ class GLMRegularizer(object):
                           design,
                           pseudo_response,
                           sample_weight,
-                          coef,                # ignored for GLM
-                          intercept,           # ignored for GLM
-                          linear_predictor):   # ignored for GLM
+                          cur_state):   # ignored for GLM
 
         z = pseudo_response
         w = sample_weight
@@ -142,7 +142,7 @@ class GLMRegularizer(object):
         self.warm_state = GLMState(coefnew,
                                    intnew)
         
-        return coefnew, intnew
+        return self.warm_state
 
     def objective(self, state):
         return 0
@@ -440,26 +440,22 @@ def _quasi_newton_step(regularizer,
 
     # could have the quasi_newton_step return state instead?
     
-    linpred = state.eta
-    if offset is not None:
-        linpred += offset
+    # linpred = state.eta
+    # if offset is not None:
+    #     linpred += offset
         
-    coefnew, intnew = regularizer.quasi_newton_step(design,
-                                                    z,
-                                                    w,
-                                                    state.coef,
-                                                    state.intercept,
-                                                    linpred)
-    state = GLMState(coefnew,
-                     intnew)
-
-    coef_step = coefnew - oldstate.coef
-    int_step = intnew - oldstate.intercept
+    state = regularizer.quasi_newton_step(design,
+                                          z,
+                                          w,
+                                          state)
 
     state.update(design,
                  family,
                  offset,
                  objective)
+
+    coef_step = state.coef - oldstate.coef
+    int_step = state.intercept - oldstate.intercept
 
     # check to make sure it is a feasible descent step
 

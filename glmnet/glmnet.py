@@ -81,15 +81,16 @@ class GLMNetRegularizer(Penalty):
                           design,
                           pseudo_response,
                           normed_sample_weight,
-                          coef,               
-                          intercept,          
-                          linear_predictor):  
-
+                          cur_state):
+                            
         z = pseudo_response
         # make sure to set lambda_val to self.lambda_val
         self.elnet_estimator.lambda_val = self.lambda_val
         
-        warm = (coef, intercept, linear_predictor) # linear_predictor includes offet if any
+        warm = (cur_state.coef,
+                cur_state.intercept,
+                cur_state.linear_predictor) # linear_predictor includes offet if any
+
         elnet_fit = self.elnet_estimator.fit(design,
                                              z,
                                              sample_weight=normed_sample_weight,
@@ -97,7 +98,8 @@ class GLMNetRegularizer(Penalty):
         
         self.warm_state = GLMState(elnet_fit.raw_coef_,
                                    elnet_fit.raw_intercept_)
-        return self.warm_state.coef, self.warm_state.intercept
+
+        return self.warm_state
 
     def objective(self, state):
         lasso = self.alpha * np.fabs(state.coef).sum()
