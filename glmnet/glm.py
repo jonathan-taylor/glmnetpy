@@ -23,8 +23,8 @@ from .base import Design, _get_design
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
+from .islr import IRLS
 
-from .elnet import ElNet
 DEBUG = False
 
 @add_dataclass_docstring
@@ -104,11 +104,28 @@ class GLMRegularizer(object):
     fit_intercept: bool = False
     warm_state: dict = field(default_factory=dict)
 
-    def quasi_newton_step(self,
-                          design,
-                          pseudo_response,
-                          sample_weight,
-                          cur_state):   # ignored for GLM
+    def half_step(self,
+                  state,
+                  oldstate):
+        return GLMState(0.5 * (oldstate.coef + state.coef),
+                        0.5 * (oldstate.intercept + state.intercept))
+
+    def _debug_msg(self,
+                   state):
+        return f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}'
+
+    def check_state(self,
+                    state):
+        if np.any(np.isnan(state.coef)):
+            raise ValueError('coef has NaNs')
+        if np.isnan(state.intercept):
+            raise ValueError('intercept is NaN')
+
+    def newton_step(self,
+                    design,
+                    pseudo_response,
+                    sample_weight,
+                    cur_state):   # ignored for GLM
 
         z = pseudo_response
         w = sample_weight
@@ -247,15 +264,15 @@ class GLM(BaseEstimator,
         (converged,
          boundary,
          state,
-         final_weights) = _IRLS(regularizer,
-                                self.family,
-                                design,
-                                y,
-                                offset,
-                                normed_sample_weight,
-                                state,
-                                obj_function,
-                                self.control)
+         final_weights) = IRLS(regularizer,
+                               self.family,
+                               design,
+                               y,
+                               offset,
+                               normed_sample_weight,
+                               state,
+                               obj_function,
+                               self.control)
 
         # checks on convergence and fitted values
         if not converged:
@@ -350,7 +367,7 @@ Returns
 
     def score(self, X, y, sample_weight=None):
 
-        mu = self.predict(X, prediction_type='mean')
+        mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
             sample_weight = np.ones_like(y)
         return -_dev_function(y, mu, sample_weight, self.family) / 2 
@@ -403,170 +420,4 @@ __________
 
 
 
-# private functions
 
-def _quasi_newton_step(regularizer,
-                       family,
-                       design,
-                       y,
-                       offset,
-                       weights,
-                       state,
-                       objective,
-                       control):
-
-    coefold, intold = state.coef, state.intercept
-
-    oldstate = GLMState(coefold.copy(),
-                        intold * 1.)
-    oldstate.obj_val = state.obj_val
-    
-    # some checks for NAs/zeros
-    varmu = family.variance(state.mu)
-    if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
-
-    if np.any(varmu == 0): raise ValueError("0s in V(mu)")
-
-    dmu_deta = family.link.inverse_deriv(state.eta)
-    if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
-
-    # compute working response and weights
-    if offset is not None:
-        z = (state.eta - offset) + (y - state.mu) / dmu_deta
-    else:
-        z = state.eta + (y - state.mu) / dmu_deta
-    
-    newton_weights = w = (weights * dmu_deta**2)/varmu
-
-    # could have the quasi_newton_step return state instead?
-    
-    # linpred = state.eta
-    # if offset is not None:
-    #     linpred += offset
-        
-    state = regularizer.quasi_newton_step(design,
-                                          z,
-                                          w,
-                                          state)
-
-    state.update(design,
-                 family,
-                 offset,
-                 objective)
-
-    coef_step = state.coef - oldstate.coef
-    int_step = state.intercept - oldstate.intercept
-
-    # check to make sure it is a feasible descent step
-
-    boundary = False
-    halved = False  # did we have to halve the step size?
-
-    # three checks we'll apply
-
-    # FIX THESE 
-    valideta = lambda eta: True
-    validmu = lambda mu: True
-
-    # not sure boundary / halved handled correctly
-
-    def finite_objective(state):
-        boundary = True
-        halved = True
-        return np.isfinite(state.obj_val) and state.obj_val < control.big, boundary, halved
-
-    def valid(state):
-        boundary = True
-        halved = True
-        return valideta(state.eta) and validmu(state.mu), boundary, halved
-
-    def decreased_obj(state):
-        boundary = False
-        halved = True
-
-        return state.obj_val <= oldstate.obj_val + 1e-7, boundary, halved
-
-    for test, msg in [(finite_objective,
-                       "Non finite objective function! Step size truncated due to divergence."),
-                      (valid,
-                       "Invalid eta/mu! Step size truncated: out of bounds."),
-                      (decreased_obj,
-                       "Objective did not decrease!")]:
-
-        if not test(state)[0]:
-            if LOG: logging.debug(msg)
-            if np.any(np.isnan(oldstate.coef)) or np.isnan(oldstate.intercept):
-                raise ValueError("No valid set of coefficients has been found: please supply starting values")
-
-            ii = 1
-            check, boundary_, halved_ = test(state)
-            if not check:
-                boundary = boundary or boundary_
-                halved = halved or halved_
-
-            while not check:
-                if ii > control.mxitnr:
-                    raise ValueError(f"inner loop {test}; cannot correct step size")
-                ii += 1
-
-                coef_step *= 0.5
-                int_step *= 0.5
-                state = GLMState(oldstate.coef + coef_step,
-                                 oldstate.intercept + int_step)
-                state.update(design,
-                             family,
-                             offset,
-                             objective)
-                check, boundary_, halved_ = test(state)
-
-    if LOG: logging.debug(f'old value: {oldstate.obj_val}, new value: {state.obj_val}') 
-
-    return state, boundary, halved, newton_weights
-
-def _IRLS(regularizer,
-          family,
-          design,
-          y,
-          offset,
-          weights,
-          state,
-          objective,
-          control):
-
-    coefold, intold = state.coef, state.intercept
-
-    state.obj_val = objective(state)
-
-    converged = False
-
-    DEBUG = True
-    if LOG:
-        logging.info('Starting ISLR')
-        logging.debug(f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}')
-    for i in range(control.mxitnr):
-
-        obj_val_old = state.obj_val
-        (state,
-         boundary,
-         halved,
-         newton_weights) = _quasi_newton_step(regularizer,
-                                              family,
-                                              design,
-                                              y,
-                                              offset,
-                                              weights,
-                                              state,
-                                              objective,
-                                              control)
-
-        if LOG:
-            logging.debug(f'Iteration {i}, Coef: {state.coef}, Intercept: {state.intercept}')
-            logging.info(f'Objective: {state.obj_val}')
-        # test for convergence
-        if (np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr):
-            converged = True
-            break
-    if LOG:
-        logging.info(f'Terminating ISLR after {i+1} iterations.')
-        logging.debug(f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}')
-    return converged, boundary, state, newton_weights

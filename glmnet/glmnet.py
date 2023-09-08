@@ -15,7 +15,6 @@ from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
 from .glm import (GLMState,
-                  _IRLS,
                   GLM)
 DEBUG = False
 
@@ -77,11 +76,28 @@ class GLMNetRegularizer(Penalty):
                                      penalty_factor=self.penalty_factor,
                                      standardize=False)
 
-    def quasi_newton_step(self,
-                          design,
-                          pseudo_response,
-                          normed_sample_weight,
-                          cur_state):
+    def half_step(self,
+                  state,
+                  oldstate):
+        return GLMState(0.5 * (oldstate.coef + state.coef),
+                        0.5 * (oldstate.intercept + state.intercept))
+
+    def _debug_msg(self,
+                   state):
+        return f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}'
+
+    def check_state(self,
+                    state):
+        if np.any(np.isnan(state.coef)):
+            raise ValueError('coef has NaNs')
+        if np.isnan(state.intercept):
+            raise ValueError('intercept is NaN')
+
+    def newton_step(self,
+                    design,
+                    pseudo_response,
+                    normed_sample_weight,
+                    cur_state):
                             
         z = pseudo_response
         # make sure to set lambda_val to self.lambda_val

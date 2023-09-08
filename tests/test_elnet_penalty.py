@@ -1,11 +1,14 @@
-from itertools import product
-
+import pytest
 import numpy as np
 import scipy.sparse
 
 from glmnet.elnet import ElNet
 
-def test_small_penalty(n=50, p=10):
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+def test_small_penalty(standardize,
+                       fit_intercept,
+                       n=50, p=10):
 
     rng = np.random.default_rng(0)
     X  = rng.standard_normal((n, p))
@@ -14,16 +17,13 @@ def test_small_penalty(n=50, p=10):
     y = rng.standard_normal(n)
     W = rng.uniform(0, 1, size=(n,))
 
-    for intercept, standardize in product([False, True],
-                                          [False, True]):
-        spec = ElNet(lambda_val=0.5,
-                     standardize=standardize,
-                     fit_intercept=intercept)
+    spec = ElNet(lambda_val=0.5,
+                 standardize=standardize,
+                 fit_intercept=fit_intercept)
 
-        out = spec.fit(X, y, sample_weight=W).result_
-        out_s = spec.fit(X_s, y, sample_weight=W).result_
+    spec.fit(X, y, sample_weight=W)
+    beta = spec.raw_coef_.copy()
+    out_s = spec.fit(X_s, y, sample_weight=W)
+    beta_s = spec.raw_coef_.copy()
 
-        beta = out.beta.toarray().reshape(-1)
-        beta_s = out_s.beta.toarray().reshape(-1)
-
-        assert np.allclose(beta, beta_s, rtol=1e-3, atol=1e-3)
+    assert np.allclose(beta, beta_s, rtol=1e-3, atol=1e-3)
