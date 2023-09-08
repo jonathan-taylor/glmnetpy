@@ -15,8 +15,7 @@ from sklearn.linear_model import LinearRegression
 
 from statsmodels.genmod.families import family as sm_family
 
-from ._utils import (_dev_function,
-                     _parent_dataclass_from_child)
+from ._utils import _parent_dataclass_from_child
 
 from .base import Design, _get_design
 from .docstrings import (make_docstring,
@@ -221,10 +220,7 @@ class GLM(BaseEstimator,
             mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
         else:
             mu0 = self.family.link.inverse(np.zeros(y.shape, float))
-        self.null_deviance_ = _dev_function(y,
-                                            mu0,
-                                            sample_weight, # not normed_sample_weight!
-                                            self.family)
+        self.null_deviance_ = self.family.deviance(y, mu0, freq_weights=sample_weight)
 
         # for GLM there is no regularization, but this pattern
         # is repeated for GLMNet
@@ -245,10 +241,7 @@ class GLM(BaseEstimator,
                              intercept=intold)
 
         def obj_function(y, normed_sample_weight, family, regularizer, state):
-            val1 = _dev_function(y,
-                                 state.mu,
-                                 normed_sample_weight,
-                                 family) / 2
+            val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
             if LOG: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
@@ -280,10 +273,9 @@ class GLM(BaseEstimator,
             if LOG: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
 
-        self.deviance_ = _dev_function(y,
-                                       state.mu,
-                                       sample_weight, # not the normalized weights!
-                                       self.family)
+        self.deviance_ = self.family.deviance(y,
+                                              state.mu,
+                                              freq_weights=sample_weight) # not the normalized weights!
 
         self._set_coef_intercept(state)
 
@@ -370,7 +362,7 @@ Returns
         mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
             sample_weight = np.ones_like(y)
-        return -_dev_function(y, mu, sample_weight, self.family) / 2 
+        return -family.deviance(y, mu, freq_weights=sample_weight) / 2
     score.__doc__ = '''
 Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
 default to `np.ones_like(y) / y.shape[0]`.

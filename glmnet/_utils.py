@@ -28,20 +28,3 @@ def _parent_dataclass_from_child(cls,
     _cls_args = {k:parent_dict[k] for k in parent_dict.keys() if k in _fields}
     _cls_args.update(**modified_args)
     return cls(**_cls_args)
-
-#' Elastic net deviance value
-#'
-#' Returns the elastic net deviance value.
-#'
-#' @param y Quantitative response variable.
-#' @param mu Model's predictions for \code{y}.
-#' @param weights Observation weights.
-#' @param family A description of the error distribution and link function to be
-#' used in the model. This is the result of a call to a family function.
-def _dev_function(y,
-                  mu,
-                  weights,
-                  family):
-    return np.sum(family.resid_dev(y, mu, weights)**2)
-
-

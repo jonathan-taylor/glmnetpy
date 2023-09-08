@@ -25,7 +25,6 @@ from .docstrings import add_dataclass_docstring
 from .glmnet import (GLMNetControl,
                      GLMNet)
 from .glm import GLM, GLMState
-from ._utils import _dev_function
 
 
 @dataclass
@@ -129,10 +128,9 @@ class GLMNetPath(BaseEstimator,
             mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
         else:
             mu0 = self.family.link.inverse(np.zeros(y.shape, float))
-        self.null_deviance_ = _dev_function(y,
-                                            mu0,
-                                            sample_weight, # not normed_sample_weight!
-                                            self.family)
+        self.null_deviance_ = self.family.deviance(y,
+                                                   mu0,
+                                                   freq_weights=sample_weight) # not normed_sample_weight!
 
         for l in self.lambda_values_:
 
@@ -272,10 +270,9 @@ class GLMNetPath(BaseEstimator,
             preds_ = predictions[split]
             y_ = y[split]
             w_ = np.ones_like(y_)
-            scores_.append([_dev_function(y_,
-                                           preds_[:,i],
-                                           w_,
-                                           self.family) / split.shape[0]
+            scores_.append([self.family.deviance(y_,
+                                                 preds_[:,i],
+                                                 freq_weights=w_) / split.shape[0]
                             for i in range(preds_.shape[1])])
         self.scores_ = np.array(scores_)
         self.dev_cv_mean_ = self.scores_.mean(0)

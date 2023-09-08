@@ -109,7 +109,8 @@ class GLMNetRegularizer(Penalty):
         elnet_fit = self.elnet_estimator.fit(design,
                                              z,
                                              sample_weight=normed_sample_weight,
-                                             warm=warm)
+                                             warm=warm,
+                                             check=False)
         
         self.warm_state = GLMState(elnet_fit.raw_coef_,
                                    elnet_fit.raw_intercept_)

@@ -49,7 +49,8 @@ class ElNet(BaseEstimator,
             y,
             sample_weight=None,
             exclude=[],
-            warm=None):
+            warm=None,
+            check=True):
 
         design = _get_design(X,
                              sample_weight,
@@ -70,10 +71,11 @@ class ElNet(BaseEstimator,
             # because _get_design ignores `standardize` if X is a `Design`, then if `X`
             # is a `Design` this will ignore `self.standardize
 
-            design.X, y = check_X_y(design.X, y,
-                                    accept_sparse=['csc'],
-                                    multi_output=False,
-                                    estimator=self)
+            if check:
+                design.X, y = check_X_y(design.X, y,
+                                        accept_sparse=['csc'],
+                                        multi_output=False,
+                                        estimator=self)
 
             _check_and_set_limits(self, nvars)
             exclude = _check_and_set_vp(self, nvars, exclude)
