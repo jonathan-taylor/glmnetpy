@@ -14,7 +14,6 @@ from sklearn.utils import check_X_y
 from sklearn.linear_model import LinearRegression
 
 from statsmodels.genmod.families import family as sm_family
-from statsmodels.genmod.families import links as sm_links
 
 from ._utils import (_dev_function,
                      _parent_dataclass_from_child)
@@ -23,7 +22,7 @@ from .base import Design, _get_design
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
-from .islr import IRLS
+from .irls import IRLS
 
 @add_dataclass_docstring
 @dataclass

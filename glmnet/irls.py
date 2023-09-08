@@ -3,6 +3,10 @@ LOG = False
 
 import numpy as np
 from copy import deepcopy
+
+from statsmodels.genmod.families import family as sm_family
+from statsmodels.genmod.families import links as sm_links
+
 def quasi_newton_step(regularizer,
                       family,
                       design,
@@ -149,9 +153,11 @@ def IRLS(regularizer,
             logging.debug(f'Iteration {i}, {regularizer._debug_msg(state)}')
             logging.info(f'Objective: {state.obj_val}')
         # test for convergence
-        if (np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr):
+        if ((np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr) or
+            (isinstance(family, sm_family.Gaussian) and isinstance(family.link, sm_links.Identity))):
             converged = True
             break
+
     if LOG:
         logging.info(f'Terminating ISLR after {i+1} iterations.')
         logging.debug(f'{regularizer._debug_msg(state)}')
