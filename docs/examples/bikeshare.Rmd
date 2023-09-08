@@ -1,0 +1,300 @@
+---
+jupyter:
+  jupytext:
+    cell_metadata_filter: -all
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.0
+  kernelspec:
+    display_name: Python 3 (ipykernel)
+    language: python
+    name: python3
+---
+
+
+# Chapter 4
+
+
+
+
+
+# Lab: Logistic Regression, LDA, QDA, and KNN
+
+
+
+## The Stock Market Data
+
+In this lab we will examine the `Smarket` 
+data, which is part of the `ISLP`
+library. This data set consists of percentage returns for the S&P 500
+stock index over 1,250 days, from the beginning of 2001 until the end
+of 2005. For each date, we have recorded the percentage returns for
+each of the five previous trading days,  `Lag1`  through
+ `Lag5`. We have also recorded  `Volume`  (the number of
+shares traded on the previous day, in billions),  `Today`  (the
+percentage return on the date in question) and  `Direction`
+(whether the market was  `Up`  or  `Down`  on this date).
+
+We start by importing  our libraries at this top level; these are all imports we have seen in previous labs.
+
+```{python}
+import numpy as np
+import pandas as pd
+from matplotlib.pyplot import subplots
+import statsmodels.api as sm
+from ISLP import load_data
+from ISLP.models import (ModelSpec as MS,
+                         summarize)
+```
+
+We also collect together the new imports needed for this lab.
+
+```{python}
+from ISLP import confusion_table
+from ISLP.models import contrast
+from sklearn.discriminant_analysis import \
+     (LinearDiscriminantAnalysis as LDA,
+      QuadraticDiscriminantAnalysis as QDA)
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+
+```
+
+
+## Linear and Poisson Regression on the Bikeshare Data
+Here we fit linear and  Poisson regression models to the `Bikeshare` data, as described in Section 4.6.
+The response `bikers` measures the number of bike rentals per hour
+in Washington, DC in the period 2010--2012.
+
+```{python}
+Bike = load_data('Bikeshare')
+
+```
+Let's have a peek at the dimensions and names of the variables in this dataframe.
+
+```{python}
+Bike.shape, Bike.columns
+
+```
+
+### Linear Regression
+
+We begin by fitting a linear regression model to the data.
+
+```{python}
+X = MS(['mnth',
+        'hr',
+        'workingday',
+        'temp',
+        'weathersit']).fit_transform(Bike)
+Y = Bike['bikers']
+M_lm = sm.OLS(Y, X).fit()
+summarize(M_lm)
+
+```
+
+There are 24 levels in `hr` and 40 rows in all.
+In `M_lm`, the first levels `hr[0]` and `mnth[Jan]`  are treated
+as the baseline values, and so no coefficient estimates are provided
+for them: implicitly, their coefficient estimates are zero, and all
+other levels are measured relative to these baselines. For example,
+the Feb coefficient of $6.845$ signifies that, holding all other
+variables constant, there are on average about 7 more riders in
+February than in January. Similarly there are about 16.5 more riders
+in March than in January.
+
+The results seen in Section 4.6.1
+used a slightly different coding of the variables `hr` and `mnth`, as follows:
+
+```{python}
+hr_encode = contrast('hr', 'sum')
+mnth_encode = contrast('mnth', 'sum')
+
+```
+Refitting again:
+
+```{python}
+X2 = MS([mnth_encode,
+         hr_encode,
+        'workingday',
+        'temp',
+        'weathersit']).fit_transform(Bike)
+M2_lm = sm.OLS(Y, X2).fit()
+S2 = summarize(M2_lm)
+S2
+```
+
+What is the difference between the two codings?  In `M2_lm`, a
+coefficient estimate is reported for all but level `23` of `hr`
+and level `Dec` of `mnth`. Importantly, in `M2_lm`, the (unreported) coefficient estimate
+for the last level of `mnth` is not zero: instead, it equals the
+negative of the sum of the coefficient estimates for all of the
+other levels. Similarly, in `M2_lm`, the coefficient estimate
+for the last level of `hr` is the negative of the sum of the
+coefficient estimates for all of the other levels. This means that the
+coefficients of `hr` and `mnth` in `M2_lm` will always sum
+to zero, and can be interpreted as the difference from the mean
+level. For example, the coefficient for January of $-46.087$ indicates
+that, holding all other variables constant, there are typically 46
+fewer riders in January relative to the yearly average.
+
+It is important to realize that the choice of coding really does not
+matter, provided that we interpret the  model output correctly in light
+of the coding used. For example, we see that the predictions from the
+linear model are the same regardless of coding:
+
+```{python}
+np.sum((M_lm.fittedvalues - M2_lm.fittedvalues)**2)
+
+```
+
+The sum of squared differences is zero. We can also see this using the
+`np.allclose()` function:
+
+```{python}
+np.allclose(M_lm.fittedvalues, M2_lm.fittedvalues)
+
+```
+
+
+To reproduce the left-hand side of Figure 4.13
+we must first obtain the coefficient estimates associated with
+`mnth`. The coefficients for January through November can be obtained
+directly from the `M2_lm` object. The coefficient for December
+must be explicitly computed as the negative sum of all the other
+months. We first extract all the coefficients for month from
+the coefficients of `M2_lm`.
+
+```{python}
+coef_month = S2[S2.index.str.contains('mnth')]['coef']
+coef_month
+
+```
+Next, we append `Dec` as the negative of the sum of all other months.
+
+```{python}
+months = Bike['mnth'].dtype.categories
+coef_month = pd.concat([
+                       coef_month,
+                       pd.Series([-coef_month.sum()],
+                                  index=['mnth[Dec]'
+                                 ])
+                       ])
+coef_month
+
+```
+Finally, to make the plot neater, we’ll just use the first letter of each month, which is the $6$th entry of each of
+the labels in the index.
+
+```{python}
+fig_month, ax_month = subplots(figsize=(8,8))
+x_month = np.arange(coef_month.shape[0])
+ax_month.plot(x_month, coef_month, marker='o', ms=10)
+ax_month.set_xticks(x_month)
+ax_month.set_xticklabels([l[5] for l in coef_month.index], fontsize=20)
+ax_month.set_xlabel('Month', fontsize=20)
+ax_month.set_ylabel('Coefficient', fontsize=20);
+
+```
+
+Reproducing the  right-hand plot in Figure 4.13  follows a similar process.
+
+```{python}
+coef_hr = S2[S2.index.str.contains('hr')]['coef']
+coef_hr = coef_hr.reindex(['hr[{0}]'.format(h) for h in range(23)])
+coef_hr = pd.concat([coef_hr,
+                     pd.Series([-coef_hr.sum()], index=['hr[23]'])
+                    ])
+
+```
+
+We now make the hour plot.
+
+```{python}
+fig_hr, ax_hr = subplots(figsize=(8,8))
+x_hr = np.arange(coef_hr.shape[0])
+ax_hr.plot(x_hr, coef_hr, marker='o', ms=10)
+ax_hr.set_xticks(x_hr[::2])
+ax_hr.set_xticklabels(range(24)[::2], fontsize=20)
+ax_hr.set_xlabel('Hour', fontsize=20)
+ax_hr.set_ylabel('Coefficient', fontsize=20);
+
+```
+
+### Poisson Regression
+
+Now we fit instead a Poisson regression model to the
+`Bikeshare` data. Very little changes, except that we now use the
+function `sm.GLM()` with the Poisson family specified:
+
+```{python}
+M_pois = sm.GLM(Y, X2, family=sm.families.Poisson()).fit()
+
+```
+
+We can plot the coefficients associated with `mnth` and `hr`, in order to reproduce  Figure 4.15. We first complete these coefficients as before.
+
+```{python}
+S_pois = summarize(M_pois)
+coef_month = S_pois[S_pois.index.str.contains('mnth')]['coef']
+coef_month = pd.concat([coef_month,
+                        pd.Series([-coef_month.sum()],
+                                   index=['mnth[Dec]'])])
+coef_hr = S_pois[S_pois.index.str.contains('hr')]['coef']
+coef_hr = pd.concat([coef_hr,
+                     pd.Series([-coef_hr.sum()],
+                     index=['hr[23]'])])
+S_pois
+```
+The plotting is as before.
+
+```{python}
+fig_pois, (ax_month, ax_hr) = subplots(1, 2, figsize=(16,8))
+ax_month.plot(x_month, coef_month, marker='o', ms=10)
+ax_month.set_xticks(x_month)
+ax_month.set_xticklabels([l[5] for l in coef_month.index], fontsize=20)
+ax_month.set_xlabel('Month', fontsize=20)
+ax_month.set_ylabel('Coefficient', fontsize=20)
+ax_hr.plot(x_hr, coef_hr, marker='o', ms=10)
+ax_hr.set_xticklabels(range(24)[::2], fontsize=20)
+ax_hr.set_xlabel('Hour', fontsize=20)
+ax_hr.set_ylabel('Coefficient', fontsize=20);
+
+```
+We compare the fitted values of the two models.
+The fitted values are stored in the `fittedvalues` attribute
+returned by the `fit()` method for both the linear regression and the Poisson
+fits. The linear predictors are stored as the attribute `lin_pred`.
+
+```{python}
+fig, ax = subplots(figsize=(8, 8))
+ax.scatter(M2_lm.fittedvalues,
+           M_pois.fittedvalues,
+           s=20)
+ax.set_xlabel('Linear Regression Fit', fontsize=20)
+ax.set_ylabel('Poisson Regression Fit', fontsize=20)
+ax.axline([0,0], c='black', linewidth=3,
+          linestyle='--', slope=1);
+
+```
+
+The predictions from the Poisson regression model are correlated with
+those from the linear model; however, the former are non-negative. As
+a result the Poisson regression predictions tend to be larger than
+those from the linear model for either very low or very high levels of
+ridership.
+
+In this section, we fit Poisson regression models using the `sm.GLM()` function with the argument
+`family=sm.families.Poisson()`. Earlier in this lab we used the `sm.GLM()` function
+with `family=sm.families.Binomial()` to perform logistic regression. Other
+choices for the `family` argument can be used to fit other types
+of GLMs. For instance, `family=sm.families.Gamma()` fits a Gamma regression
+model.
+
+
