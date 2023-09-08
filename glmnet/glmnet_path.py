@@ -23,6 +23,13 @@ from .glmnet import (GLMNetControl,
 from .glm import GLM, GLMState
 from ._utils import _dev_function
 
+DEBUG = False
+
+@dataclass
+class GLMNetPathControl(GLMNetControl):
+
+    fdev: float = 1e-5
+
 @dataclass
 class GLMNetPathSpec(object):
 
@@ -35,9 +42,9 @@ class GLMNetPathSpec(object):
     fit_intercept: bool = True
     standardize: bool = True
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
-    control: GLMNetControl = field(default_factory=GLMNetControl)
+    control: GLMNetPathControl = field(default_factory=GLMNetPathControl)
 
-add_dataclass_docstring(GLMNetPathSpec, subs={'control':'control_glmnet'})
+add_dataclass_docstring(GLMNetPathSpec, subs={'control':'control_glmnet_path'})
 
 @dataclass
 class GLMNetPath(BaseEstimator,
@@ -106,22 +113,47 @@ class GLMNetPath(BaseEstimator,
 
         coefs_ = []
         intercepts_ = []
-        deviances_ = []
+        dev_ratios_ = []
+        sample_weight_sum = sample_weight.sum()
+        
+        if self.fit_intercept:
+            mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
+        else:
+            mu0 = self.family.link.inverse(np.zeros(y.shape, float))
+        self.null_deviance_ = _dev_function(y,
+                                            mu0,
+                                            sample_weight, # not normed_sample_weight!
+                                            self.family)
+
+
         for l in self.lambda_values_:
 
+            if DEBUG:
+                print(f'fitting {l}')
             self.glmnet_est_.lambda_val = regularizer_.lambda_val = l
             self.glmnet_est_.fit(X,
                                  y,
                                  normed_sample_weight,
                                  offset=offset,
                                  regularizer=regularizer_)
+
             coefs_.append(self.glmnet_est_.coef_.copy())
             intercepts_.append(self.glmnet_est_.intercept_)
-            deviances_.append(self.glmnet_est_.deviance_)
+            dev_ratios_.append(1 - self.glmnet_est_.deviance_ * sample_weight_sum / self.null_deviance_)
+            if len(dev_ratios_) > 1:
+                if isinstance(self.family, sm_family.Gaussian): # dev_ratios_[0] is null deviance
+                    if np.fabs(dev_ratios_[-1] - dev_ratios_[-2]) < self.control.fdev * dev_ratios_[-1]:
+                        break
+                else: # TODO Poisson case
+                    if np.fabs(dev_ratios_[-1] - dev_ratios_[-2]) < self.control.fdev:
+                        break
             
         self.coefs_ = np.array(coefs_)
         self.intercepts_ = np.array(intercepts_)
-        self.deviances_ = np.array(deviances_)
+        self.dev_ratios_ = np.array(dev_ratios_)
+        nfit = self.coefs_.shape[0]
+
+        self.lambda_values_ = self.lambda_values_[:nfit]
         
         if interpolation_grid is not None:
             L = self.lambda_values_
@@ -195,10 +227,10 @@ class GLMNetPath(BaseEstimator,
                               verbose=0,
                               fit_params={},
                               pre_dispatch='2*n_jobs',
-                              alignment='absolute'):
+                              alignment='lambda'):
 
         if alignment not in ['lambda', 'fraction']:
-            raise ValueError("alignment must be one of 'absolute' or 'relative'")
+            raise ValueError("alignment must be one of 'lambda' or 'fraction'")
 
         # within each fold, lambda is fit fractionally
 
@@ -261,7 +293,7 @@ class GLMNetPath(BaseEstimator,
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
         elif xvar == 'dev':
-            index = pd.Index(1 - self.deviances_ / self.deviances_[0])
+            index = pd.Index(self.dev_ratios_)
             index.name = '% DEV explained'
         else:
             raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
@@ -306,7 +338,7 @@ class GLMNetPath(BaseEstimator,
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
         elif xvar == 'dev':
-            index = pd.Index(1 - self.deviances_ / self.null_deviance_)
+            index = pd.Index(self.dev_ratios_)
             index.name = '% DEV explained'
         else:
             raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")

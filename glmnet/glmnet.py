@@ -17,6 +17,7 @@ from .elnet import (ElNet,
 from .glm import (GLMState,
                   _IRLS,
                   GLM)
+DEBUG = False
 
 @add_dataclass_docstring
 @dataclass
@@ -91,26 +92,31 @@ class GLMNetRegularizer(Penalty):
         else:
             warm = None
 
-        out = self.elnet_estimator.fit(design,
-                                       z,
-                                       sample_weight=normed_sample_weight,
-                                       warm=warm).result_
+        if DEBUG:
+            print('before elnet_fit')
+            print(id(self.warm_state['elnet_warm'].a), 'warm')
+            print(id(self.warm_state['coef_']), 'state')
+            print(self.warm_state['elnet_warm'].aint, 'warm intercept')
 
-        coefnew = out.beta.toarray().reshape(-1) # this will not have been scaled by `xs/scaling_`
-        intnew = out.a0
+        elnet_fit = self.elnet_estimator.fit(design,
+                                             z,
+                                             sample_weight=normed_sample_weight,
+                                             warm=warm)
+        out = elnet_fit.result_
         
-        self.warm_state['coef_'] = coefnew
-        self.warm_state['intercept_'] = intnew
         self.warm_state['elnet_warm'] = out.warm_fit
-        return coefnew, intnew
+        self.warm_state['coef_'] = self.warm_state['elnet_warm'].a
+        self.warm_state['intercept_'] = self.warm_state['elnet_warm'].aint
+        return self.warm_state['coef_'], self.warm_state['intercept_']
 
     def get_warm_start(self):
 
         if ('coef_' in self.warm_state.keys() and
             'intercept_' in self.warm_state.keys()):
 
-            return GLMState(self.warm_state['coef_'],
-                            self.warm_state['intercept_']) 
+            state = GLMState(self.warm_state['coef_'],
+                             self.warm_state['intercept_'])
+            return state
 
     def update_resid(self, r):
         self.warm_state['resid_'] = r
@@ -118,7 +124,10 @@ class GLMNetRegularizer(Penalty):
             self.warm_state['elnet_warm'].r = r
             
     def objective(self, state):
-        return 0
+        lasso = self.alpha * np.fabs(state.coef).sum()
+        ridge = (1 - self.alpha) * (state.coef**2).sum() / 2
+        return self.lambda_val * (lasso + ridge)
+
 # end of GLMNetRegularizer
 
 @dataclass

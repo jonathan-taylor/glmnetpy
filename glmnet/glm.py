@@ -24,6 +24,7 @@ from .docstrings import (make_docstring,
                          _docstrings)
 
 from .elnet import ElNet
+DEBUG = False
 
 @add_dataclass_docstring
 @dataclass
@@ -59,8 +60,7 @@ class GLMState(object):
     coef: np.ndarray
     intercept: np.ndarray
     obj_val: float = np.inf
-    obj_val_old: float = np.inf
-    pmin: float=1e-3
+    pmin: float = 1e-9
     
     def __post_init__(self):
 
@@ -70,7 +70,8 @@ class GLMState(object):
     def update(self,
                design,
                family,
-               offset):
+               offset,
+               objective=None):
         '''pin the mu/eta values to coef/intercept'''
         self.eta = design @ self._stack
         if offset is None:
@@ -79,7 +80,10 @@ class GLMState(object):
             self.mu = family.link.inverse(self.eta + offset)    
         if isinstance(family, sm_family.Binomial):
             self.mu = np.clip(self.mu, self.pmin, 1-self.pmin)
-
+            self.eta = family.link(self.mu)
+        if objective is not None:
+            self.obj_val = objective(self)
+        
     def logl_score(self,
                    family,
                    y):
@@ -143,6 +147,7 @@ class GLMRegularizer(object):
 
             state = GLMState(self.warm_state['coef_'],
                              self.warm_state['intercept_'])
+            state.obj_val = self.objective(state)
             return state
 
     def update_resid(self, r):
@@ -221,7 +226,6 @@ class GLM(BaseEstimator,
         if regularizer is None:
             regularizer = self._get_regularizer(X)
         self.regularizer_ = regularizer
-
         state = self.regularizer_.get_warm_start()
 
         if state is None:
@@ -230,18 +234,25 @@ class GLM(BaseEstimator,
             state = GLMState(coef=coefold,
                              intercept=intold)
 
+        def obj_function(y, normed_sample_weight, family, regularizer, state):
+            val1 = _dev_function(y,
+                                 state.mu,
+                                 normed_sample_weight,
+                                 family) / 2
+            val2 = regularizer.objective(state)
+            val = val1 + val2
+
+            if DEBUG:
+                print('obj being computed', regularizer.lambda_val, val1, val2, val)
+                print(regularizer.lambda_val, regularizer.alpha)
+            return val
+        obj_function = partial(obj_function, y.copy(), normed_sample_weight.copy(), self.family, regularizer)
+        
         state.update(design,
                      self.family,
-                     offset)
+                     offset,
+                     obj_function)
 
-        def obj_function(y, family, regularizer, state):
-            return (_dev_function(y,
-                                  state.mu,
-                                  normed_sample_weight,
-                                  family) / 2 +
-                    regularizer.objective(state))
-        obj_function = partial(obj_function, y, self.family, regularizer)
-        
         (converged,
          boundary,
          state,
@@ -415,6 +426,10 @@ def _quasi_newton_step(regularizer,
 
     coefold, intold = state.coef, state.intercept
 
+    oldstate = GLMState(coefold.copy(),
+                        intold * 1.)
+    oldstate.obj_val = state.obj_val
+    
     # some checks for NAs/zeros
     varmu = family.variance(state.mu)
     if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
@@ -434,16 +449,22 @@ def _quasi_newton_step(regularizer,
 
     # could have the quasi_newton_step return state instead?
     
+    if offset is not None:
+        regularizer.update_resid(w * (z - state.eta + offset))
+    else:
+        regularizer.update_resid(w * (z - state.eta))
+
     coefnew, intnew = regularizer.quasi_newton_step(design, z, w)
     state = GLMState(coefnew,
-                     intnew,
-                     obj_val_old=state.obj_val)
+                     intnew)
+
+    coef_step = coefnew - oldstate.coef
+    int_step = intnew - oldstate.intercept
 
     state.update(design,
                  family,
-                 offset)
-
-    state.obj_val = objective(state)
+                 offset,
+                 objective)
 
     # check to make sure it is a feasible descent step
 
@@ -472,7 +493,7 @@ def _quasi_newton_step(regularizer,
         boundary = False
         halved = True
 
-        return state.obj_val <= state.obj_val_old + 1e-7, boundary, halved
+        return state.obj_val <= oldstate.obj_val + 1e-7, boundary, halved
 
     for test, msg in [(finite_objective,
                        "Non finite objective function! Step size truncated due to divergence."),
@@ -482,9 +503,9 @@ def _quasi_newton_step(regularizer,
                        "")]:
 
         if not test(state)[0]:
-            if msg:
+            if DEBUG and msg:
                 warnings.warn(msg)
-            if np.any(np.isnan(coefold)) or np.isnan(intold):
+            if np.any(np.isnan(oldstate.coef)) or np.isnan(oldstate.intercept):
                 raise ValueError("No valid set of coefficients has been found: please supply starting values")
 
             ii = 1
@@ -498,19 +519,26 @@ def _quasi_newton_step(regularizer,
                     raise ValueError(f"inner loop {test}; cannot correct step size")
                 ii += 1
 
-                state = GLMState((state.coef + coefold)/2,
-                                 (state.intercept + intold)/2,
-                                 obj_val_old=state.obj_val_old)
+                coef_step *= 0.5
+                int_step *= 0.5
+                state = GLMState(oldstate.coef + coef_step,
+                                 oldstate.intercept + int_step)
                 state.update(design,
                              family,
-                             offset)
-                state.obj_val = objective(state)
+                             offset,
+                             objective)
                 check, boundary_, halved_ = test(state)
 
+    if DEBUG:
+        print(state.obj_val, oldstate.obj_val)
     if offset is not None:
         regularizer.update_resid(w * (z - state.eta + offset))
     else:
         regularizer.update_resid(w * (z - state.eta))
+
+    if 'elnet_warm' in regularizer.warm_state.keys():
+        regularizer.warm_state['elnet_warm'].a[:] = state.coef
+        regularizer.warm_state['elnet_warm'].aint = state.intercept
 
     return state, boundary, halved, newton_weights
 
@@ -526,11 +554,13 @@ def _IRLS(regularizer,
 
     coefold, intold = state.coef, state.intercept
 
-    state.obj_val_old = objective(state)
+    state.obj_val = objective(state)
+
     converged = False
 
-    for _ in range(control.mxitnr):
+    for i in range(control.mxitnr):
 
+        obj_val_old = state.obj_val
         (state,
          boundary,
          halved,
@@ -544,9 +574,14 @@ def _IRLS(regularizer,
                                               objective,
                                               control)
 
+        DEBUG = False
+        if DEBUG:
+            print(f'iteration {i}: {state.obj_val}')
         # test for convergence
-        if (np.fabs(state.obj_val - state.obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr):
+        if (np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr):
             converged = True
+            if DEBUG:
+                print(f'num iterations: {i}')
             break
 
     return converged, boundary, state, newton_weights

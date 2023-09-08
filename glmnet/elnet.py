@@ -18,6 +18,7 @@ from ._utils import (_jerr_elnetfit,
                      _parent_dataclass_from_child)
 from .docstrings import (make_docstring,
                          add_dataclass_docstring)
+DEBUG = False
 
 @add_dataclass_docstring
 @dataclass
@@ -73,8 +74,6 @@ class ElNet(BaseEstimator,
             _check_and_set_limits(self, nvars)
             exclude = _check_and_set_vp(self, nvars, exclude)
 
-            # args, nulldev = _wls_args(self, design, y, sample_weight, warm=warm, exclude=exclude)
-            
             args, nulldev = _elnet_args(design,
                                         y,
                                         sample_weight,
@@ -89,6 +88,12 @@ class ElNet(BaseEstimator,
                                         thresh=self.control.thresh,
                                         maxit=self.control.maxit,
                                         warm=warm)
+
+            if DEBUG:
+                print(id(args['a']), 'passed to elnet')
+                print(args['aint'], 'int passed to elnet')
+
+            args['a'] = args['a'].reshape((-1,1))
 
             if scipy.sparse.issparse(design.X):
                 wls_fit = sparse_wls(**args)
@@ -115,8 +120,10 @@ class ElNet(BaseEstimator,
 
             warm_fit = ElNetWarmStart(**warm_args)
 
+            if DEBUG:
+                print(id(wls_fit['a']), 'after fitting with elnet')
             beta = scipy.sparse.csc_array(wls_fit['a']) # shape=(1, nvars)
-
+            
             intercept_ = wls_fit['aint']
             result = ElNetResult(a0=wls_fit['aint'],
                                  beta=beta,
@@ -164,6 +171,7 @@ class ElNet(BaseEstimator,
         self.design_ = design
         self.coef_ = beta.toarray() / design.scaling_
         self.intercept_ = intercept_ - (self.coef_ * self.design_.centers_).sum()
+        self._args = args
         return self
 
 add_dataclass_docstring(ElNet, subs={'control':'control_elnet'})
@@ -281,7 +289,7 @@ def _elnet_args(design,
     # as if no warmstart was provided)
 
     if isinstance(warm, ElNetWarmStart): # assumes it is a dictionary like `warm_fit`
-        a = warm.a
+        a = warm.a #.reshape((-1,1))
         aint = warm.aint
         alm0 = warm.almc
         cl = warm.cl
@@ -356,7 +364,7 @@ def _elnet_args(design,
     thr = float(thresh)                             # as.double(thresh)
     v = np.asarray(sample_weight, float).reshape((-1,1))  # as.double(weights)
 
-    a_new = a
+    a_new = a # .copy() 
     # take out components of x and run C++ subroutine
 
     _args = {'alm0':alm0,
@@ -375,7 +383,7 @@ def _elnet_args(design,
              'nx':nx,
              'thr':thr,
              'maxit':maxit,
-             'a':a_new,
+             'a':a,
              'aint':aint,
              'g':g,
              'ia':ia,

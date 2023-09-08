@@ -178,6 +178,12 @@ control: Optional(GLMNetControl)
     Parameters to control the solver.
     ''',
 
+    'control_glmnet_path': '''
+control: Optional(GLMNetPathControl)
+
+    Parameters to control the solver.
+    ''',
+
     'mxitnr':'''
 mxitnr: int
     Maximum number of quasi Newton iterations.''',
