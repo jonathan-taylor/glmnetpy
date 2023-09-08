@@ -353,12 +353,16 @@ class GLMNetPath(BaseEstimator,
                            yerr='SD',
                            legend=legend,
                            **plot_args)
+        ax.set_ylabel('GLM Deviance')
         if xvar == 'lambda':
             l = ax.axvline(-np.log(self.lambda_min_), c=col_min, ls=ls_min, label=r'$\lambda_{\min}$')
             ax.axvline(-np.log(self.lambda_1se_), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
-        else:
+        elif xvar == 'norm':
             ax.axvline(np.fabs(self.coefs_[self._min_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{\min}$')
             ax.axvline(np.fabs(self.coefs_[self._1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
+        elif xvar == 'dev':
+            ax.axvline(np.fabs(self.dev_ratios_[self._min_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{\min}$')
+            ax.axvline(np.fabs(self.dev_ratios_[self._1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         if legend:
             ax.legend(loc='upper right')
         return ax
