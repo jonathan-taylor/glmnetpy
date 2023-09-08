@@ -1,6 +1,7 @@
 from dataclasses import dataclass, asdict, field
 from functools import partial
-import warnings
+import logging
+LOG = False
    
 import numpy as np
 from numpy.linalg import LinAlgError
@@ -104,7 +105,10 @@ class GLMRegularizer(object):
     def quasi_newton_step(self,
                           design,
                           pseudo_response,
-                          sample_weight):
+                          sample_weight,
+                          coef,                # ignored for GLM
+                          intercept,           # ignored for GLM
+                          linear_predictor):   # ignored for GLM
 
         z = pseudo_response
         w = sample_weight
@@ -126,7 +130,7 @@ class GLMRegularizer(object):
                 try:
                     beta = np.linalg.solve(Q, V)
                 except LinAlgError as e:
-                    warnings.warn("error in solve: possible singular matrix, trying pseudo-inverse")
+                    if LOG: logging.debug("Error in solve: possible singular matrix, trying pseudo-inverse")
                     beta = np.linalg.pinv(XW) @ Wz
                 coefnew = beta[1:]
                 intnew = beta[0]
@@ -241,10 +245,7 @@ class GLM(BaseEstimator,
                                  family) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
-
-            if DEBUG:
-                print('obj being computed', regularizer.lambda_val, val1, val2, val)
-                print(regularizer.lambda_val, regularizer.alpha)
+            if LOG: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
         obj_function = partial(obj_function, y.copy(), normed_sample_weight.copy(), self.family, regularizer)
         
@@ -268,9 +269,9 @@ class GLM(BaseEstimator,
 
         # checks on convergence and fitted values
         if not converged:
-            warnings.warn("fitting IRLS: algorithm did not converge")
+            if LOG: logging.debug("Fitting IRLS: algorithm did not converge")
         if boundary:
-            warnings.warn("fitting IRLS: algorithm stopped at boundary value")
+            if LOG: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
         self.deviance_ = _dev_function(y,
                                        state.mu,
@@ -382,10 +383,10 @@ score: float
 '''.format(**_docstrings).strip()
 
     def _set_coef_intercept(self, state):
-        self.coef_ = state.coef
+        self.coef_ = state.coef.copy() # this makes a copy -- important to make this copy because `state.coef` is persistent
         if hasattr(self, 'standardize') and self.standardize:
             self.scaling_ = self.design_.scaling_
-            self.coef_ /= self.scaling_
+            self.coef_ /= self.scaling_ 
         self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()
 
 GLM.__doc__ = '''
@@ -449,12 +450,16 @@ def _quasi_newton_step(regularizer,
 
     # could have the quasi_newton_step return state instead?
     
+    linpred = state.eta
     if offset is not None:
-        regularizer.update_resid(w * (z - state.eta + offset))
-    else:
-        regularizer.update_resid(w * (z - state.eta))
-
-    coefnew, intnew = regularizer.quasi_newton_step(design, z, w)
+        linpred += offset
+        
+    coefnew, intnew = regularizer.quasi_newton_step(design,
+                                                    z,
+                                                    w,
+                                                    state.coef,
+                                                    state.intercept,
+                                                    linpred)
     state = GLMState(coefnew,
                      intnew)
 
@@ -500,11 +505,10 @@ def _quasi_newton_step(regularizer,
                       (valid,
                        "Invalid eta/mu! Step size truncated: out of bounds."),
                       (decreased_obj,
-                       "")]:
+                       "Objective did not decrease!")]:
 
         if not test(state)[0]:
-            if DEBUG and msg:
-                warnings.warn(msg)
+            if LOG: logging.debug(msg)
             if np.any(np.isnan(oldstate.coef)) or np.isnan(oldstate.intercept):
                 raise ValueError("No valid set of coefficients has been found: please supply starting values")
 
@@ -529,16 +533,7 @@ def _quasi_newton_step(regularizer,
                              objective)
                 check, boundary_, halved_ = test(state)
 
-    if DEBUG:
-        print(state.obj_val, oldstate.obj_val)
-    if offset is not None:
-        regularizer.update_resid(w * (z - state.eta + offset))
-    else:
-        regularizer.update_resid(w * (z - state.eta))
-
-    if 'elnet_warm' in regularizer.warm_state.keys():
-        regularizer.warm_state['elnet_warm'].a[:] = state.coef
-        regularizer.warm_state['elnet_warm'].aint = state.intercept
+    if LOG: logging.debug(f'old value: {oldstate.obj_val}, new value: {state.obj_val}') 
 
     return state, boundary, halved, newton_weights
 
@@ -558,6 +553,10 @@ def _IRLS(regularizer,
 
     converged = False
 
+    DEBUG = True
+    if LOG:
+        logging.info('Starting ISLR')
+        logging.debug(f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}')
     for i in range(control.mxitnr):
 
         obj_val_old = state.obj_val
@@ -574,14 +573,14 @@ def _IRLS(regularizer,
                                               objective,
                                               control)
 
-        DEBUG = False
-        if DEBUG:
-            print(f'iteration {i}: {state.obj_val}')
+        if LOG:
+            logging.debug(f'Iteration {i}, Coef: {state.coef}, Intercept: {state.intercept}')
+            logging.info(f'Objective: {state.obj_val}')
         # test for convergence
         if (np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr):
             converged = True
-            if DEBUG:
-                print(f'num iterations: {i}')
             break
-
+    if LOG:
+        logging.info(f'Terminating ISLR after {i+1} iterations.')
+        logging.debug(f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}')
     return converged, boundary, state, newton_weights

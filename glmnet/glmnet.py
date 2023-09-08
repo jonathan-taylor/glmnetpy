@@ -80,33 +80,24 @@ class GLMNetRegularizer(Penalty):
     def quasi_newton_step(self,
                           design,
                           pseudo_response,
-                          normed_sample_weight):
+                          normed_sample_weight,
+                          coef,               
+                          intercept,          
+                          linear_predictor):  
 
         z = pseudo_response
-
         # make sure to set lambda_val to self.lambda_val
         self.elnet_estimator.lambda_val = self.lambda_val
         
-        if 'elnet_warm' in self.warm_state:
-            warm = self.warm_state['elnet_warm']
-        else:
-            warm = None
-
-        if DEBUG:
-            print('before elnet_fit')
-            print(id(self.warm_state['elnet_warm'].a), 'warm')
-            print(id(self.warm_state['coef_']), 'state')
-            print(self.warm_state['elnet_warm'].aint, 'warm intercept')
-
+        warm = (coef, intercept, linear_predictor) # linear_predictor includes offet if any
         elnet_fit = self.elnet_estimator.fit(design,
                                              z,
                                              sample_weight=normed_sample_weight,
                                              warm=warm)
         out = elnet_fit.result_
         
-        self.warm_state['elnet_warm'] = out.warm_fit
-        self.warm_state['coef_'] = self.warm_state['elnet_warm'].a
-        self.warm_state['intercept_'] = self.warm_state['elnet_warm'].aint
+        self.warm_state['coef_'] = out.beta.toarray().reshape(-1)
+        self.warm_state['intercept_'] = out.a0
         return self.warm_state['coef_'], self.warm_state['intercept_']
 
     def get_warm_start(self):
@@ -120,8 +111,6 @@ class GLMNetRegularizer(Penalty):
 
     def update_resid(self, r):
         self.warm_state['resid_'] = r
-        if 'elnet_warm' in self.warm_state:
-            self.warm_state['elnet_warm'].r = r
             
     def objective(self, state):
         lasso = self.alpha * np.fabs(state.coef).sum()

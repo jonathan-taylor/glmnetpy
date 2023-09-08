@@ -1,3 +1,6 @@
+import logging
+LOG = False
+
 from dataclasses import dataclass, asdict, field, InitVar
 from typing import Union, Optional
    
@@ -128,8 +131,7 @@ class GLMNetPath(BaseEstimator,
 
         for l in self.lambda_values_:
 
-            if DEBUG:
-                print(f'fitting {l}')
+            if LOG: logging.info(f'Fitting parameter {l}')
             self.glmnet_est_.lambda_val = regularizer_.lambda_val = l
             self.glmnet_est_.fit(X,
                                  y,
