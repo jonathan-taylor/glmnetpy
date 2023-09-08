@@ -24,6 +24,7 @@ class GLMNetControl(ElNetControl):
     mxitnr: int = 25
     epsnr: float = 1e-6
     big: float = 9.9e35
+    logging: bool = False
 
 @dataclass
 class GLMNetSpec(ElNetSpec):

@@ -1,7 +1,6 @@
 from dataclasses import dataclass, asdict, field
 from functools import partial
 import logging
-LOG = False
    
 import numpy as np
 from numpy.linalg import LinAlgError
@@ -30,7 +29,8 @@ class GLMControl(object):
     mxitnr: int = 25
     epsnr: float = 1e-6
     big: float = 9.9e35
-
+    logging: bool = False
+    
 @dataclass
 class GLMSpec(object):
 
@@ -143,7 +143,7 @@ class GLMRegularizer(object):
                 try:
                     beta = np.linalg.solve(Q, V)
                 except LinAlgError as e:
-                    if LOG: logging.debug("Error in solve: possible singular matrix, trying pseudo-inverse")
+                    if self.control.logging: logging.debug("Error in solve: possible singular matrix, trying pseudo-inverse")
                     beta = np.linalg.pinv(XW) @ Wz
                 coefnew = beta[1:]
                 intnew = beta[0]
@@ -246,7 +246,7 @@ class GLM(BaseEstimator,
             val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
-            if LOG: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
+            if self.control.logging: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
         obj_function = partial(obj_function, y.copy(), normed_sample_weight.copy(), self.family, regularizer)
         
@@ -270,9 +270,9 @@ class GLM(BaseEstimator,
 
         # checks on convergence and fitted values
         if not converged:
-            if LOG: logging.debug("Fitting IRLS: algorithm did not converge")
+            if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
         if boundary:
-            if LOG: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
+            if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
 
         self.deviance_ = self.family.deviance(y,

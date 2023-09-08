@@ -1,5 +1,4 @@
 import logging
-LOG = False
 
 from dataclasses import dataclass, asdict, field, InitVar
 from typing import Union, Optional
@@ -30,7 +29,7 @@ from .glm import GLM, GLMState
 class GLMNetPathControl(GLMNetControl):
 
     fdev: float = 1e-5
-
+    logging: bool = False
 
 @dataclass
 class GLMNetPathSpec(object):
@@ -133,7 +132,7 @@ class GLMNetPath(BaseEstimator,
 
         for l in self.lambda_values_:
 
-            if LOG: logging.info(f'Fitting parameter {l}')
+            if self.control.logging: logging.info(f'Fitting parameter {l}')
             self.glmnet_est_.lambda_val = regularizer_.lambda_val = l
             self.glmnet_est_.fit(X,
                                  y,
@@ -298,7 +297,7 @@ class GLMNetPath(BaseEstimator,
             index.name = r'$\|\beta(\lambda)\|_1$'
         elif xvar == 'dev':
             index = pd.Index(self.dev_ratios_)
-            index.name = '% DEV explained'
+            index.name = 'Fraction Deviance Explained'
         else:
             raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
 
@@ -343,7 +342,7 @@ class GLMNetPath(BaseEstimator,
             index.name = r'$\|\beta(\lambda)\|_1$'
         elif xvar == 'dev':
             index = pd.Index(self.dev_ratios_)
-            index.name = '% DEV explained'
+            index.name = 'Fraction Deviance Explained'
         else:
             raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
         dev_path = pd.DataFrame({label:self.dev_cv_mean_,

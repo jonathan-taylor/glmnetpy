@@ -1,5 +1,4 @@
 import logging
-LOG = False
 
 from typing import Union, List, Optional
 from dataclasses import dataclass, field
@@ -28,7 +27,7 @@ class ElNetControl(object):
     thresh: float = 1e-7
     maxit: int = 100000
     big: float = 9.9e35
-
+    logging: bool = False
 
 @dataclass
 class ElNetSpec(Penalty):
@@ -128,7 +127,7 @@ class ElNet(BaseEstimator,
             args['thr'] = float(self.control.thresh)                          # as.double(thresh)
             args['v'] = np.asarray(sample_weight, float).reshape((-1,1))      # as.double(weights)
 
-            if LOG: logging.debug(f'Elnet warm coef: {args["a"]}, Elnet warm intercept: {args["aint"]}')
+            if self.control.logging: logging.debug(f'Elnet warm coef: {args["a"]}, Elnet warm intercept: {args["aint"]}')
 
             check_resid = True
             if check_resid:
@@ -147,9 +146,9 @@ class ElNet(BaseEstimator,
 
             if wls_fit['jerr'] != 0:
                 errmsg = _jerr_elnetfit(wls_fit['jerr'], self.control.maxit)
-                if LOG: logging.info(errmsg['msg'])
+                if self.control.logging: logging.info(errmsg['msg'])
 
-            if LOG: logging.debug(f'Elnet coef: {wls_fit["a"]}, Elnet intercept: {wls_fit["aint"]}')
+            if self.control.logging: logging.debug(f'Elnet coef: {wls_fit["a"]}, Elnet intercept: {wls_fit["aint"]}')
 
             self.raw_coef_ = wls_fit['a'].reshape(-1)
             self.raw_intercept_ = wls_fit['aint']

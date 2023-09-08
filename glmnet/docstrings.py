@@ -17,6 +17,10 @@ dtype: np.dtype
     The dtype for Design as a LinearOperator.
     ''',
     
+    'logging':'''
+logging: bool
+    Write info and debug messages to log?''',
+    
     'standardize':'''
 standardize: bool
     Standardize columns of X according to weights? Default is False.''',
