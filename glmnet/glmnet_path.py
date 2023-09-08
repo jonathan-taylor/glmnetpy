@@ -19,7 +19,6 @@ from sklearn.utils import check_X_y
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
-from .base import Design, _get_design, Penalty
 from .docstrings import add_dataclass_docstring
 
 from .glmnet import (GLMNetControl,

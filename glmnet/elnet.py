@@ -52,10 +52,13 @@ class ElNet(BaseEstimator,
             warm=None,
             check=True):
 
-        design = _get_design(X,
-                             sample_weight,
-                             standardize=self.standardize,
-                             intercept=self.fit_intercept)
+        if not hasattr(self, "design_"):
+            self.design_ = design = _get_design(X,
+                                                sample_weight,
+                                                standardize=self.standardize,
+                                                intercept=self.fit_intercept)
+        else:
+            design = self.design_
 
         if self.lambda_val > 0 or not (np.all(design.centers_ == 0) and np.all(design.scaling_ == 1)):
 

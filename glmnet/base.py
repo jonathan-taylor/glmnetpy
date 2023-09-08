@@ -22,7 +22,6 @@ class Design(LinearOperator):
     standardize: InitVar[bool] = False
     intercept: InitVar[bool] = True
 
-    
     def __post_init__(self, standardize, intercept):
 
         self.shape = (self.X.shape[0], self.X.shape[1]+1)

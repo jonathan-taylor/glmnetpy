@@ -213,8 +213,10 @@ class GLM(BaseEstimator,
             sample_weight = np.ones(nobs) 
         self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
-        design = self._get_design(X, normed_sample_weight)
-        self.design_ = design
+        if not hasattr(self, "design_"):
+            self.design_ = design = self._get_design(X, normed_sample_weight)
+        else:
+            design = self.design_
         
         if self.fit_intercept:
             mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
