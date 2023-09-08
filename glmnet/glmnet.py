@@ -15,7 +15,6 @@ from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
 from .glm import (GLMState,
-                  _IRLS,
                   GLM)
 
 @add_dataclass_docstring
@@ -48,10 +47,10 @@ class GLMNetResult(object):
 class GLMNetRegularizer(Penalty):
 
     fit_intercept: bool = False
-    warm_fit: dict = field(default_factory=dict)
+    warm_state: dict = field(default_factory=dict)
     nvars: InitVar[int] = None
     control: InitVar[GLMNetControl] = None
-    
+
     def __post_init__(self, nvars, control):
 
         self.lower_limits = np.asarray(self.lower_limits)
@@ -76,38 +75,53 @@ class GLMNetRegularizer(Penalty):
                                      penalty_factor=self.penalty_factor,
                                      standardize=False)
 
-    def quasi_newton_step(self,
-                          design,
-                          pseudo_response,
-                          normed_sample_weight):
+    def half_step(self,
+                  state,
+                  oldstate):
+        return GLMState(0.5 * (oldstate.coef + state.coef),
+                        0.5 * (oldstate.intercept + state.intercept))
 
+    def _debug_msg(self,
+                   state):
+        return f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}'
+
+    def check_state(self,
+                    state):
+        if np.any(np.isnan(state.coef)):
+            raise ValueError('coef has NaNs')
+        if np.isnan(state.intercept):
+            raise ValueError('intercept is NaN')
+
+    def newton_step(self,
+                    design,
+                    pseudo_response,
+                    normed_sample_weight,
+                    cur_state):
+                            
         z = pseudo_response
-
         # make sure to set lambda_val to self.lambda_val
         self.elnet_estimator.lambda_val = self.lambda_val
         
-        out = self.elnet_estimator.fit(design, z, sample_weight=normed_sample_weight).result_
-        coefnew = out.beta.toarray().reshape(-1) # this will not have been scaled by `xs/scaling_`
-        intnew = out.a0
+        warm = (cur_state.coef,
+                cur_state.intercept,
+                cur_state.linear_predictor) # linear_predictor includes offet if any
+
+        elnet_fit = self.elnet_estimator.fit(design,
+                                             z,
+                                             sample_weight=normed_sample_weight,
+                                             warm=warm)
         
-        self.warm_fit['coef_'] = coefnew
-        self.warm_fit['intercept_'] = intnew
-        
-        return coefnew, intnew
+        self.warm_state = GLMState(elnet_fit.raw_coef_,
+                                   elnet_fit.raw_intercept_)
 
-    def get_warm_start(self):
+        return self.warm_state
 
-        if ('coef_' in self.warm_fit.keys() and
-            'intercept_' in self.warm_fit.keys()):
-
-            return GLMState(self.warm_fit['coef_'],
-                            self.warm_fit['intercept_']) 
-
-    def update_resid(self, r):
-        self.warm_fit['resid_'] = r
-        
     def objective(self, state):
-        return 0
+        lasso = self.alpha * np.fabs(state.coef).sum()
+        ridge = (1 - self.alpha) * (state.coef**2).sum() / 2
+        return self.lambda_val * (lasso + ridge)
+
+
 # end of GLMNetRegularizer
 
 @dataclass

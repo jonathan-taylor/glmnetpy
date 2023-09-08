@@ -101,7 +101,7 @@ warm: Optional[Union[ElNetWarmStart,dict]]
     For internal use only.''',
 
     'warm_glm':'''
-warm_fit: Optional[dict]
+warm_state: Optional[dict]
     A dict-like with keys `coef_` and `intercept_` containing coefficients
     and intercept respectively which can be used as a warm start.
     For internal use only.''',
@@ -174,6 +174,12 @@ control: Optional(GLMControl)
     
     'control_glmnet': '''
 control: Optional(GLMNetControl)
+
+    Parameters to control the solver.
+    ''',
+
+    'control_glmnet_path': '''
+control: Optional(GLMNetPathControl)
 
     Parameters to control the solver.
     ''',
