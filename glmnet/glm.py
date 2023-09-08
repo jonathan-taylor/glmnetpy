@@ -139,26 +139,14 @@ class GLMRegularizer(object):
                 coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
                 intnew = 0
 
-        self.warm_state['coef_'] = coefnew
-        self.warm_state['intercept_'] = intnew
+        self.warm_state = GLMState(coefnew,
+                                   intnew)
         
         return coefnew, intnew
 
-    def get_warm_start(self):
-
-        if ('coef_' in self.warm_state.keys() and
-            'intercept_' in self.warm_state_keys()):
-
-            state = GLMState(self.warm_state['coef_'],
-                             self.warm_state['intercept_'])
-            state.obj_val = self.objective(state)
-            return state
-
-    def update_resid(self, r):
-        self.warm_state['resid_'] = r
-        
     def objective(self, state):
         return 0
+
 add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_glm'})
 # end of GLMRegularizer
 
@@ -230,9 +218,11 @@ class GLM(BaseEstimator,
         if regularizer is None:
             regularizer = self._get_regularizer(X)
         self.regularizer_ = regularizer
-        state = self.regularizer_.get_warm_start()
 
-        if state is None:
+        if (hasattr(self.regularizer_, 'warm_state') and
+            self.regularizer_.warm_state):
+            state = self.regularizer_.warm_state
+        else:
             coefold = np.zeros(nvars)   # initial coefs = 0
             intold = self.family.link(mu0[0])
             state = GLMState(coef=coefold,

@@ -16,8 +16,7 @@ from .base import (Base,
                    Penalty,
                    Design,
                    _get_design)
-from ._utils import (_jerr_elnetfit,
-                     _parent_dataclass_from_child)
+from ._utils import _jerr_elnetfit
 from .docstrings import (make_docstring,
                          add_dataclass_docstring)
 DEBUG = False
@@ -45,7 +44,12 @@ class ElNet(BaseEstimator,
             RegressorMixin,
             ElNetSpec):
 
-    def fit(self, X, y, sample_weight=None, warm=None, exclude=[]):
+    def fit(self,
+            X,
+            y,
+            sample_weight=None,
+            exclude=[],
+            warm=None):
 
         design = _get_design(X,
                              sample_weight,
@@ -57,9 +61,6 @@ class ElNet(BaseEstimator,
             self.exclude_ = exclude
             if self.control is None:
                 self.control = ElNetControl()
-            elif type(self.control) == dict:
-                self.control = _parent_dataclass_from_child(ElNetControl,
-                                                            self.control)
             nobs, nvars = design.X.shape
 
             if sample_weight is None:
@@ -80,14 +81,20 @@ class ElNet(BaseEstimator,
                 args = self._wls_args
                 nulldev = self._nulldev
                 
-                coef_, intercept_, linear_predictor_ = warm
+                coef, intercept, linear_predictor = warm
 
-                if ((design.shape[1] != coef_.shape[0] + 1) or
-                    (design.shape[0] != linear_predictor_.shape[0])): 
-                    raise ValueError('dimension mismatch for warm start')
-                args['aint'] = intercept_
-                args['a'] = coef_
-                args['r'] = sample_weight * (y - linear_predictor_)
+                # some sanity checks to see if design matches
+                
+                if ((design.shape[1] != coef.shape[0] + 1) or
+                    (design.shape[0] != linear_predictor.shape[0])): 
+                    raise ValueError('dimension mismatch for warm start and design')
+
+                # set the warm start, copying into their arrays will check that sizes are correct
+
+                args['aint'] = intercept
+                args['a'][:] = coef.reshape((-1,1))
+                args['r'][:] = (sample_weight * (y - linear_predictor)).reshape((-1,1))
+
             else:
                 args, nulldev = _elnet_args(design,
                                             y,
@@ -106,18 +113,17 @@ class ElNet(BaseEstimator,
                 self._nulldev = nulldev
                     
             # override to current values
-            args['alpha'] = float(self.alpha)                            # as.double(alpha)
-            args['almc'] = float(self.lambda_val)                        # as.double(lambda)
-            args['intr'] = int(self.fit_intercept)                           # as.integer(intercept)
-            args['jerr'] = 0                                        # integer(1) -- mismatch?
-            args['maxit'] = int(self.control.maxit)                              # as.integer(maxit)
-            args['thr'] = float(self.control.thresh)                             # as.double(thresh)
-            args['v'] = np.asarray(sample_weight, float).reshape((-1,1))  # as.double(weights)
+
+            args['alpha'] = float(self.alpha)                                 # as.double(alpha)
+            args['almc'] = float(self.lambda_val)                             # as.double(lambda)
+            args['intr'] = int(self.fit_intercept)                            # as.integer(intercept)
+            args['jerr'] = 0                                                  # integer(1) -- mismatch?
+            args['maxit'] = int(self.control.maxit)                           # as.integer(maxit)
+            args['thr'] = float(self.control.thresh)                          # as.double(thresh)
+            args['v'] = np.asarray(sample_weight, float).reshape((-1,1))      # as.double(weights)
 
             if LOG: logging.debug(f'Elnet warm coef: {args["a"]}, Elnet warm intercept: {args["aint"]}')
 
-            args['a'] = args['a'].reshape((-1,1))
-            
             check_resid = True
             if check_resid:
                 r1 = args['r'].reshape(-1)
@@ -151,7 +157,6 @@ class ElNet(BaseEstimator,
                                  npasses=wls_fit['nlp'],
                                  jerr=wls_fit['jerr'],
                                  nobs=nobs,
-                                 #warm_fit=warm_fit,
                                  sample_weight=sample_weight)
         else:
             # can use LinearRegression
@@ -162,10 +167,6 @@ class ElNet(BaseEstimator,
             else:
                 X_s = design.X
             lm.fit(X_s, y, sample_weight)
-
-            # degenerate warm start
-            warm_fit = ElNetWarmStart(aint=lm.intercept_,
-                                      a=lm.coef_)
             
             beta = scipy.sparse.csc_array(lm.coef_)
 
@@ -180,7 +181,6 @@ class ElNet(BaseEstimator,
                                  npasses=1,
                                  jerr=0,
                                  nobs=X.shape[1],
-                                 warm_fit=warm_fit,
                                  sample_weight=sample_weight)
 
         self.result_ = result
@@ -191,30 +191,6 @@ class ElNet(BaseEstimator,
         return self
 
 add_dataclass_docstring(ElNet, subs={'control':'control_elnet'})
-
-@dataclass
-class ElNetWarmStart(object):
-
-    almc: Optional[float] = None
-    r: Optional[np.ndarray] = None
-    xv: Optional[np.ndarray] = None
-    ju: Optional[np.ndarray] = None
-    vp: Optional[np.ndarray] = None
-    cl: Optional[np.ndarray] = None
-    nx: Optional[int] = None
-    a: Optional[np.ndarray] = None
-    aint: Optional[float] = None
-    g: Optional[np.ndarray] = None
-    ia: Optional[np.ndarray] = None
-    iy: Optional[np.ndarray] = None
-    iz: Optional[int] = None
-    mm: Optional[np.ndarray] = None
-    nino: Optional[int] = None
-    rsqc: Optional[float] = None
-    nlp: Optional[int] = None
-    m: Optional[int] = None
-    no: Optional[int] = None
-    ni: Optional[int] = None
 
 @add_dataclass_docstring
 @dataclass
@@ -231,8 +207,6 @@ class ElNetResult(object):
     jerr: int
     nobs: int
     sample_weight: np.ndarray
-    warm_fit: Optional[dict] = None
-    
 
 _elnet_fit_doc = r'''A wrapper around a C++ subroutine which minimizes
 
@@ -266,8 +240,7 @@ result: ElNetResult
                           'lower_limits',
                           'upper_limits',
                           'thresh',
-                          'maxit',
-                          'warm'))
+                          'maxit'))
 
 def _elnet_args(design,
                 y,
@@ -281,8 +254,7 @@ def _elnet_args(design,
                 penalty_factor=None, 
                 exclude=[],
                 lower_limits=-np.inf,
-                upper_limits=np.inf,
-                warm=None):
+                upper_limits=np.inf):
     
     X = design.X
         
@@ -299,78 +271,37 @@ def _elnet_args(design,
     ybar = np.sum(y * sample_weight) / np.sum(sample_weight)
     nulldev = np.sum(sample_weight * (y - ybar)**2)
 
-    # if class "glmnetfit" warmstart object provided, pull whatever we want out of it
-    # else, prepare arguments, then check if coefs provided as warmstart
-    # (if only coefs are given as warmstart, we prepare the other arguments
-    # as if no warmstart was provided)
+    # if calling from glmnet.fit(), we do not need to check on exclude
+    # and penalty.factor arguments as they have been prepared by glmnet.fit()
+    # compute ju
+    # assume that there are no constant variables
 
-    if isinstance(warm, ElNetWarmStart): # assumes it is a dictionary like `warm_fit`
-        a = warm.a #.reshape((-1,1))
-        aint = warm.aint
-        alm0 = warm.almc
-        cl = warm.cl
-        g = warm.g.reshape((-1,1))
-        ia = warm.ia
-        iy = warm.iy
-        iz = warm.iz
-        ju = warm.ju.reshape((-1,1))
-        m = warm.m
-        mm = warm.mm.reshape((-1,1))
-        nino = warm.nino
-        nobs = warm.no
-        nvars = warm.ni
-        nlp = warm.nlp
-        nx = warm.nx
-        r = warm.r.reshape((-1,1))
-        rsqc = warm.rsqc
-        xv = warm.xv.reshape((-1,1))
-        vp = warm.vp.reshape((-1,1))
-    else:
-        
-        # if calling from glmnet.fit(), we do not need to check on exclude
-        # and penalty.factor arguments as they have been prepared by glmnet.fit()
-        # compute ju
-        # assume that there are no constant variables
-        ju = np.ones((nvars, 1), np.int32)
-        ju[exclude] = 0
+    ju = np.ones((nvars, 1), np.int32)
+    ju[exclude] = 0
 
-        # compute cl from upper and lower limits
+    # compute cl from upper and lower limits
 
-        cl = np.asfortranarray([lower_limits,
-                                upper_limits], float)
+    cl = np.asfortranarray([lower_limits,
+                            upper_limits], float)
 
-        nx = nvars #  as.integer(nvars)
+    nx = nvars #  as.integer(nvars)
 
-                                         # From elnet.fit R code
-        a  = np.zeros((nvars, 1))        # double(nvars)
-        aint = 0.                        # double(1) -- mismatch?
-        alm0  = 0.                       # double(1) -- mismatch?
-        g = np.zeros((nvars, 1))         # double(nvars) -- mismatch?
-        ia = np.zeros((nx, 1), np.int32) # integer(nx)
-        iy = np.zeros((nvars, 1), np.int32)   # integer(nvars)     
-        iz = 0                           # integer(1) -- mismatch?
-        m = 1                            # as.integer(1)
-        mm = np.zeros((nvars, 1), np.int32)   # integer(nvars) -- mismatch?
-        nino = int(0)                    # integer(1)
-        nlp = 0                          # integer(1) -- mismatch?
-        r =  (sample_weight * y).reshape((-1,1))
-        rsqc = 0.                        # double(1) -- mismatch?
-        xv = np.zeros((nvars, 1))        # double(nvars)
+                                     # From elnet.fit R code
+    a  = np.zeros((nvars, 1))        # double(nvars)
+    aint = 0.                        # double(1) -- mismatch?
+    alm0  = 0.                       # double(1) -- mismatch?
+    g = np.zeros((nvars, 1))         # double(nvars) -- mismatch?
+    ia = np.zeros((nx, 1), np.int32) # integer(nx)
+    iy = np.zeros((nvars, 1), np.int32)   # integer(nvars)     
+    iz = 0                           # integer(1) -- mismatch?
+    m = 1                            # as.integer(1)
+    mm = np.zeros((nvars, 1), np.int32)   # integer(nvars) -- mismatch?
+    nino = int(0)                    # integer(1)
+    nlp = 0                          # integer(1) -- mismatch?
+    r =  (sample_weight * y).reshape((-1,1))
+    rsqc = 0.                        # double(1) -- mismatch?
+    xv = np.zeros((nvars, 1))        # double(nvars)
 
-        # check if coefs were provided as warmstart: if so, use them
-
-        if warm is not None:
-            if 'beta' in warm and 'a0' in warm:
-                a = np.asarray(warm['beta'], float)
-                aint = np.asarray(warm['a0'], float)
-                mu = X @ a + aint
-                r = (sample_weight * (y - mu)).reshape((-1,1))
-                rsqc = 1 - np.sum(sample_weight * (y - mu)**2) / nulldev
-            else:
-                raise ValueError('if not an instance of ElNetWarmStart `warm` should be dict-like with keys "beta" and "a0"')
-
-    # for the parameters here, we are overriding the values provided by the
-    # warmstart object
 
     alpha = float(alpha)                            # as.double(alpha)
     almc = float(lambda_val)                        # as.double(lambda)

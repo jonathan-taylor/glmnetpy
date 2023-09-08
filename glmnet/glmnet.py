@@ -96,22 +96,10 @@ class GLMNetRegularizer(Penalty):
                                              warm=warm)
         out = elnet_fit.result_
         
-        self.warm_state['coef_'] = out.beta.toarray().reshape(-1)
-        self.warm_state['intercept_'] = out.a0
-        return self.warm_state['coef_'], self.warm_state['intercept_']
+        self.warm_state = GLMState(out.beta.toarray().reshape(-1),
+                                   out.a0)
+        return self.warm_state.coef, self.warm_state.intercept
 
-    def get_warm_start(self):
-
-        if ('coef_' in self.warm_state.keys() and
-            'intercept_' in self.warm_state.keys()):
-
-            state = GLMState(self.warm_state['coef_'],
-                             self.warm_state['intercept_'])
-            return state
-
-    def update_resid(self, r):
-        self.warm_state['resid_'] = r
-            
     def objective(self, state):
         lasso = self.alpha * np.fabs(state.coef).sum()
         ridge = (1 - self.alpha) * (state.coef**2).sum() / 2

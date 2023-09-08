@@ -128,7 +128,6 @@ class GLMNetPath(BaseEstimator,
                                             sample_weight, # not normed_sample_weight!
                                             self.family)
 
-
         for l in self.lambda_values_:
 
             if LOG: logging.info(f'Fitting parameter {l}')
@@ -143,11 +142,11 @@ class GLMNetPath(BaseEstimator,
             intercepts_.append(self.glmnet_est_.intercept_)
             dev_ratios_.append(1 - self.glmnet_est_.deviance_ * sample_weight_sum / self.null_deviance_)
             if len(dev_ratios_) > 1:
-                if isinstance(self.family, sm_family.Gaussian): # dev_ratios_[0] is null deviance
-                    if np.fabs(dev_ratios_[-1] - dev_ratios_[-2]) < self.control.fdev * dev_ratios_[-1]:
+                if isinstance(self.family, sm_family.Gaussian): 
+                    if dev_ratios_[-1] - dev_ratios_[-2] < self.control.fdev * dev_ratios_[-1]:
                         break
                 else: # TODO Poisson case
-                    if np.fabs(dev_ratios_[-1] - dev_ratios_[-2]) < self.control.fdev:
+                    if dev_ratios_[-1] - dev_ratios_[-2] < self.control.fdev:
                         break
             
         self.coefs_ = np.array(coefs_)
