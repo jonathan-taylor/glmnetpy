@@ -14,6 +14,7 @@ from sklearn.model_selection import (cross_val_predict,
                                      check_cv)
 from sklearn.model_selection._validation import indexable
 from sklearn.utils.validation import check_is_fitted
+from sklearn.utils import check_X_y
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -61,6 +62,11 @@ class GLMNetPath(BaseEstimator,
             exclude=[],
             offset=None,
             interpolation_grid=None):
+
+        X, y = check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=False,
+                         estimator=self)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
@@ -136,7 +142,8 @@ class GLMNetPath(BaseEstimator,
                                  y,
                                  normed_sample_weight,
                                  offset=offset,
-                                 regularizer=regularizer_)
+                                 regularizer=regularizer_,
+                                 check=False)
 
             coefs_.append(self.glmnet_est_.coef_.copy())
             intercepts_.append(self.glmnet_est_.intercept_)

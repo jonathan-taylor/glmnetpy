@@ -185,7 +185,8 @@ class GLM(BaseEstimator,
             regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             dispersion=1,
-            offset=None):
+            offset=None,
+            check=True):
 
         nobs, nvar = X.shape
         
@@ -194,10 +195,11 @@ class GLM(BaseEstimator,
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        X, y = check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=False,
-                         estimator=self)
+        if check:
+            X, y = check_X_y(X, y,
+                             accept_sparse=['csc'],
+                             multi_output=False,
+                             estimator=self)
 
         y = np.asarray(y)
 
