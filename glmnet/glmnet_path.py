@@ -323,14 +323,18 @@ class GLMNetPath(BaseEstimator,
                               capsize=3,
                               legend=False,
                               label=None,
-                              col_min='k',
+                              col_min='gray',
                               ls_min='--',
-                              col_1se='r',
+                              col_1se='gray',
                               ls_1se='--',
+                              c='gray',
+                              scatter_c='red',
+                              scatter_s=None,
+                              alpha=0.5,
                               **plot_args):
 
         if label is None:
-            label = 'Mean(deviance)'
+            label = 'GLM Deviance'
 
         check_is_fitted(self, ["dev_cv_mean_", "dev_cv_std_"],
                         msg='This %(name)s is not cross-validated yet. Please run `cross_validation_path` before plotting.')
@@ -351,9 +355,21 @@ class GLMNetPath(BaseEstimator,
         ax = dev_path.plot(y=label,
                            kind='line',
                            yerr='SD',
+                           capsize=capsize,
                            legend=legend,
+                           ax=ax,
+                           c=c,
+                           alpha=alpha,
                            **plot_args)
+        dev_path['index'] = dev_path.index
+        ax = dev_path.plot.scatter(y=label,
+                                   c=scatter_c,
+                                   s=scatter_s,
+                                   x='index',
+                                   ax=ax,
+                                   **plot_args)
         ax.set_ylabel('GLM Deviance')
+        ax.set_xlabel(dev_path.index.name)
         if xvar == 'lambda':
             l = ax.axvline(-np.log(self.lambda_min_), c=col_min, ls=ls_min, label=r'$\lambda_{\min}$')
             ax.axvline(-np.log(self.lambda_1se_), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
