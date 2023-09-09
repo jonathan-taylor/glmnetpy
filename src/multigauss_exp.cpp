@@ -50,17 +50,19 @@ py::dict multelnet_exp(
     };
     run(f, jerr);
 
-  result["a0"] = a0;
-  result["nin"] = nin;
-  result["alm"] = alm;
-  result["ca"] = ca;
-  result["ia"] = ia;
-  result["lmu"] = lmu;
-  result["rsq"] = rsq;
-  result["nlp"] = nlp;
-  result["jerr"] = jerr;
+    py::dict result;
 
-  return result;
+    result["a0"] = a0;
+    result["nin"] = nin;
+    result["alm"] = alm;
+    result["ca"] = ca;
+    result["ia"] = ia;
+    result["lmu"] = lmu;
+    result["rsq"] = rsq;
+    result["nlp"] = nlp;
+    result["jerr"] = jerr;
+
+    return result;
 }
 
 // Multi-response Gaussian for sparse X.
@@ -105,15 +107,17 @@ py::dict multspelnet_exp(
     };
     run(f, jerr);
 
-  result["a0"] = a0;
-  result["nin"] = nin;
-  result["alm"] = alm;
-  result["ca"] = ca;
-  result["ia"] = ia;
-  result["lmu"] = lmu;
-  result["rsq"] = rsq;
-  result["nlp"] = nlp;
-  result["jerr"] = jerr;
+    py::dict result;
 
-  return result;
+    result["a0"] = a0;
+    result["nin"] = nin;
+    result["alm"] = alm;
+    result["ca"] = ca;
+    result["ia"] = ia;
+    result["lmu"] = lmu;
+    result["rsq"] = rsq;
+    result["nlp"] = nlp;
+    result["jerr"] = jerr;
+
+    return result;
 }

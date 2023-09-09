@@ -58,7 +58,11 @@ long_description_content_type = 'text/markdown'
 
 EXTS = [Extension(
     'glmnet.glmnetpp',
-    sources=['src/wls_exp.cpp'],
+    sources=['src/wls_exp.cpp',
+             'src/lognet_exp.cpp',
+             'src/fishnet_exp.cpp',
+             'src/gaussian_exp.cpp',
+             'src/multigauss_exp.cpp'],
     include_dirs=[pybind11.get_include(),
                   eigendir,
                   'src/glmnetpp/include',
