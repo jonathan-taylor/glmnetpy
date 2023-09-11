@@ -3,7 +3,9 @@ from typing import Union, Optional
    
 import numpy as np
 
-from sklearn.base import BaseEstimator
+from sklearn.base import (BaseEstimator,
+                          ClassifierMixin,
+                          RegressorMixin)
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -15,7 +17,7 @@ from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
 from .glm import (GLMState,
-                  GLM)
+                  GLMBase)
 
 @add_dataclass_docstring
 @dataclass
@@ -127,7 +129,7 @@ class GLMNetRegularizer(Penalty):
 # end of GLMNetRegularizer
 
 @dataclass
-class GLMNet(GLM,
+class GLMNet(GLMBase,
              GLMNetSpec):
 
     control: GLMNetControl = field(default_factory=GLMNetControl)
@@ -176,4 +178,24 @@ class GLMNet(GLM,
         return self
 
 add_dataclass_docstring(GLMNet, subs={'control':'control_glm'})
+
+@dataclass
+class GaussianGLMNet(RegressorMixin, GLMNet):
+
+    def __post_init__(self):
+
+        if not isinstance(self.family, sm_families.Gaussian):
+            msg = 'GaussianGLM expects a Gaussian family.'
+            warnings.warn(msg)
+            if self.control.logging: logging.warn(msg)
+
+@dataclass
+class BinomialGLMNet(ClassifierMixin, GLMNet):
+
+    def __post_init__(self):
+
+        if not isinstance(self.family, sm_families.Binomial):
+            msg = 'BinomialGLM expects a Binomial family.'
+            warnings.warn(msg)
+            if self.control.logging: logging.warn(msg)
 

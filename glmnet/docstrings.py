@@ -17,6 +17,21 @@ dtype: np.dtype
     The dtype for Design as a LinearOperator.
     ''',
     
+    'score_method':'''
+score_method: str
+    Which score to use?
+    ''',
+
+    'score_method_gaussian':'''
+score_method: str
+    Which score to use? One of ["r2", "deviance"].
+    ''',
+
+    'score_method_binary':'''
+score_method: str
+    Which score to use? One of ["r2", "accuracy"].
+    ''',
+
     'logging':'''
 logging: bool
     Write info and debug messages to log?''',
@@ -228,8 +243,13 @@ prediction: np.ndarray
 
     'prediction_type':'''
 prediction_type: str
-    One of "mean" or "linear". If "mean" return a prediction on the mean scale,
-    "linear" on the link scale.''',
+    One of "response" or "link". If "response" return a prediction on the mean scale,
+    "link" on the link scale. Defaults to "response".''',
+
+    'prediction_type_binomial':'''
+prediction_type: str
+    One of "response", "link" or "class". If "response" return a prediction on the mean scale,
+    "link" on the link scale, and "class" as a class label. Defaults to "class".''',
 
     'dispersion':'''
 dispersion: float
