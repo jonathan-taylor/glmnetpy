@@ -247,7 +247,7 @@ class GLM(BaseEstimator,
             val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
-            if self.control.logging: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
+            if self.control.logging: logging.debug(f'Computing objective. coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
         obj_function = partial(obj_function, y.copy(), normed_sample_weight.copy(), self.family, regularizer)
         
