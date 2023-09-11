@@ -1,26 +1,5 @@
 #include "internal.h"
 #include <cstddef>
-//#include <Rcpp.h>
-//#include <RcppEigen.h>
-// ORDER MATTERS
-//#include <R.h>
-//#include <Rinternals.h>
-
-extern "C" {
-
-void F77_SUB(chg_fract_dev)(double*); 
-void F77_SUB(chg_dev_max)(double*); 
-void F77_SUB(chg_min_flmin)(double*); 
-void F77_SUB(chg_big)(double*); 
-void F77_SUB(chg_min_lambdas)(int*); 
-void F77_SUB(chg_min_null_prob)(double*); 
-void F77_SUB(chg_max_exp)(double*); 
-void F77_SUB(chg_itrace)(int*); 
-void F77_SUB(chg_bnorm)(double*, int*); 
-void F77_SUB(chg_epsnr)(double*); 
-void F77_SUB(chg_mxitnr)(int*); 
-
-} // end extern "C"
 
 double InternalParams::sml = 1e-5;
 double InternalParams::eps = 1e-6;
@@ -83,29 +62,6 @@ py::dict get_int_parms2(double& epsnr, int& mxitnr)
 
 }
 
-void chg_fract_dev(double arg) { /*TODO*/ F77_SUB(chg_fract_dev)(&arg); InternalParams::sml = arg; }
-
-void chg_dev_max(double arg) { /*TODO*/ F77_SUB(chg_dev_max)(&arg); InternalParams::rsqmax = arg; }
-
-void chg_min_flmin(double arg) { /*TODO*/ F77_SUB(chg_min_flmin)(&arg); InternalParams::eps = arg; }
-
-void chg_big(double arg) { /*TODO*/ F77_SUB(chg_big)(&arg); InternalParams::big = arg; }
-
-void chg_min_lambdas(int irg) { /*TODO*/ F77_SUB(chg_min_lambdas)(&irg); InternalParams::mnlam = irg; }
-
-void chg_min_null_prob(double arg) { /*TODO*/ F77_SUB(chg_min_null_prob)(&arg); InternalParams::pmin = arg; }
-
-void chg_max_exp(double arg) { /*TODO*/ F77_SUB(chg_max_exp)(&arg); InternalParams::exmx = arg; }
-
-void chg_itrace(int irg) { /*TODO*/ F77_SUB(chg_itrace)(&irg); InternalParams::itrace = irg; }
-
-void chg_bnorm(double arg, int irg) { 
-    /*TODO*/
-    F77_SUB(chg_bnorm)(&arg, &irg);
-    InternalParams::bnorm_thr = arg; 
-    InternalParams::bnorm_mxit = irg; 
-}
-
 py::dict get_bnorm(double& prec, int& mxit) {
     prec = InternalParams::bnorm_thr; 
     mxit = InternalParams::bnorm_mxit;
@@ -118,7 +74,25 @@ py::dict get_bnorm(double& prec, int& mxit) {
   return result;
 }
 
-void chg_epsnr(double arg) { /*TODO*/ F77_SUB(chg_epsnr)(&arg); InternalParams::epsnr = arg; }
+PYBIND11_MODULE(glmnetpp_lognet, m) {
 
-void chg_mxitnr(int irg) { /*TODO*/ F77_SUB(chg_mxitnr)(&irg); InternalParams::mxitnr = irg; }
+    m.def("get_int_parms", &get_int_parms,
+	  py::arg("fdev"),
+	  py::arg("eps"),
+	  py::arg("big"),
+	  py::arg("mnlam"),
+	  py::arg("devmax"),
+	  py::arg("pmin"),
+	  py::arg("exmx"),
+	  py::arg("itrace"));
+
+    m.def("get_int_parms2", &get_int_parms2,
+	  py::arg("epsnr"),
+	  py::arg("mixitnr"));
+
+    m.def("get_bnorm", &get_bnorm,
+	  py::arg("bnorm_thr"),
+	  py::arg("bnorm_mixit"));
+
+}
 
