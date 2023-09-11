@@ -233,6 +233,7 @@ PYBIND11_MODULE(glmnetpp, m) {
 	  py::arg("nlp"),
 	  py::arg("jerr"));
 
+    m.def("update_pb", &update_pb);
 }
 
 

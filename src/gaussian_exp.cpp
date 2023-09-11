@@ -27,7 +27,7 @@ py::dict elnet_exp(
     int isd,
     int intr,
     int maxit,
-    SEXP pb,
+    py::object pb,
     int lmu,
     Eigen::Ref<Eigen::VectorXd> a0,
     Eigen::Ref<Eigen::MatrixXd> ca,
@@ -46,7 +46,7 @@ py::dict elnet_exp(
                 ka == 2, parm, x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
                 ulam, thr, isd == 1, intr == 1, maxit, 
                 lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr, 
-                [&](int v) {setpb_cpp(pb, v);}, ::InternalParams());
+                [&](int v) {update_pb(pb, v);}, ::InternalParams());
     };
     run(f, jerr);
 
@@ -69,7 +69,9 @@ py::dict elnet_exp(
 py::dict spelnet_exp(
     int ka,
     double parm,
-    const Eigen::Ref<Eigen::SparseMatrix<double> > x,
+    py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
+    py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
+    py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
     Eigen::Ref<Eigen::VectorXd> y, // TODO: map?
     Eigen::Ref<Eigen::VectorXd> w, // TODO: map?
     const Eigen::Ref<Eigen::VectorXi> jd,
@@ -84,7 +86,7 @@ py::dict spelnet_exp(
     int isd,
     int intr,
     int maxit,
-    SEXP pb,
+    py::object pb,
     int lmu,
     Eigen::Ref<Eigen::VectorXd> a0,
     Eigen::Ref<Eigen::MatrixXd> ca,
@@ -96,14 +98,32 @@ py::dict spelnet_exp(
     int jerr
     )
 {
+
+
+    // Map the scipy csc_matrix x  to Eigen
+    // This prevents copying. However, note the lack of 'const' use, but we take care not to change data
+    Eigen::Map<Eigen::VectorXd> x_data_map(x_data_array.mutable_data(),
+					   x_data_array.size());
+    Eigen::Map<Eigen::VectorXi> x_indices_map(x_indices_array.mutable_data(),
+					      x_indices_array.size());
+    Eigen::Map<Eigen::VectorXi> x_indptr_map(x_indptr_array.mutable_data(),
+					     x_indptr_array.size());
+    // Create MappedSparseMatrix from the mapped arrays
+    Eigen::MappedSparseMatrix<double, Eigen::ColMajor> eigen_x(no,
+							       ni,
+							       x_data_array.size(), 
+							       x_indptr_map.data(),
+							       x_indices_map.data(),
+							       x_data_map.data());
+
     using elnet_driver_t = ElnetDriver<util::glm_type::gaussian>;
     elnet_driver_t driver;
     auto f = [&]() {
         driver.fit(
-                ka == 2, parm, x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
+                ka == 2, parm, eigen_x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
                 ulam, thr, isd == 1, intr == 1, maxit, 
                 lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr, 
-                [&](int v) {setpb_cpp(pb, v);}, ::InternalParams());
+                [&](int v) {update_pb(pb, v);}, ::InternalParams());
     };
     run(f, jerr);
 
@@ -120,4 +140,67 @@ py::dict spelnet_exp(
   result["jerr"] = jerr;
 
   return result;
+}
+
+PYBIND11_MODULE(glmnetpp, m) {
+    m.def("gaussnet", &gaussnet_exp,
+	  py::arg("ka"),
+	  py::arg("parm"),
+	  py::arg("x"),
+	  py::arg("y"),
+	  py::arg("w"),
+	  py::arg("jd"),
+	  py::arg("vp"),
+	  py::arg("cl"),	  
+	  py::arg("ne"),
+	  py::arg("nx"),
+	  py::arg("nlam"),
+	  py::arg("flmin"),
+	  py::arg("ulam"),
+	  py::arg("thr"),
+	  py::arg("isd"),
+	  py::arg("intr"),
+	  py::arg("maxit"),
+	  py::arg("pb"),
+	  py::arg("lmu"),
+	  py::arg("a0"),
+	  py::arg("ca"),
+	  py::arg("ia"),
+	  py::arg("nin"),
+	  py::arg("rsq"),
+	  py::arg("alm"),
+	  py::arg("nlp"),
+	  py::arg("jerr"));
+    
+    m.def("spgaussnet", &spgaussnet_exp,
+	  py::arg("ka"),
+	  py::arg("parm"),
+	  py::arg("x_data_array"),
+	  py::arg("x_indices_array"),
+	  py::arg("x_indptr_array"),
+	  py::arg("y"),
+	  py::arg("w"),
+	  py::arg("jd"),
+	  py::arg("vp"),
+	  py::arg("cl"),	  
+	  py::arg("ne"),
+	  py::arg("nx"),
+	  py::arg("nlam"),
+	  py::arg("flmin"),
+	  py::arg("ulam"),
+	  py::arg("thr"),
+	  py::arg("isd"),
+	  py::arg("intr"),
+	  py::arg("pb"),
+	  py::arg("lmu"),
+	  py::arg("a0"),
+	  py::arg("ca"),
+	  py::arg("ia"),
+	  py::arg("nin"),
+	  py::arg("rsq"),
+	  py::arg("dev"),
+	  py::arg("alm"),
+	  py::arg("nlp"),
+	  py::arg("jerr"));
+
 }
