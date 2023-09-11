@@ -8,10 +8,14 @@
 using namespace glmnetpp;
 namespace py = pybind11;
 
+void update_pb(py::object, int);
+
 // Gaussian for dense X.
-py::dict elnet_exp(
+py::dict gaussnet_exp(
     int ka,
     double parm,
+    int ni,
+    int no,
     Eigen::Ref<Eigen::MatrixXd> x,          // TODO: map?
     Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
     Eigen::Ref<Eigen::VectorXd> w,          // TODO: figure out if we should allow updating (safe choice is to copy)
@@ -66,9 +70,11 @@ py::dict elnet_exp(
 }
 
 // Gaussian for sparse X.
-py::dict spelnet_exp(
+py::dict spgaussnet_exp(
     int ka,
     double parm,
+    int ni,
+    int no,
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
@@ -142,10 +148,12 @@ py::dict spelnet_exp(
   return result;
 }
 
-PYBIND11_MODULE(glmnetpp, m) {
+PYBIND11_MODULE(glmnetpp_gauss, m) {
     m.def("gaussnet", &gaussnet_exp,
 	  py::arg("ka"),
 	  py::arg("parm"),
+	  py::arg("ni"),
+	  py::arg("no"),
 	  py::arg("x"),
 	  py::arg("y"),
 	  py::arg("w"),
@@ -175,6 +183,8 @@ PYBIND11_MODULE(glmnetpp, m) {
     m.def("spgaussnet", &spgaussnet_exp,
 	  py::arg("ka"),
 	  py::arg("parm"),
+	  py::arg("ni"),
+	  py::arg("no"),
 	  py::arg("x_data_array"),
 	  py::arg("x_indices_array"),
 	  py::arg("x_indptr_array"),

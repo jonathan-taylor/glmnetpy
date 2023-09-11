@@ -8,9 +8,13 @@
 using namespace glmnetpp;
 namespace py = pybind11;
 
+void update_pb(py::object, int);
+
 // Binomial/Multinomial for dense X.
 py::dict lognet_exp(
     double parm,
+    int ni,
+    int no,
     Eigen::Ref<Eigen::MatrixXd> x,          // TODO: map?
     Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
     Eigen::Ref<Eigen::VectorXd> g,          // TODO: map? 
@@ -70,6 +74,8 @@ py::dict lognet_exp(
 // Lognet for sparse X.
 py::dict splognet_exp(
     double parm,
+    int ni,
+    int no,
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
@@ -145,9 +151,11 @@ py::dict splognet_exp(
   return result;
 }
 
-PYBIND11_MODULE(glmnetpp, m) {
+PYBIND11_MODULE(glmnetpp_lognet, m) {
     m.def("lognet", &lognet_exp,
 	  py::arg("parm"),
+	  py::arg("ni"),
+	  py::arg("no"),
 	  py::arg("x"),
 	  py::arg("y"),
 	  py::arg("g"),
@@ -178,6 +186,8 @@ PYBIND11_MODULE(glmnetpp, m) {
     
     m.def("splognet", &splognet_exp,
 	  py::arg("parm"),
+	  py::arg("ni"),
+	  py::arg("no"),
 	  py::arg("x_data_array"),
 	  py::arg("x_indices_array"),
 	  py::arg("x_indptr_array"),
@@ -208,5 +218,4 @@ PYBIND11_MODULE(glmnetpp, m) {
 	  py::arg("nlp"),
 	  py::arg("jerr"));
 
-    m.def("update_pb", &update_pb);
 }

@@ -8,9 +8,13 @@
 using namespace glmnetpp;
 namespace py = pybind11;
 
+void update_pb(py::object, int);
+
 // Poisson for dense X.
 py::dict fishnet_exp(
     double parm,
+    int ni,
+    int no,
     Eigen::Ref<Eigen::MatrixXd> x,          // TODO: map?
     Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
     const Eigen::Ref<Eigen::VectorXd> w,
@@ -70,6 +74,8 @@ py::dict fishnet_exp(
 // Poisson for sparse X.
 py::dict spfishnet_exp(
     double parm,
+    int ni,
+    int no,
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
@@ -145,9 +151,11 @@ py::dict spfishnet_exp(
   return result;
 }
 
-PYBIND11_MODULE(glmnetpp, m) {
+PYBIND11_MODULE(glmnetpp_fish, m) {
     m.def("fishnet", &fishnet_exp,
 	  py::arg("parm"),
+	  py::arg("ni"),
+	  py::arg("no"),
 	  py::arg("x"),
 	  py::arg("y"),
 	  py::arg("y"),
@@ -178,6 +186,8 @@ PYBIND11_MODULE(glmnetpp, m) {
     
     m.def("spfishnet", &spfishnet_exp,
 	  py::arg("parm"),
+	  py::arg("ni"),
+	  py::arg("no"),
 	  py::arg("x_data_array"),
 	  py::arg("x_indices_array"),
 	  py::arg("x_indptr_array"),

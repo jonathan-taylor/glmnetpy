@@ -8,9 +8,13 @@
 using namespace glmnetpp;
 namespace py = pybind11;
 
+void update_pb(py::object, int);
+
 // Multi-response Gaussian for dense X.
-py::dict multelnet_exp(
+py::dict multigauss_exp(
     double parm,
+    int ni,
+    int no,
     Eigen::Ref<Eigen::MatrixXd> x,          // TODO: map?
     Eigen::Ref<Eigen::MatrixXd> y,          // TODO: map?
     Eigen::Ref<Eigen::VectorXd> w,          // TODO: map?
@@ -66,8 +70,10 @@ py::dict multelnet_exp(
 }
 
 // Multi-response Gaussian for sparse X.
-py::dict multspelnet_exp(
+py::dict spmultigauss_exp(
     double parm,
+    int ni,
+    int no,
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
@@ -119,7 +125,7 @@ py::dict multspelnet_exp(
     elnet_driver_t driver;
     auto f = [&]() {
         driver.fit(
-                parm, eiegn_x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
+                parm, eigen_x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
                 ulam, thr, isd, jsd, intr, maxit,
                 lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr,
                 [&](int v) {update_pb(pb, v);}, ::InternalParams());
@@ -141,70 +147,70 @@ py::dict multspelnet_exp(
     return result;
 }
 
-PYBIND11_MODULE(glmnetpp, m) {
-    m.def("wls", &wls_exp,
-	  py::arg("alm0"),
-	  py::arg("almc"),
-	  py::arg("alpha"),
-	  py::arg("m"),
-	  py::arg("no"),
+PYBIND11_MODULE(glmnetpp_multigauss, m) {
+
+    m.def("multigauss", &multigauss_exp,
+	  py::arg("parm"),
 	  py::arg("ni"),
-	  py::arg("x"),	  
-	  py::arg("r"),
-	  py::arg("xv"),
-	  py::arg("v"),
-	  py::arg("intr"),
-	  py::arg("ju"),
+	  py::arg("no"),
+	  py::arg("x"),
+	  py::arg("y"),
+	  py::arg("w"),
+	  py::arg("jd"),
 	  py::arg("vp"),
-	  py::arg("cl"),
+	  py::arg("cl"),	  
+	  py::arg("ne"),
 	  py::arg("nx"),
+	  py::arg("nlam"),
+	  py::arg("flmin"),
+	  py::arg("ulam"),
 	  py::arg("thr"),
+	  py::arg("isd"),
+	  py::arg("jsd"),
+	  py::arg("intr"),
 	  py::arg("maxit"),
-	  py::arg("a"),
-	  py::arg("aint"),
-	  py::arg("g"),
+	  py::arg("pb"),
+	  py::arg("lmu"),
+	  py::arg("a0"),
+	  py::arg("ca"),
 	  py::arg("ia"),
-	  py::arg("iy"),
-	  py::arg("iz"),
-	  py::arg("mm"),
-	  py::arg("nino"),
-	  py::arg("rsqc"),
+	  py::arg("nin"),
+	  py::arg("rsq"),
+	  py::arg("alm"),
 	  py::arg("nlp"),
 	  py::arg("jerr"));
     
-    m.def("spwls", &spwls_exp,
-	  py::arg("alm0"),
-	  py::arg("almc"),
-	  py::arg("alpha"),
-	  py::arg("m"),
-	  py::arg("no"),
+    m.def("spmultigauss", &spmultigauss_exp,
+	  py::arg("parm"),
 	  py::arg("ni"),
+	  py::arg("no"),
 	  py::arg("x_data_array"),
 	  py::arg("x_indices_array"),
 	  py::arg("x_indptr_array"),
-	  py::arg("xm"),
-	  py::arg("xs"),
-	  py::arg("r"),
-	  py::arg("xv"),
-	  py::arg("v"),
-	  py::arg("intr"),
-	  py::arg("ju"),
+	  py::arg("y"),
+	  py::arg("w"),
+	  py::arg("jd"),
 	  py::arg("vp"),
-	  py::arg("cl"),
+	  py::arg("cl"),	  
+	  py::arg("ne"),
 	  py::arg("nx"),
+	  py::arg("nlam"),
+	  py::arg("flmin"),
+	  py::arg("ulam"),
 	  py::arg("thr"),
+	  py::arg("isd"),
+	  py::arg("jsd"),
+	  py::arg("intr"),
 	  py::arg("maxit"),
-	  py::arg("a"),
-	  py::arg("aint"),
-	  py::arg("g"),
+	  py::arg("pb"),
+	  py::arg("lmu"),
+	  py::arg("a0"),
+	  py::arg("ca"),
 	  py::arg("ia"),
-	  py::arg("iy"),
-	  py::arg("iz"),
-	  py::arg("mm"),
-	  py::arg("nino"),
-	  py::arg("rsqc"),
+	  py::arg("nin"),
+	  py::arg("rsq"),
+	  py::arg("alm"),
 	  py::arg("nlp"),
 	  py::arg("jerr"));
 
-    m.def("update_pb", &update_pb);
 }
