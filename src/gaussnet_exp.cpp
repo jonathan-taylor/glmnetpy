@@ -148,7 +148,7 @@ py::dict spgaussnet_exp(
   return result;
 }
 
-PYBIND11_MODULE(glmnetpp_gauss, m) {
+PYBIND11_MODULE(gaussnet, m) {
     m.def("gaussnet", &gaussnet_exp,
 	  py::arg("ka"),
 	  py::arg("parm"),

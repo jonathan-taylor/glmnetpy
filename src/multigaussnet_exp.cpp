@@ -147,7 +147,7 @@ py::dict spmultigauss_exp(
     return result;
 }
 
-PYBIND11_MODULE(glmnetpp_multigauss, m) {
+PYBIND11_MODULE(multigaussnet, m) {
 
     m.def("multigauss", &multigauss_exp,
 	  py::arg("parm"),

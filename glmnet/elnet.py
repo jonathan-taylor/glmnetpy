@@ -10,8 +10,8 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LinearRegression
 from sklearn.utils import check_X_y
 
-from .glmnetpp import wls as dense_wls
-from .glmnetpp import spwls as sparse_wls
+from .elnet_point import elnet_point as dense_wls
+from .elnet_point import spelnet_point as sparse_wls
 from .base import (Base,
                    Penalty,
                    Design,

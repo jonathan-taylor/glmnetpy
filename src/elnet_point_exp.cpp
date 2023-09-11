@@ -8,8 +8,8 @@
 using namespace glmnetpp;
 namespace py = pybind11;
 
-// WLS for dense X.
-py::dict wls_exp(
+// ELNET_POINT for dense X.
+py::dict elnet_point_exp(
 		 double alm0,
 		 double almc,
 		 double alpha,
@@ -81,7 +81,7 @@ py::dict wls_exp(
 }
 
 // WLS for sparse X.
-py::dict spwls_exp(
+py::dict spelnet_point_exp(
     double alm0,
     double almc,
     double alpha,
@@ -172,8 +172,8 @@ void update_pb(py::object pb, int step_inc) {
     pb.attr("update")(step_inc);
 }
 
-PYBIND11_MODULE(glmnetpp, m) {
-    m.def("wls", &wls_exp,
+PYBIND11_MODULE(elnet_point, m) {
+    m.def("elnet_point", &elnet_point_exp,
 	  py::arg("alm0"),
 	  py::arg("almc"),
 	  py::arg("alpha"),
@@ -203,7 +203,7 @@ PYBIND11_MODULE(glmnetpp, m) {
 	  py::arg("nlp"),
 	  py::arg("jerr"));
     
-    m.def("spwls", &spwls_exp,
+    m.def("spelnet_point", &spelnet_point_exp,
 	  py::arg("alm0"),
 	  py::arg("almc"),
 	  py::arg("alpha"),

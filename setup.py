@@ -55,14 +55,9 @@ cmdclass = versioneer.get_cmdclass()
 long_description = open('README.md', 'rt', encoding='utf-8').read()
 long_description_content_type = 'text/markdown'
 
-
 EXTS = [Extension(
-    'glmnet.glmnetpp',
-    sources=['src/wls_exp.cpp',
-             'src/lognet_exp.cpp',
-             'src/fishnet_exp.cpp',
-             'src/gaussian_exp.cpp',
-             'src/multigauss_exp.cpp'
+    f'glmnet.{mod}',
+    sources=[f'src/{mod}_exp.cpp',
              ],
     include_dirs=[pybind11.get_include(),
                   eigendir,
@@ -70,8 +65,11 @@ EXTS = [Extension(
                   'src/glmnetpp/src',
                   'src/glmnetpp/test'],
     language='c++',
-    extra_compile_args=['-std=c++17']
-)]
+    extra_compile_args=['-std=c++17']) for mod in ['elnet_point',
+                                                   'lognet',
+                                                   'fishnet',
+                                                   'gaussnet',
+                                                   'multigaussnet']]
 
 def main(**extra_args):
     setup(name=info.NAME,

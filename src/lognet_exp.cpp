@@ -151,7 +151,7 @@ py::dict splognet_exp(
   return result;
 }
 
-PYBIND11_MODULE(glmnetpp_lognet, m) {
+PYBIND11_MODULE(lognet, m) {
     m.def("lognet", &lognet_exp,
 	  py::arg("parm"),
 	  py::arg("ni"),
