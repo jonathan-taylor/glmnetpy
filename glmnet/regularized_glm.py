@@ -19,7 +19,7 @@ from .glm import (GLMState,
 
 @add_dataclass_docstring
 @dataclass
-class GLMNetControl(ElNetControl):
+class RegGLMControl(ElNetControl):
 
     mxitnr: int = 25
     epsnr: float = 1e-6
@@ -27,16 +27,16 @@ class GLMNetControl(ElNetControl):
     logging: bool = False
 
 @dataclass
-class GLMNetSpec(ElNetSpec):
+class RegGLMSpec(ElNetSpec):
 
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
-    control: GLMNetControl = field(default_factory=GLMNetControl)
+    control: RegGLMControl = field(default_factory=RegGLMControl)
 
-add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
+add_dataclass_docstring(RegGLMSpec, subs={'control':'control_glmnet'})
 
 @add_dataclass_docstring
 @dataclass
-class GLMNetResult(object):
+class RegGLMResult(object):
 
     family: sm_family.Family
     offset: bool
@@ -45,12 +45,12 @@ class GLMNetResult(object):
     obj_function: float
 
 @dataclass
-class GLMNetRegularizer(Penalty):
+class ElNetRegularizer(Penalty):
 
     fit_intercept: bool = False
     warm_state: dict = field(default_factory=dict)
     nvars: InitVar[int] = None
-    control: InitVar[GLMNetControl] = None
+    control: InitVar[RegGLMControl] = None
 
     def __post_init__(self, nvars, control):
 
@@ -124,27 +124,27 @@ class GLMNetRegularizer(Penalty):
         return self.lambda_val * (lasso + ridge)
 
 
-# end of GLMNetRegularizer
+# end of ElNetRegularizer
 
 @dataclass
-class GLMNet(GLM,
-             GLMNetSpec):
+class RegGLM(GLM,
+             RegGLMSpec):
 
-    control: GLMNetControl = field(default_factory=GLMNetControl)
+    control: RegGLMControl = field(default_factory=RegGLMControl)
 
     def _get_regularizer(self,
                          X):
 
         # self.design_ will have been set by now
 
-        return GLMNetRegularizer(lambda_val=self.lambda_val,
-                                 alpha=self.alpha,
-                                 penalty_factor=self.penalty_factor,
-                                 lower_limits=self.lower_limits * self.design_.scaling_,
-                                 upper_limits=self.upper_limits * self.design_.scaling_,
-                                 fit_intercept=self.fit_intercept,
-                                 nvars=X.shape[1],
-                                 control=self.control)
+        return ElNetRegularizer(lambda_val=self.lambda_val,
+                                alpha=self.alpha,
+                                penalty_factor=self.penalty_factor,
+                                lower_limits=self.lower_limits * self.design_.scaling_,
+                                upper_limits=self.upper_limits * self.design_.scaling_,
+                                fit_intercept=self.fit_intercept,
+                                nvars=X.shape[1],
+                                control=self.control)
 
     # no standardization for GLM
     def _get_design(self,
@@ -175,5 +175,5 @@ class GLMNet(GLM,
 
         return self
 
-add_dataclass_docstring(GLMNet, subs={'control':'control_glm'})
+add_dataclass_docstring(RegGLM, subs={'control':'control_glm'})
 

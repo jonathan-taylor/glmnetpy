@@ -10,7 +10,8 @@ from scipy.interpolate import interp1d
 from sklearn.base import (BaseEstimator,
                           clone)
 from sklearn.model_selection import (cross_val_predict,
-                                     check_cv)
+                                     check_cv,
+                                     KFold)
 from sklearn.model_selection._validation import indexable
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils import check_X_y
@@ -20,19 +21,19 @@ from statsmodels.genmod.families import links as sm_links
 
 from .docstrings import add_dataclass_docstring
 
-from .glmnet import (GLMNetControl,
-                     GLMNet)
+from .regularized_glm import (RegGLMControl,
+                              RegGLM)
 from .glm import GLM, GLMState
 
 
 @dataclass
-class GLMNetPathControl(GLMNetControl):
+class GLMNetControl(RegGLMControl):
 
     fdev: float = 1e-5
     logging: bool = False
 
 @dataclass
-class GLMNetPathSpec(object):
+class GLMNetSpec(object):
 
     lambda_values: Optional[np.ndarray] = None
     lambda_fractional: bool = True
@@ -43,13 +44,13 @@ class GLMNetPathSpec(object):
     fit_intercept: bool = True
     standardize: bool = True
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
-    control: GLMNetPathControl = field(default_factory=GLMNetPathControl)
+    control: GLMNetControl = field(default_factory=GLMNetControl)
 
-add_dataclass_docstring(GLMNetPathSpec, subs={'control':'control_glmnet_path'})
+add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 
 @dataclass
-class GLMNetPath(BaseEstimator,
-                 GLMNetPathSpec):
+class GLMNet(BaseEstimator,
+             GLMNetSpec):
 
     def fit(self,
             X,
@@ -83,30 +84,30 @@ class GLMNetPath(BaseEstimator,
             sample_weight = np.ones(X.shape[0])
         self.normed_sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
-        self.glmnet_est_ = GLMNet(lambda_val=self.control.big,
-                                  family=self.family,
-                                  alpha=self.alpha,
-                                  penalty_factor=self.penalty_factor,
-                                  lower_limits=self.lower_limits,
-                                  upper_limits=self.upper_limits,
-                                  fit_intercept=self.fit_intercept,
-                                  standardize=self.standardize,
-                                  control=self.control)
-        self.glmnet_est_.fit(X, y, normed_sample_weight)
-        regularizer_ = self.glmnet_est_.regularizer_
+        self.reg_glm_est_ = RegGLM(lambda_val=self.control.big,
+                                   family=self.family,
+                                   alpha=self.alpha,
+                                   penalty_factor=self.penalty_factor,
+                                   lower_limits=self.lower_limits,
+                                   upper_limits=self.upper_limits,
+                                   fit_intercept=self.fit_intercept,
+                                   standardize=self.standardize,
+                                   control=self.control)
+        self.reg_glm_est_.fit(X, y, normed_sample_weight)
+        regularizer_ = self.reg_glm_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,
                                                y,
                                                normed_sample_weight,
                                                exclude,
                                                offset)
-        state.update(self.glmnet_est_.design_,
+        state.update(self.reg_glm_est_.design_,
                      self.family,
                      offset)
 
         logl_score = state.logl_score(self.family,
                                       y)
-        score_ = (self.glmnet_est_.design_.T @ (normed_sample_weight * logl_score))[1:]
+        score_ = (self.reg_glm_est_.design_.T @ (normed_sample_weight * logl_score))[1:]
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf <= 0))
         score_[exclude] = 0
@@ -133,17 +134,17 @@ class GLMNetPath(BaseEstimator,
         for l in self.lambda_values_:
 
             if self.control.logging: logging.info(f'Fitting parameter {l}')
-            self.glmnet_est_.lambda_val = regularizer_.lambda_val = l
-            self.glmnet_est_.fit(X,
-                                 y,
-                                 normed_sample_weight,
-                                 offset=offset,
-                                 regularizer=regularizer_,
-                                 check=False)
+            self.reg_glm_est_.lambda_val = regularizer_.lambda_val = l
+            self.reg_glm_est_.fit(X,
+                                  y,
+                                  normed_sample_weight,
+                                  offset=offset,
+                                  regularizer=regularizer_,
+                                  check=False)
 
-            coefs_.append(self.glmnet_est_.coef_.copy())
-            intercepts_.append(self.glmnet_est_.intercept_)
-            dev_ratios_.append(1 - self.glmnet_est_.deviance_ * sample_weight_sum / self.null_deviance_)
+            coefs_.append(self.reg_glm_est_.coef_.copy())
+            intercepts_.append(self.reg_glm_est_.intercept_)
+            dev_ratios_.append(1 - self.reg_glm_est_.deviance_ * sample_weight_sum / self.null_deviance_)
             if len(dev_ratios_) > 1:
                 if isinstance(self.family, sm_family.Gaussian): 
                     if dev_ratios_[-1] - dev_ratios_[-2] < self.control.fdev * dev_ratios_[-1]:
@@ -202,7 +203,7 @@ class GLMNetPath(BaseEstimator,
                            offset):
 
         n, p = X.shape
-        keep = self.glmnet_est_.regularizer_.penalty_factor == 0
+        keep = self.reg_glm_est_.regularizer_.penalty_factor == 0
         keep[exclude] = 0
 
         coef_ = np.zeros(p)
@@ -249,7 +250,7 @@ class GLMNetPath(BaseEstimator,
         X, y, groups = indexable(X, y, groups)
 
         cv = check_cv(cv, y, classifier=False)
-  
+
         predictions = cross_val_predict(fractional_path, 
                                         X,
                                         y,
@@ -274,12 +275,14 @@ class GLMNetPath(BaseEstimator,
                             for i in range(preds_.shape[1])])
         self.scores_ = np.array(scores_)
         self.dev_cv_mean_ = self.scores_.mean(0)
-        self.dev_cv_std_ = self.scores_.std(0, ddof=1) / np.sqrt(self.scores_.shape[0]) # assumes equal size splits!
         self._min_idx = np.argmin(self.dev_cv_mean_)
         self.lambda_min_ = self.lambda_values_[self._min_idx]
-        _mean_1se = (self.dev_cv_mean_ + self.dev_cv_std_)[self._min_idx]
-        self._1se_idx = max(np.nonzero((self.dev_cv_mean_ <= _mean_1se))[0].min() - 1, 0)
-        self.lambda_1se_ = self.lambda_values_[self._1se_idx]
+
+        if isinstance(cv, KFold):
+            self.dev_cv_std_ = self.scores_.std(0, ddof=1) / np.sqrt(self.scores_.shape[0]) # assumes equal size splits!
+            _mean_1se = (self.dev_cv_mean_ + self.dev_cv_std_)[self._min_idx]
+            self._1se_idx = max(np.nonzero((self.dev_cv_mean_ <= _mean_1se))[0].min() - 1, 0)
+            self.lambda_1se_ = self.lambda_values_[self._1se_idx]
 
     def plot_coefficients(self,
                           xvar='lambda',

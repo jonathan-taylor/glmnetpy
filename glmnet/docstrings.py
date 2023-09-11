@@ -104,12 +104,6 @@ warm: Optional[Union[ElNetWarmStart,dict]]
     and intercept respectively which can be used as a warm start.
     For internal use only.''',
 
-    'warm_glm':'''
-warm_state: Optional[dict]
-    A dict-like with keys `coef_` and `intercept_` containing coefficients
-    and intercept respectively which can be used as a warm start.
-    For internal use only.''',
-
     'big':'''
 big: float = 9.9e35
     A large float, effectively `np.inf`.''',
@@ -161,8 +155,8 @@ nobs: int
 warm_fit: Optional(ElNetWarmStart)
     Used for warm starts.''',
     
-    'warm_glm': '''
-warm: Optional(dict, ElNetWarmStart)
+    'warm_state': '''
+warm: Optional(ElNetStart)
     Either a dict-like object with keys "coef_" and "intercept_" or an
     `ElNetWarmStart` instance.''',
 
@@ -176,14 +170,14 @@ control: Optional(GLMControl)
     Parameters to control the solver.
     ''',
     
-    'control_glmnet': '''
-control: Optional(GLMNetControl)
+    'control_regglm': '''
+control: Optional(RegGLMControl)
 
     Parameters to control the solver.
     ''',
 
-    'control_glmnet_path': '''
-control: Optional(GLMNetPathControl)
+    'control_glmnet': '''
+control: Optional(GLMNetControl)
 
     Parameters to control the solver.
     ''',
