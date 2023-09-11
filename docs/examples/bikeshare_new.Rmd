@@ -68,7 +68,7 @@ from sklearn.linear_model import LogisticRegression
 
 
 ```{python}
-from glmnet.glm import GLMEstimator
+from glmnet.glm import GLM
 ```
 
 ## Linear and Poisson Regression on the Bikeshare Data
@@ -99,9 +99,9 @@ X = MS(['mnth',
         'weathersit']).fit_transform(Bike)
 X = X.drop(columns=['intercept'])
 Y = Bike['bikers']
-OLS = GLMEstimator()
+OLS = GLM(summarize=True)
 OLS.fit(X, Y)
-OLS.summarize()
+OLS.summary_
 
 ```
 
@@ -132,9 +132,9 @@ X2 = MS([mnth_encode,
         'temp',
         'weathersit'],
        intercept=False).fit_transform(Bike)
-OLS2 = GLMEstimator()
+OLS2 = GLM(summarize=True)
 OLS2.fit(X2, Y)
-S2 = OLS2.summarize()
+S2 = OLS2.summary_
 S2
 ```
 
@@ -244,7 +244,8 @@ Now we fit instead a Poisson regression model to the
 function `sm.GLM()` with the Poisson family specified:
 
 ```{python}
-Poisson_GLM = GLMEstimator(family=sm.families.Poisson(), standardize=True)
+Poisson_GLM = GLM(family=sm.families.Poisson(),
+                  summarize=True)
 Poisson_GLM.fit(X2, Y)
 ```
 
@@ -255,7 +256,7 @@ Poisson_GLM.score(X2, Y)
 We can plot the coefficients associated with `mnth` and `hr`, in order to reproduce  Figure 4.15. We first complete these coefficients as before.
 
 ```{python}
-S_pois = Poisson_GLM.summarize()
+S_pois = Poisson_GLM.summary_
 coef_month = S_pois[S_pois.index.str.contains('mnth')]['coef']
 coef_month = pd.concat([coef_month,
                         pd.Series([-coef_month.sum()],

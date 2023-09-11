@@ -1,3 +1,4 @@
+from typing import Optional
 from dataclasses import dataclass, asdict, field
 from functools import partial
 import logging
@@ -98,7 +99,7 @@ class GLMState(object):
 class GLMRegularizer(object):
 
     fit_intercept: bool = False
-    warm_state: dict = field(default_factory=dict)
+    warm_state: Optional[GLMState] = None
 
     def half_step(self,
                   state,
@@ -160,7 +161,7 @@ class GLMRegularizer(object):
     def objective(self, state):
         return 0
 
-add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_glm'})
+add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_state'})
 # end of GLMRegularizer
 
 @dataclass
@@ -246,7 +247,7 @@ class GLM(BaseEstimator,
             val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
-            if self.control.logging: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
+            if self.control.logging: logging.debug(f'Computing objective. coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
         obj_function = partial(obj_function, y.copy(), normed_sample_weight.copy(), self.family, regularizer)
         
@@ -324,7 +325,7 @@ Parameters
 {X}
 {y}
 {weights}
-{warm_glm}
+{warm_state}
 {exclude}
 {summarize}
 {offset}
@@ -364,7 +365,7 @@ Returns
         mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
             sample_weight = np.ones_like(y)
-        return -family.deviance(y, mu, freq_weights=sample_weight) / 2
+        return -self.family.deviance(y, mu, freq_weights=sample_weight) / 2
     score.__doc__ = '''
 Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
 default to `np.ones_like(y) / y.shape[0]`.
@@ -411,6 +412,5 @@ __________
 {dispersion_}
 {regularizer_}
 '''.format(**_docstrings)
-
 
 

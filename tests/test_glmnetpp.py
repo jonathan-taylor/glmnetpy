@@ -3,7 +3,7 @@ n_tests = 144
 
 import unittest
 import glmnet
-import glmnet.glmnetpp as gpp
+import glmnet.elnet_point as gpp
 import pickle as pk
 import numpy as np
 import scipy.sparse as sp
