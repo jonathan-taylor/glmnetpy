@@ -69,7 +69,7 @@ EXTS = [Extension(
                                                    'lognet',
                                                    'fishnet',
                                                    'gaussnet',
-                                                   'multigaussnet']]
+                                                   'multigaussnet'][:1]]
 
 def main(**extra_args):
     setup(name=info.NAME,
