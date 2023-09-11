@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 from sklearn.model_selection import cross_validate
 
-from glmnet.glmnet import GLMNet
+from glmnet.regularized_glm import RegGLM
 
 try:
     import rpy2
@@ -73,7 +73,7 @@ def test_glmnet_R_path(standardize,
         intercept_R = soln_R[0]
         coef_R = soln_R[1:]
 
-    G = GLMNet(lambda_val=2 / np.sqrt(n), 
+    G = RegGLM(lambda_val=2 / np.sqrt(n), 
                alpha=alpha,
                standardize=standardize, 
                fit_intercept=intercept)
@@ -140,7 +140,7 @@ def test_glmnet_R(standardize,
         intercept_R = soln_R[0]
         coef_R = soln_R[1:]
 
-    G = GLMNet(lambda_val=2 / np.sqrt(n),
+    G = RegGLM(lambda_val=2 / np.sqrt(n),
                alpha=alpha,
                standardize=standardize, 
                fit_intercept=intercept)
@@ -175,7 +175,7 @@ def test_cv(standardize,
     beta[:2] = [1,2]
     y = rng.standard_normal(n) + X @ beta
 
-    G = GLMNet(lambda_val=2 * np.sqrt(n),
+    G = RegGLM(lambda_val=2 * np.sqrt(n),
                fit_intercept=fit_intercept,
                standardize=standardize)
     cross_validate(G, X, y, cv=5)

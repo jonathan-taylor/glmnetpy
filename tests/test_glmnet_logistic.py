@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.model_selection import cross_validate
 import statsmodels.api as sm
 
-from glmnet.glmnet import GLMNet
+from glmnet.regularized_glm import RegGLM
 
 try:
     import rpy2
@@ -79,7 +79,7 @@ def test_glmnet_R(standardize,
         intercept_R = soln_R[0]
         coef_R = soln_R[1:]
 
-    G = GLMNet(lambda_val=0.5 / np.sqrt(n),
+    G = RegGLM(lambda_val=0.5 / np.sqrt(n),
                family=sm.families.Binomial(),
                alpha=alpha,
                standardize=standardize, 
@@ -116,7 +116,7 @@ def test_cv(standardize,
     beta[:2] = [1,2]
     y = (rng.standard_normal(n) + X @ beta > 0)
 
-    G = GLMNet(lambda_val=0.5 / np.sqrt(n),
+    G = RegGLM(lambda_val=0.5 / np.sqrt(n),
                family=sm.families.Binomial(),
                fit_intercept=fit_intercept,
                standardize=standardize)
