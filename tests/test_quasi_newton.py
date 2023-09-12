@@ -5,9 +5,10 @@ import numpy as np
 import scipy.sparse
 import statsmodels.api as sm
 
-from glmnet.glm import GLMEstimator, _quasi_newton_step, _IRLS, GLMState
+from glmnet.glm import GLM, GLMState
+from glmnet.irls import quasi_newton_step, IRLS
 from glmnet.base import Design
-from glmnet.elnet import ElNetEstimator
+from glmnet.elnet import ElNet
 from glmnet._utils import _obj_function, _parent_dataclass_from_child
 
 def test_quasi_newton(n=100, p=5):
@@ -22,10 +23,10 @@ def test_quasi_newton(n=100, p=5):
     for W, s in product([WU, np.ones(n)],
                         [False,True]):
 
-        GLM = GLMEstimator(0, family=F, standardize=s)
-        GLM.vp = np.ones(p) # this would usually be set within `fit`
-        elnet_est = _parent_dataclass_from_child(ElNetEstimator,
-                                                 asdict(GLM),
+        glm = GLM(0, family=F, standardize=s)
+        glm.vp = np.ones(p) # this would usually be set within `fit`
+        elnet_est = _parent_dataclass_from_child(ElNet,
+                                                 asdict(glm),
                                                  standardize=False)
         elnet_solver = elnet_est.fit
         X = Xv
@@ -53,8 +54,8 @@ def test_quasi_newton(n=100, p=5):
 
         state = GLMState(coef_, int_)
         state.update(design,
-                     GLM.family,
-                     GLM.offset)
+                     glm.family,
+                     glm.offset)
 
         eta = design.linear_map(beta[1:], beta[0])
         
@@ -84,25 +85,35 @@ def test_quasi_newton(n=100, p=5):
         assert np.allclose(H[1:,1:], X_.T @ (IRLS_W[:, None] * X_))
         assert np.allclose(H[0, 1:], (IRLS_W[:, None] * X_).sum(0))
 
-        new_beta = beta + np.linalg.inv(H) @ G
-        R, _, _, halved = _quasi_newton_step(GLM,
-                                             design,
-                                             y,
-                                             W,
-                                             state,
-                                             elnet_solver)
+        offset = None
 
-        R_s, _, _, halved = _quasi_newton_step(GLM,
-                                               design_s,
-                                               y,
-                                               W,
-                                               state,
-                                               elnet_solver)
+        objective = partial(objective, y.copy(), W.copy(), glm.family, glm.regularizer)
+
+        new_beta = beta + np.linalg.inv(H) @ G
+        R, _, _, halved = quasi_newton_step(glm.regularizer,
+                                            glm.family,
+                                            design,
+                                            y,
+                                            offset,
+                                            W,
+                                            state,
+                                            objective,
+                                            glm.control)
+
+        R_s, _, _, halved = quasi_newton_step(glm.regularizer,
+                                              glm.family,
+                                              design_s,
+                                              y,
+                                              offset,
+                                              W,
+                                              state,
+                                              objective,
+                                              glm.control)
 
         new_state = GLMState(coef_, int_)
         new_state.update(design,
-                         GLM.family,
-                         GLM.offset)
+                         glm.family,
+                         glm.offset)
 
         # check that quasi newton gives the same whether sparse or not
         assert np.allclose(R_s.coef, R.coef)
@@ -131,8 +142,8 @@ def test_IRLS(n=100, p=5):
                            [False,True],
                            [F, F2]):
 
-        GLM = GLMEstimator(0, family=F, standardize=s)
-        elnet_est = _parent_dataclass_from_child(ElNetEstimator,
+        GLM = GLM(0, family=F, standardize=s)
+        elnet_est = _parent_dataclass_from_child(ElNet,
                                                  asdict(GLM),
                                                  standardize=False)
         elnet_solver = elnet_est.fit
@@ -164,12 +175,12 @@ def test_IRLS(n=100, p=5):
                      GLM.family,
                      GLM.offset)
 
-        _, _, _, glm_state = _IRLS(GLM,
-                                   design,
-                                   y,
-                                   W,
-                                   state,
-                                   elnet_solver)
+        _, _, _, glm_state = IRLS(GLM,
+                                  design,
+                                  y,
+                                  W,
+                                  state,
+                                  elnet_solver)
 
         X_1 = np.concatenate([np.ones((n,1)), X], axis=1)
         res = sm.GLM(y, X_1, family=F, var_weights=W).fit()
@@ -215,7 +226,7 @@ def test_GLM(n=100, p=5):
                            [False,True],
                            [F, F2]):
 
-        GLM = GLMEstimator(0, family=F, standardize=s)
+        glm = GLM(0, family=F, standardize=s)
         X = Xv
         design = Design(X, W, standardize=s)
         GLM.fit(X, y, weights=W)
@@ -226,31 +237,36 @@ def test_GLM(n=100, p=5):
 
         sm_state = GLMState(res.params[1:], res.params[0])
         sm_state.update(design,
-                        GLM.family,
-                        GLM.offset)
+                        glm.family,
+                        glm.offset)
         print(_obj_function(y,
                             sm_state.mu,
                             W,
-                            GLM.family,
-                            GLM.lambda_val,
-                            GLM.alpha,
+                            glm.family,
+                            glm.lambda_val,
+                            glm.alpha,
                             sm_state.coef,
-                            GLM.vp), 'sm_val')
+                            glm.vp), 'sm_val')
 
-        glm_state = GLMState(GLM.coef_, GLM.intercept_)
+        glm_state = GLMState(glm.coef_, glm.intercept_)
         glm_state.update(design,
-                         GLM.family,
-                         GLM.offset)
+                         glm.family,
+                         glm.offset)
 
         print(_obj_function(y,
                             glm_state.mu,
                             W,
-                            GLM.family,
-                            GLM.lambda_val,
-                            GLM.alpha,
+                            glm.family,
+                            glm.lambda_val,
+                            glm.alpha,
                             glm_state.coef,
-                            GLM.vp), 'glm_val')
+                            glm.vp), 'glm_val')
 
         assert np.allclose(glm_state.coef, res.params[1:], rtol=1e-3, atol=1e-3)
         assert np.allclose(glm_state.intercept, res.params[0], rtol=1e-3, atol=1e-3)
         
+def objective(y, normed_sample_weight, family, regularizer, state):
+    val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
+    val2 = regularizer.objective(state)
+    val = val1 + val2
+    return val
