@@ -13,6 +13,11 @@ from sklearn.model_selection import (cross_val_predict,
                                      check_cv,
                                      KFold)
 from sklearn.model_selection._validation import indexable
+from sklearn.metrics import (mean_squared_error,
+                             mean_absolute_error,
+                             accuracy_score,
+                             roc_auc_score)
+
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils import check_X_y
 
@@ -232,7 +237,8 @@ class GLMNet(BaseEstimator,
                               verbose=0,
                               fit_params={},
                               pre_dispatch='2*n_jobs',
-                              alignment='lambda'):
+                              alignment='lambda',
+                              scorers=None): # functions of (y, yhat) where yhat is prediction on response scale
 
         if alignment not in ['lambda', 'fraction']:
             raise ValueError("alignment must be one of 'lambda' or 'fraction'")
@@ -265,25 +271,68 @@ class GLMNet(BaseEstimator,
 
         scores_ = []
 
+        fam_name = self.family.__class__.__name__
+        if scorers is None:
+            # create default scorers
+            scorers_ = [(f'{fam_name} Deviance', lambda y, yhat, sample_weight: self.family.deviance(y,
+                                                                                              yhat,
+                                                                                              freq_weights=sample_weight) / y.shape[0],
+                         'min'),
+                        ('Mean Squared Error', mean_squared_error, 'min'),
+                        ('Mean Absolute Error', mean_absolute_error, 'min')]
+
+            if isinstance(self.family, sm_family.Binomial):
+                def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
+                    return accuracy_score(y,
+                                          yhat>0.5,
+                                          sample_weight=sample_weight,
+                                          normalize=True)
+                scorers_.extend([('Accuracy', _accuracy_score, 'max'),
+                                 ('AUC', roc_auc_score, 'max')])
+
+        else:
+            scorers_ = scorers
+            
         for split in test_splits:
             preds_ = predictions[split]
             y_ = y[split]
             w_ = np.ones_like(y_)
-            scores_.append([self.family.deviance(y_,
-                                                 preds_[:,i],
-                                                 freq_weights=w_) / split.shape[0]
+            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
                             for i in range(preds_.shape[1])])
-        self.scores_ = np.array(scores_)
-        self.dev_cv_mean_ = self.scores_.mean(0)
-        self._min_idx = np.argmin(self.dev_cv_mean_)
-        self.lambda_min_ = self.lambda_values_[self._min_idx]
+        scores_ = np.array(scores_)
 
+        scores_mean_ = scores_.mean(0)
         if isinstance(cv, KFold):
-            self.dev_cv_std_ = self.scores_.std(0, ddof=1) / np.sqrt(self.scores_.shape[0]) # assumes equal size splits!
-            _mean_1se = (self.dev_cv_mean_ + self.dev_cv_std_)[self._min_idx]
-            self._1se_idx = max(np.nonzero((self.dev_cv_mean_ <= _mean_1se))[0].min() - 1, 0)
-            self.lambda_1se_ = self.lambda_values_[self._1se_idx]
+            scores_std_ = scores_.std(0, ddof=1) / np.sqrt(scores_.shape[0]) # assumes equal size splits!
 
+        self.cv_scores_ = pd.DataFrame(scores_mean_,
+                                       columns=[name for name, _, _ in scorers_],
+                                       index=pd.Series(self.lambda_values_, name='lambda'))
+
+        lambda_best_ = []
+        lambda_1se_ = []
+        for i, (name, _, pick_best) in enumerate(scorers_):
+            picker = {'min':np.argmin, 'max':np.argmax}[pick_best]
+            _best_idx = picker(scores_mean_[:,i])
+            lambda_best_.append(self.lambda_values_[_best_idx])
+            if isinstance(cv, KFold):
+                self.cv_scores_[f'SD({name})'] = scores_std_[:,i]
+                if pick_best == 'min':
+                    _mean_1se = (scores_mean_[:,i] + scores_std_[:,i])[_best_idx]
+                    _1se_idx = max(np.nonzero((scores_mean_[:,i] <= _mean_1se))[0].min() - 1, 0)
+                elif pick_best == 'max':
+                    _mean_1se = (scores_mean_[:,i] - scores_std_[:,i])[_best_idx]                    
+                    _1se_idx = max(np.nonzero((scores_mean_[:,i] >= _mean_1se))[0].min() - 1, 0)
+                lambda_1se_.append(self.lambda_values_[_1se_idx])
+
+        self.lambda_best_ = pd.Series(lambda_best_, index=[name for name, _, _ in scorers_], name='lambda_best')
+        if lambda_1se_:
+            self.lambda_1se_ = pd.Series(lambda_1se_, index=[name for name, _, _ in scorers_], name='lambda_1se')
+        else:
+            self.lambda_1se_ = None
+
+        return self.cv_scores_, self.lambda_best_, self.lambda_1se_
+    
     def plot_coefficients(self,
                           xvar='lambda',
                           ax=None,
@@ -322,6 +371,7 @@ class GLMNet(BaseEstimator,
 
     def plot_cross_validation(self,
                               xvar='lambda',
+                              score=None,
                               ax=None,
                               capsize=3,
                               legend=False,
@@ -332,10 +382,11 @@ class GLMNet(BaseEstimator,
                               ls_1se='--',
                               **plot_args):
 
-        if label is None:
-            label = 'Mean(deviance)'
+        fam_name = self.family.__class__.__name__
+        if score is None:
+            score = f'{fam_name} Deviance'
 
-        check_is_fitted(self, ["dev_cv_mean_", "dev_cv_std_"],
+        check_is_fitted(self, ["cv_scores_", "lambda_best_"],
                         msg='This %(name)s is not cross-validated yet. Please run `cross_validation_path` before plotting.')
         if xvar == 'lambda':
             index = pd.Index(-np.log(self.lambda_values_))
@@ -348,24 +399,47 @@ class GLMNet(BaseEstimator,
             index.name = 'Fraction Deviance Explained'
         else:
             raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
-        dev_path = pd.DataFrame({label:self.dev_cv_mean_,
-                                 'SD':self.dev_cv_std_},
-                                index=index)
-        ax = dev_path.plot(y=label,
-                           kind='line',
-                           yerr='SD',
-                           legend=legend,
-                           **plot_args)
-        ax.set_ylabel('GLM Deviance')
+
+        if score not in self.lambda_best_.index:
+            raise ValueError(f'Score "{score}" has not been computed in the CV fit.')
+
+        score_path = pd.DataFrame({score: self.cv_scores_[score],
+                                  index.name:index})
+        if f'SD({score})' in self.cv_scores_.columns:
+            have_std = True
+            score_path[f'SD({score})'] = self.cv_scores_[f'SD({score})']
+            score_path = score_path.set_index(index.name)
+            ax = score_path.plot(y=score,
+                                 kind='line',
+                                 yerr=f'SD({score})',
+                                 legend=legend,
+                                 **plot_args)
+        else:
+            score_path = score_path.set_index(index.name)
+            ax = score_path.plot(y=score,
+                                 kind='line',
+                                 legend=legend,
+                                 **plot_args)
+        ax.set_ylabel(score)
+        
+        lambda_best = self.lambda_best_[score]
+        best_idx = list(self.lambda_values_).index(lambda_best)
+
+        if have_std:
+            lambda_1se = self.lambda_1se_[score]
+            _1se_idx = list(self.lambda_values_).index(lambda_1se)
         if xvar == 'lambda':
-            l = ax.axvline(-np.log(self.lambda_min_), c=col_min, ls=ls_min, label=r'$\lambda_{\min}$')
-            ax.axvline(-np.log(self.lambda_1se_), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
+            l = ax.axvline(-np.log(self.lambda_values_[best_idx]), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
+            if have_std:
+                ax.axvline(-np.log(self.lambda_values_[_1se_idx]), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         elif xvar == 'norm':
-            ax.axvline(np.fabs(self.coefs_[self._min_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{\min}$')
-            ax.axvline(np.fabs(self.coefs_[self._1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
+            ax.axvline(np.fabs(self.coefs_[best_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
+            if have_std:
+                ax.axvline(np.fabs(self.coefs_[_1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         elif xvar == 'dev':
-            ax.axvline(np.fabs(self.dev_ratios_[self._min_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{\min}$')
-            ax.axvline(np.fabs(self.dev_ratios_[self._1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
+            ax.axvline(np.fabs(self.dev_ratios_[best_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
+            if have_std:
+                ax.axvline(np.fabs(self.dev_ratios_[_1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         if legend:
             ax.legend(loc='upper right')
         return ax
