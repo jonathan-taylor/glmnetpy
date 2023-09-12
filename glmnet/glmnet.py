@@ -66,15 +66,15 @@ class GLMNet(BaseEstimator,
             offset=None,
             interpolation_grid=None):
 
-        X, y = check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=False,
-                         estimator=self)
-
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
+
+        X, y = check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=False,
+                         estimator=self)
 
         nobs, nvar = X.shape
 
