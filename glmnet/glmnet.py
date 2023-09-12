@@ -8,8 +8,6 @@ import pandas as pd
 from scipy.interpolate import interp1d
 
 from sklearn.base import (BaseEstimator,
-                          ClassifierMixin,
-                          RegressorMixin,
                           clone)
 from sklearn.model_selection import (cross_val_predict,
                                      check_cv,
@@ -371,24 +369,4 @@ class GLMNet(BaseEstimator,
         if legend:
             ax.legend(loc='upper right')
         return ax
-
-@dataclass
-class GaussianGLMNet(RegressorMixin, GLMNet):
-
-    def __post_init__(self):
-
-        if not isinstance(self.family, sm_families.Gaussian):
-            msg = 'GaussianGLM expects a Gaussian family.'
-            warnings.warn(msg)
-            if self.control.logging: logging.warn(msg)
-
-@dataclass
-class BinomialGLMNet(ClassifierMixin, GLMNet):
-
-    def __post_init__(self):
-
-        if not isinstance(self.family, sm_families.Binomial):
-            msg = 'BinomialGLM expects a Binomial family.'
-            warnings.warn(msg)
-            if self.control.logging: logging.warn(msg)
 

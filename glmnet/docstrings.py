@@ -17,21 +17,6 @@ dtype: np.dtype
     The dtype for Design as a LinearOperator.
     ''',
     
-    'score_method':'''
-score_method: str
-    Which score to use?
-    ''',
-
-    'score_method_gaussian':'''
-score_method: str
-    Which score to use? One of ["r2", "deviance"].
-    ''',
-
-    'score_method_binary':'''
-score_method: str
-    Which score to use? One of ["r2", "accuracy"].
-    ''',
-
     'logging':'''
 logging: bool
     Write info and debug messages to log?''',

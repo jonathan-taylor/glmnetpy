@@ -3,7 +3,9 @@ from typing import Union, Optional
    
 import numpy as np
 
-from sklearn.base import BaseEstimator
+from sklearn.base import (BaseEstimator,
+                          ClassifierMixin,
+                          RegressorMixin)
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -177,3 +179,104 @@ class RegGLM(GLM,
 
 add_dataclass_docstring(RegGLM, subs={'control':'control_glm'})
 
+@dataclass
+class GaussianRegGLM(RegressorMixin, RegGLM):
+
+    def __post_init__(self):
+
+        if not isinstance(self.family, sm_families.Gaussian):
+            msg = 'GaussianRegGLM expects a Gaussian family.'
+            warnings.warn(msg)
+            if self.control.logging: logging.warn(msg)
+
+@dataclass
+class BinomialRegGLM(ClassifierMixin, RegGLM):
+
+    family: sm_family.Family = field(default_factory=sm_family.Binomial)
+
+    def __post_init__(self):
+
+        if not isinstance(self.family, sm_family.Binomial):
+            msg = 'BinomialRegGLM expects a Binomial family.'
+            warnings.warn(msg)
+            if self.control.logging: logging.warn(msg)
+
+    def fit(self,
+            X,
+            y,
+            sample_weight=None,
+            regularizer=None,             # last 4 options non sklearn API
+            exclude=[],
+            dispersion=1,
+            offset=None,
+            check=True):
+
+        label_encoder = LabelEncoder().fit(y)
+        if len(label_encoder.classes_) > 2:
+            raise ValueError("BinomialRegGLM expecting a binary classification problem.")
+        self.classes_ = label_encoder.classes_
+
+        y_binary = label_encoder.transform(y)
+
+        return super().fit(X,
+                           y_binary,
+                           sample_weight=sample_weight,
+                           regularizer=regularizer,             # last 4 options non sklearn API
+                           exclude=exclude,
+                           dispersion=dispersion,
+                           offset=offset,
+                           check=check)
+
+    def predict(self, X, prediction_type='class'):
+
+        eta = X @ self.coef_ + self.intercept_
+        if prediction_type == 'link':
+            return eta
+        elif prediction_type == 'response':
+            return self.family.link.inverse(eta)
+        elif prediction_type == 'class':
+            pi_hat = self.family.link.inverse(eta)
+            _integer_classes = (pi_hat > 0.5).astype(int)
+            return self.classes_[_integer_classes]
+        else:
+            raise ValueError("prediction should be one of 'response', 'link' or 'class'")
+    predict.__doc__ = '''
+Predict outcome of corresponding family.
+
+Parameters
+----------
+
+{X}
+{prediction_type_binomial}
+
+Returns
+-------
+
+{prediction}'''.format(**_docstrings).strip()
+
+    def predict_proba(self, X):
+
+        '''
+
+        Probability estimates for a BinomialGLM.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Vector to be scored, where `n_samples` is the number of samples and
+            `n_features` is the number of features.
+
+        Returns
+        -------
+        T : array-like of shape (n_samples, n_classes)
+            Returns the probability of the sample for each class in the model,
+            where classes are ordered as they are in ``self.classes_``.
+ 
+        '''
+
+        prob_1 = self.predict(X, prediction_type='response')
+        result = np.empty((prob_1.shape[0], 2))
+        result[:,1] = prob_1
+        result[:,0] = 1 - prob_1
+
+        return result

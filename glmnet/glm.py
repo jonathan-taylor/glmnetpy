@@ -1,7 +1,6 @@
 from dataclasses import (dataclass,
                          asdict,
-                         field,
-                         InitVar)
+                         field)
 from functools import partial
 import logging
    
@@ -166,7 +165,7 @@ class GLMRegularizer(object):
     def objective(self, state):
         return 0
 
-add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_glm'})
+add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_state'})
 # end of GLMRegularizer
 
 @dataclass
