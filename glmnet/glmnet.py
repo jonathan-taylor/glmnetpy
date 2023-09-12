@@ -160,7 +160,15 @@ class GLMNet(BaseEstimator,
             
         self.coefs_ = np.array(coefs_)
         self.intercepts_ = np.array(intercepts_)
-        self.dev_ratios_ = np.array(dev_ratios_)
+
+        self.summary_ = pd.DataFrame({'Fraction Deviance Explained':dev_ratios_},
+                                     index=pd.Series(self.lambda_values_[:len(dev_ratios_)],
+                                                     name='lambda'))
+
+        df = (self.coefs_ != 0).sum(1)
+        df[0] = 0
+        self.summary_.insert(0, 'Degrees of Freedom', df)
+
         nfit = self.coefs_.shape[0]
 
         self.lambda_values_ = self.lambda_values_[:nfit]
@@ -348,7 +356,7 @@ class GLMNet(BaseEstimator,
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
         elif xvar == 'dev':
-            index = pd.Index(self.dev_ratios_)
+            index = pd.Index(self.summary_['Fraction Deviance Explained'])
             index.name = 'Fraction Deviance Explained'
         else:
             raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
@@ -375,11 +383,13 @@ class GLMNet(BaseEstimator,
                               ax=None,
                               capsize=3,
                               legend=False,
-                              label=None,
-                              col_min='k',
+                              col_min='#c0c0c0',
                               ls_min='--',
-                              col_1se='r',
+                              col_1se='#c0c0c0',
                               ls_1se='--',
+                              c='#c0c0c0',
+                              scatter_c='red',
+                              scatter_s=None,
                               **plot_args):
 
         fam_name = self.family.__class__.__name__
@@ -395,7 +405,7 @@ class GLMNet(BaseEstimator,
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
         elif xvar == 'dev':
-            index = pd.Index(self.dev_ratios_)
+            index = pd.Index(self.summary_['Fraction Deviance Explained'])
             index.name = 'Fraction Deviance Explained'
         else:
             raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
@@ -405,6 +415,15 @@ class GLMNet(BaseEstimator,
 
         score_path = pd.DataFrame({score: self.cv_scores_[score],
                                   index.name:index})
+
+        ax = score_path.plot.scatter(y=score,
+                                     c=scatter_c,
+                                     s=scatter_s,
+                                     x=index.name,
+                                     ax=ax,
+                                     zorder=3,
+                                     **plot_args)
+
         if f'SD({score})' in self.cv_scores_.columns:
             have_std = True
             score_path[f'SD({score})'] = self.cv_scores_[f'SD({score})']
@@ -412,14 +431,20 @@ class GLMNet(BaseEstimator,
             ax = score_path.plot(y=score,
                                  kind='line',
                                  yerr=f'SD({score})',
+                                 capsize=capsize,
                                  legend=legend,
+                                 c=c,
+                                 ax=ax,
                                  **plot_args)
         else:
             score_path = score_path.set_index(index.name)
             ax = score_path.plot(y=score,
                                  kind='line',
                                  legend=legend,
+                                 c=c,
+                                 ax=ax,
                                  **plot_args)
+
         ax.set_ylabel(score)
         
         lambda_best = self.lambda_best_[score]
@@ -437,10 +462,12 @@ class GLMNet(BaseEstimator,
             if have_std:
                 ax.axvline(np.fabs(self.coefs_[_1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         elif xvar == 'dev':
-            ax.axvline(np.fabs(self.dev_ratios_[best_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
+            dev_ratios = self.summary_['Fraction Deviance Explained']
+            ax.axvline(np.fabs(dev_ratios.iloc[best_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
             if have_std:
-                ax.axvline(np.fabs(self.dev_ratios_[_1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
+                ax.axvline(np.fabs(dev_ratios.iloc[_1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         if legend:
             ax.legend(loc='upper right')
         return ax
+
 
