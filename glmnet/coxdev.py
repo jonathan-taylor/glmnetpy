@@ -6,11 +6,19 @@ from dataclasses import (dataclass,
                          InitVar)
 
 @dataclass
+class CoxDevianceResult(object):
+
+    deviance: float
+    grad: Optional[np.ndarray]
+    diag_hessian: Optional[np.ndarray]
+
+@dataclass
 class right_censored(object):
 
     event_time: InitVar(np.ndarray)
     status: InitVar(np.ndarray)
     sample_weight: Optional[np.ndarray] = None
+    diag_hessian: bool = False
     strata: Optional[np.ndarray] = None
     
     def __post_init__(self,
@@ -36,6 +44,11 @@ class right_censored(object):
         _derived_weight[first_idx] = _weight_sum
         self.data['_derived_weight'] = _derived_weight
 
+        # compute saturated loglikelihood
+
+        _weight_sum = _weight_sum[_weight_sum>0]
+        self._loglik_sat = np.sum(_weight_sum * np.log(_weight_sum))
+
         _derived_death = np.zeros(self.data.shape[0], bool)
         _derived_death[first_idx] = 1
         self.data['_derived_death'] = _derived_death
@@ -43,7 +56,8 @@ class right_censored(object):
 
     def __call__(self,
                  linear_predictor,
-                 diag_hessian=True):
+                 gradient=True,
+                 hessian=True):
 
         eta = linear_predictor[self._order] # shorthand
         w = self.data['sample_weight'] # shorthand
@@ -55,10 +69,37 @@ class right_censored(object):
         _derived_w = self.data['_derived_weight']
         _derived_d = self.data['_derived_death']
         rskden = np.cumsum((exp_eta*w)[::-1])[::-1]
-        rskdeninv = np.hstack([0, np.cumsum((_derived_w / rskden)[_derived_d==1])])
 
-        grad = w * (d - exp_eta * rskdeninv[rskcount])
-        return grad
+        # # compute saturated loglikelihood
+
+        # events = d==1
+        # wd = w[events]
+        # tyd = self.data['event_time'][events]
+
+        log_terms = (_derived_w * np.log(rskden))[_derived_d > 0]
+        loglik = np.sum((w * eta)[d > 0]) - np.sum(log_terms)
+
+        if gradient or hessian:
+            rskdeninv = np.hstack([0, np.cumsum((_derived_w / rskden)[_derived_d==1])])
+
+            if gradient:
+                grad = w * (d - exp_eta * rskdeninv[rskcount])
+                grad[self._order] = grad
+            else:
+                grad = None
+
+            if hessian:
+                rskdeninv2 = np.cumsum((_derived_w/(rskden**2))[_derived_d==1])
+                rskdeninv2 = np.hstack([0, rskdeninv2])
+                w_exp_eta = w * exp_eta
+                diag_hessian = w_exp_eta**2 * rskdeninv2[rskcount] - w_exp_eta * rskdeninv[rskcount]
+                diag_hessian[self._order] = diag_hessian
+            else:
+                diag_hessian = None
+
+        return CoxDevianceResult(deviance=2*(self._loglik_sat - loglik),
+                                 grad=2*grad,  # 2 for deviance, though gets cancelled by diag_hessian...
+                                 diag_hessian=diag_hessian)
     
 def _fid(times):
 
