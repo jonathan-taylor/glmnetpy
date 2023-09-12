@@ -1,5 +1,6 @@
-from typing import Optional
-from dataclasses import dataclass, asdict, field
+from dataclasses import (dataclass,
+                         asdict,
+                         field)
 from functools import partial
 import logging
    
@@ -8,12 +9,18 @@ from numpy.linalg import LinAlgError
 import pandas as pd
 import scipy.sparse
 from scipy.stats import norm as normal_dbn
+from scipy.stats import t as t_dbn
 
-from sklearn.base import BaseEstimator
+from sklearn.base import (BaseEstimator,
+                          ClassifierMixin,
+                          RegressorMixin)
 from sklearn.utils import check_X_y
+from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import LabelEncoder
 
 from statsmodels.genmod.families import family as sm_family
+from statsmodels.genmod.families import links as sm_links
 
 from ._utils import _parent_dataclass_from_child
 
@@ -31,16 +38,15 @@ class GLMControl(object):
     epsnr: float = 1e-6
     big: float = 9.9e35
     logging: bool = False
-    
-@dataclass
-class GLMSpec(object):
 
-    fit_intercept: bool = True
-    summarize: bool = False
+@dataclass
+class GLMBaseSpec(object):
+
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
+    fit_intercept: bool = True
     control: GLMControl = field(default_factory=GLMControl)
 
-add_dataclass_docstring(GLMSpec, subs={'control':'control_glm'})
+add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
 
 @add_dataclass_docstring
 @dataclass
@@ -99,7 +105,7 @@ class GLMState(object):
 class GLMRegularizer(object):
 
     fit_intercept: bool = False
-    warm_state: Optional[GLMState] = None
+    warm_state: dict = field(default_factory=dict)
 
     def half_step(self,
                   state,
@@ -165,8 +171,8 @@ add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_state'})
 # end of GLMRegularizer
 
 @dataclass
-class GLM(BaseEstimator,
-          GLMSpec):
+class GLMBase(BaseEstimator,
+              GLMBaseSpec):
 
     def _get_regularizer(self,
                          X):
@@ -247,7 +253,7 @@ class GLM(BaseEstimator,
             val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
-            if self.control.logging: logging.debug(f'Computing objective. coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
+            if self.control.logging: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
         obj_function = partial(obj_function, y.copy(), normed_sample_weight.copy(), self.family, regularizer)
         
@@ -259,22 +265,21 @@ class GLM(BaseEstimator,
         (converged,
          boundary,
          state,
-         final_weights) = IRLS(regularizer,
-                               self.family,
-                               design,
-                               y,
-                               offset,
-                               normed_sample_weight,
-                               state,
-                               obj_function,
-                               self.control)
+         self._final_weights) = IRLS(regularizer,
+                                     self.family,
+                                     design,
+                                     y,
+                                     offset,
+                                     normed_sample_weight,
+                                     state,
+                                     obj_function,
+                                     self.control)
 
         # checks on convergence and fitted values
         if not converged:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
         if boundary:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
-
 
         self.deviance_ = self.family.deviance(y,
                                               state.mu,
@@ -287,34 +292,6 @@ class GLM(BaseEstimator,
         else:
             self.dispersion_ = dispersion
 
-        if self.summarize:
-            unscaled_precision_ = design.quadratic_form(final_weights * sample_weight.sum()) # IRLS used normalized weights,
-                                                                                             # this unnormalizes them...
-
-            keep = np.ones(unscaled_precision_.shape[0]-1, bool)
-            if exclude is not []:
-                keep[exclude] = 0
-            keep = np.hstack([self.fit_intercept, keep]).astype(bool)
-            self.covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
-
-            SE = np.sqrt(np.diag(self.covariance_)) 
-            index = self.feature_names_in_
-            if self.fit_intercept:
-                coef = np.hstack([self.intercept_, self.coef_])
-                T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
-                index = ['intercept'] + index
-            else:
-                coef = self.coef_
-                T = self.coef_ / SE
-
-            self.summary_ = pd.DataFrame({'coef':coef,
-                                          'std err': SE,
-                                          't': T,
-                                          'P>|t|': 2 * normal_dbn.sf(np.fabs(T))},
-                                         index=index)
-        else:
-            self.summary_ = self.covariance_ = None
-            
         return self
     fit.__doc__ = '''
 Fit a GLM.
@@ -325,7 +302,6 @@ Parameters
 {X}
 {y}
 {weights}
-{warm_state}
 {exclude}
 {summarize}
 {offset}
@@ -381,7 +357,7 @@ Returns
 -------
 
 score: float
-    Deviance of family for (X, y).
+    Deviance of family for `(X, y, sample_weight)`.
 '''.format(**_docstrings).strip()
 
     def _set_coef_intercept(self, state):
@@ -391,8 +367,8 @@ score: float
             self.coef_ /= self.scaling_ 
         self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()
 
-GLM.__doc__ = '''
-Class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
+GLMBase.__doc__ = '''
+Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
 
 Parameters
 ----------
@@ -413,4 +389,171 @@ __________
 {regularizer_}
 '''.format(**_docstrings)
 
+@dataclass
+class GLM(GLMBase):
 
+    summarize: bool = False
+
+    def fit(self,
+            X,
+            y,
+            sample_weight=None,
+            regularizer=None,             # last 4 options non sklearn API
+            exclude=[],
+            dispersion=1,
+            offset=None,
+            check=True):
+
+        super().fit(X,
+                    y,
+                    sample_weight=sample_weight,
+                    regularizer=regularizer,
+                    exclude=exclude,
+                    dispersion=1,
+                    offset=offset,
+                    check=check)
+
+        if self.summarize:
+
+            # IRLS used normalized weights,
+            # this unnormalizes them...
+            unscaled_precision_ = self.design_.quadratic_form(self._final_weights * self.sample_weight_.sum()) 
+
+            keep = np.ones(unscaled_precision_.shape[0]-1, bool)
+            if exclude is not []:
+                keep[exclude] = 0
+            keep = np.hstack([self.fit_intercept, keep]).astype(bool)
+            self.covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
+
+            SE = np.sqrt(np.diag(self.covariance_)) 
+            index = self.feature_names_in_
+            if self.fit_intercept:
+                coef = np.hstack([self.intercept_, self.coef_])
+                T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
+                index = ['intercept'] + index
+            else:
+                coef = self.coef_
+                T = self.coef_ / SE
+
+            if (isinstance(self.family, sm_family.Gaussian) and
+                isinstance(self.family.link, sm_links.Identity)):
+                n, p = X.shape
+                self.resid_df_ = n - p - self.fit_intercept
+                self.summary_ = pd.DataFrame({'coef':coef,
+                                              'std err': SE,
+                                              't': T,
+                                              'P>|t|': 2 * t_dbn.sf(np.fabs(T), df=self.resid_df_)},
+                                             index=index)
+            else:
+                self.summary_ = pd.DataFrame({'coef':coef,
+                                              'std err': SE,
+                                              'z': T,
+                                              'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
+                                             index=index)
+                
+        else:
+            self.summary_ = self.covariance_ = None
+            
+        return self
+
+@dataclass
+class GaussianGLM(RegressorMixin, GLM):
+
+    def __post_init__(self):
+
+        if not isinstance(self.family, sm_families.Gaussian):
+            msg = 'GaussianGLM expects a Gaussian family.'
+            warnings.warn(msg)
+            if self.control.logging: logging.warn(msg)
+
+@dataclass
+class BinomialGLM(ClassifierMixin, GLM):
+
+    family: sm_family.Family = field(default_factory=sm_family.Binomial)
+
+    def __post_init__(self):
+
+        if not isinstance(self.family, sm_family.Binomial):
+            msg = 'BinomialGLM expects a Binomial family.'
+            warnings.warn(msg)
+            if self.control.logging: logging.warn(msg)
+
+    def fit(self,
+            X,
+            y,
+            sample_weight=None,
+            regularizer=None,             # last 4 options non sklearn API
+            exclude=[],
+            dispersion=1,
+            offset=None,
+            check=True):
+
+        label_encoder = LabelEncoder().fit(y)
+        if len(label_encoder.classes_) > 2:
+            raise ValueError("BinomialGLM expecting a binary classification problem.")
+        self.classes_ = label_encoder.classes_
+
+        y_binary = label_encoder.transform(y)
+
+        return super().fit(X,
+                           y_binary,
+                           sample_weight=sample_weight,
+                           regularizer=regularizer,             # last 4 options non sklearn API
+                           exclude=exclude,
+                           dispersion=dispersion,
+                           offset=offset,
+                           check=check)
+
+    def predict(self, X, prediction_type='class'):
+
+        eta = X @ self.coef_ + self.intercept_
+        if prediction_type == 'link':
+            return eta
+        elif prediction_type == 'response':
+            return self.family.link.inverse(eta)
+        elif prediction_type == 'class':
+            pi_hat = self.family.link.inverse(eta)
+            _integer_classes = (pi_hat > 0.5).astype(int)
+            return self.classes_[_integer_classes]
+        else:
+            raise ValueError("prediction should be one of 'response', 'link' or 'class'")
+    predict.__doc__ = '''
+Predict outcome of corresponding family.
+
+Parameters
+----------
+
+{X}
+{prediction_type_binomial}
+
+Returns
+-------
+
+{prediction}'''.format(**_docstrings).strip()
+
+    def predict_proba(self, X):
+
+        '''
+
+        Probability estimates for a BinomialGLM.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Vector to be scored, where `n_samples` is the number of samples and
+            `n_features` is the number of features.
+
+        Returns
+        -------
+        T : array-like of shape (n_samples, n_classes)
+            Returns the probability of the sample for each class in the model,
+            where classes are ordered as they are in ``self.classes_``.
+ 
+        '''
+
+        prob_1 = self.predict(X, prediction_type='response')
+        result = np.empty((prob_1.shape[0], 2))
+        result[:,1] = prob_1
+        result[:,0] = 1 - prob_1
+
+        return result

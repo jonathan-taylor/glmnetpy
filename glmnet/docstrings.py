@@ -151,10 +151,6 @@ jerr: int
 nobs: int
     Number of observations.''',
     
-    'warm_fit': '''
-warm_fit: Optional(ElNetWarmStart)
-    Used for warm starts.''',
-    
     'warm_state': '''
 warm: Optional(ElNetStart)
     Either a dict-like object with keys "coef_" and "intercept_" or an
@@ -222,8 +218,13 @@ prediction: np.ndarray
 
     'prediction_type':'''
 prediction_type: str
-    One of "mean" or "linear". If "mean" return a prediction on the mean scale,
-    "linear" on the link scale.''',
+    One of "response" or "link". If "response" return a prediction on the mean scale,
+    "link" on the link scale. Defaults to "response".''',
+
+    'prediction_type_binomial':'''
+prediction_type: str
+    One of "response", "link" or "class". If "response" return a prediction on the mean scale,
+    "link" on the link scale, and "class" as a class label. Defaults to "class".''',
 
     'dispersion':'''
 dispersion: float
