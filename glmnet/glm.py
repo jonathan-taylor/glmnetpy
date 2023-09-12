@@ -9,6 +9,7 @@ from numpy.linalg import LinAlgError
 import pandas as pd
 import scipy.sparse
 from scipy.stats import norm as normal_dbn
+from scipy.stats import t as t_dbn
 
 from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
@@ -19,6 +20,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelEncoder
 
 from statsmodels.genmod.families import family as sm_family
+from statsmodels.genmod.families import links as sm_links
 
 from ._utils import _parent_dataclass_from_child
 
@@ -263,22 +265,21 @@ class GLMBase(BaseEstimator,
         (converged,
          boundary,
          state,
-         final_weights) = IRLS(regularizer,
-                               self.family,
-                               design,
-                               y,
-                               offset,
-                               normed_sample_weight,
-                               state,
-                               obj_function,
-                               self.control)
+         self._final_weights) = IRLS(regularizer,
+                                     self.family,
+                                     design,
+                                     y,
+                                     offset,
+                                     normed_sample_weight,
+                                     state,
+                                     obj_function,
+                                     self.control)
 
         # checks on convergence and fitted values
         if not converged:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
         if boundary:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
-
 
         self.deviance_ = self.family.deviance(y,
                                               state.mu,
@@ -301,7 +302,6 @@ Parameters
 {X}
 {y}
 {weights}
-{warm_glm}
 {exclude}
 {summarize}
 {offset}
@@ -389,6 +389,7 @@ __________
 {regularizer_}
 '''.format(**_docstrings)
 
+@dataclass
 class GLM(GLMBase):
 
     summarize: bool = False
@@ -416,7 +417,7 @@ class GLM(GLMBase):
 
             # IRLS used normalized weights,
             # this unnormalizes them...
-            unscaled_precision_ = design.quadratic_form(final_weights * sample_weight.sum()) 
+            unscaled_precision_ = self.design_.quadratic_form(self._final_weights * self.sample_weight_.sum()) 
 
             keep = np.ones(unscaled_precision_.shape[0]-1, bool)
             if exclude is not []:
@@ -434,11 +435,22 @@ class GLM(GLMBase):
                 coef = self.coef_
                 T = self.coef_ / SE
 
-            self.summary_ = pd.DataFrame({'coef':coef,
-                                          'std err': SE,
-                                          't': T,
-                                          'P>|t|': 2 * normal_dbn.sf(np.fabs(T))},
-                                         index=index)
+            if (isinstance(self.family, sm_family.Gaussian) and
+                isinstance(self.family.link, sm_links.Identity)):
+                n, p = X.shape
+                self.resid_df_ = n - p - self.fit_intercept
+                self.summary_ = pd.DataFrame({'coef':coef,
+                                              'std err': SE,
+                                              't': T,
+                                              'P>|t|': 2 * t_dbn.sf(np.fabs(T), df=self.resid_df_)},
+                                             index=index)
+            else:
+                self.summary_ = pd.DataFrame({'coef':coef,
+                                              'std err': SE,
+                                              'z': T,
+                                              'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
+                                             index=index)
+                
         else:
             self.summary_ = self.covariance_ = None
             

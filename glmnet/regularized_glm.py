@@ -11,7 +11,8 @@ from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
 from .base import _get_design, Penalty
-from .docstrings import add_dataclass_docstring
+from .docstrings import (add_dataclass_docstring,
+                         _docstrings)
 
 from .elnet import (ElNet,
                     ElNetControl,
