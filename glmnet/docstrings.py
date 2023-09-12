@@ -151,10 +151,6 @@ jerr: int
 nobs: int
     Number of observations.''',
     
-    'warm_fit': '''
-warm_fit: Optional(ElNetWarmStart)
-    Used for warm starts.''',
-    
     'warm_state': '''
 warm: Optional(ElNetStart)
     Either a dict-like object with keys "coef_" and "intercept_" or an
