@@ -19,11 +19,11 @@ def quasi_newton_step(regularizer,
 
     oldstate = deepcopy(state)
     
-    pseudo_response, newton_weights = get_response_weights(state,
-                                                           family,
-                                                           y,
-                                                           offset,
-                                                           weights)
+    pseudo_response, newton_weights = get_response_and_weights(family,
+                                                               state,
+                                                               y,
+                                                               offset,
+                                                               weights)
 
     state = regularizer.newton_step(design,
                                     pseudo_response,
@@ -143,27 +143,31 @@ def IRLS(regularizer,
         logging.debug(f'{regularizer._debug_msg(state)}')
     return converged, boundary, state, newton_weights
 
-def get_response_weights(state,
-                         family,
-                         y,
-                         offset,
-                         weights):
+# would be good to have the family know how to do this...
+# maybe our family should be an sm.Family with this method (and others?)
 
-    # some checks for NAs/zeros
-    varmu = family.variance(state.mu)
-    if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+def get_response_and_weights(family,
+                             state,
+                             y,
+                             offset,
+                             weights):
 
-    if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+    if isinstance(family, sm_family.Family):
+        # some checks for NAs/zeros
+        varmu = family.variance(state.mu)
+        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
 
-    dmu_deta = family.link.inverse_deriv(state.eta)
-    if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
+        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
 
-    newton_weights = weights * dmu_deta**2 / varmu
+        dmu_deta = family.link.inverse_deriv(state.eta)
+        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
 
-    # compute working response and weights
-    if offset is not None:
-        pseudo_response = (state.eta - offset) + (y - state.mu) / dmu_deta
-    else:
-        pseudo_response = state.eta + (y - state.mu) / dmu_deta
+        newton_weights = weights * dmu_deta**2 / varmu
 
-    return pseudo_response, newton_weights
+        # compute working response and weights
+        if offset is not None:
+            pseudo_response = (state.eta - offset) + (y - state.mu) / dmu_deta
+        else:
+            pseudo_response = state.eta + (y - state.mu) / dmu_deta
+
+        return pseudo_response, newton_weights
