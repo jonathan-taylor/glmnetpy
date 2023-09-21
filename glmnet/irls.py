@@ -3,6 +3,7 @@ import logging
 import numpy as np
 from copy import deepcopy
 
+# for Gaussian check below
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
@@ -19,11 +20,10 @@ def quasi_newton_step(regularizer,
 
     oldstate = deepcopy(state)
     
-    pseudo_response, newton_weights = get_response_and_weights(family,
-                                                               state,
-                                                               y,
-                                                               offset,
-                                                               weights)
+    pseudo_response, newton_weights = family.get_response_and_weights(state,
+                                                                      y,
+                                                                      offset,
+                                                                      weights)
 
     state = regularizer.newton_step(design,
                                     pseudo_response,
@@ -132,9 +132,16 @@ def IRLS(regularizer,
         if control.logging:
             logging.debug(f'Iteration {i}, {regularizer._debug_msg(state)}')
             logging.info(f'Objective: {state.obj_val}')
+
+        is_gaussian = False
+        if hasattr(family, 'base'):
+            base_family = family.base
+            is_gaussian = (isinstance(base_family, sm_family.Gaussian) and
+                           isinstance(base_family.link, sm_links.Identity))
+
         # test for convergence
         if ((np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr) or
-            (isinstance(family, sm_family.Gaussian) and isinstance(family.link, sm_links.Identity))):
+            is_gaussian):
             converged = True
             break
 
@@ -143,31 +150,3 @@ def IRLS(regularizer,
         logging.debug(f'{regularizer._debug_msg(state)}')
     return converged, boundary, state, newton_weights
 
-# would be good to have the family know how to do this...
-# maybe our family should be an sm.Family with this method (and others?)
-
-def get_response_and_weights(family,
-                             state,
-                             y,
-                             offset,
-                             weights):
-
-    if isinstance(family, sm_family.Family):
-        # some checks for NAs/zeros
-        varmu = family.variance(state.mu)
-        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
-
-        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
-
-        dmu_deta = family.link.inverse_deriv(state.eta)
-        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
-
-        newton_weights = weights * dmu_deta**2 / varmu
-
-        # compute working response and weights
-        if offset is not None:
-            pseudo_response = (state.eta - offset) + (y - state.mu) / dmu_deta
-        else:
-            pseudo_response = state.eta + (y - state.mu) / dmu_deta
-
-        return pseudo_response, newton_weights

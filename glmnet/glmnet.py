@@ -29,7 +29,8 @@ from .docstrings import add_dataclass_docstring
 from .regularized_glm import (RegGLMControl,
                               RegGLM)
 from .glm import (GLM,
-                  GLMState)
+                  GLMState,
+                  GLMFamilySpec)
 
 @dataclass
 class GLMNetControl(RegGLMControl):
@@ -48,7 +49,7 @@ class GLMNetSpec(object):
     penalty_factor: Optional[Union[float, np.ndarray]] = None
     fit_intercept: bool = True
     standardize: bool = True
-    family: sm_family.Family = field(default_factory=sm_family.Gaussian)
+    family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     control: GLMNetControl = field(default_factory=GLMNetControl)
 
 add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
@@ -57,6 +58,10 @@ add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 class GLMNet(BaseEstimator,
              GLMNetSpec):
 
+    def __post_init__(self):
+        if isinstance(self.family, sm_family.Family):
+            self.family = GLMFamilySpec(base=self.family)
+            
     def fit(self,
             X,
             y,
@@ -128,13 +133,9 @@ class GLMNet(BaseEstimator,
         dev_ratios_ = []
         sample_weight_sum = sample_weight.sum()
         
-        if self.fit_intercept:
-            mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
-        else:
-            mu0 = self.family.link.inverse(np.zeros(y.shape, float))
-        self.null_deviance_ = self.family.deviance(y,
-                                                   mu0,
-                                                   freq_weights=sample_weight) # not normed_sample_weight!
+        null_fit, self.null_deviance_ = self.family.get_null_deviance(y,
+                                                                      sample_weight,
+                                                                      self.fit_intercept)
 
         for l in self.lambda_values_:
 
@@ -206,7 +207,8 @@ class GLMNet(BaseEstimator,
         linear_pred_ = linear_pred_.T
         if prediction_type == 'linear':
             return linear_pred_
-        return self.family.link.inverse(linear_pred_)
+        family = self.family.base
+        return family.link.inverse(linear_pred_)
         
     def _get_initial_state(self,
                            X,
@@ -282,9 +284,10 @@ class GLMNet(BaseEstimator,
         fam_name = self.family.__class__.__name__
         if scorers is None:
             # create default scorers
-            scorers_ = [(f'{fam_name} Deviance', lambda y, yhat, sample_weight: self.family.deviance(y,
-                                                                                              yhat,
-                                                                                              freq_weights=sample_weight) / y.shape[0],
+            scorers_ = [(f'{fam_name} Deviance', (lambda y, yhat, sample_weight:
+                                                     self.family.deviance(y,
+                                                                          yhat,
+                                                                          sample_weight) / y.shape[0]),
                          'min'),
                         ('Mean Squared Error', mean_squared_error, 'min'),
                         ('Mean Absolute Error', mean_absolute_error, 'min')]

@@ -18,6 +18,7 @@ from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
 from .glm import (GLMState,
+                  GLMFamilySpec,
                   GLM)
 
 @add_dataclass_docstring
@@ -185,20 +186,22 @@ class GaussianRegGLM(RegressorMixin, RegGLM):
 
     def __post_init__(self):
 
-        if not isinstance(self.family, sm_families.Gaussian):
-            msg = 'GaussianRegGLM expects a Gaussian family.'
+        if (not hasattr(self.family, 'base')
+            or not isinstance(self.family.base, sm_family.Gaussian)):
+            msg = f'{self.__class__} expects a Gaussian family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
 
 @dataclass
 class BinomialRegGLM(ClassifierMixin, RegGLM):
 
-    family: sm_family.Family = field(default_factory=sm_family.Binomial)
+    family: sm_family.Family = field(default_factory=lambda: GLMFamilySpec(family=sm_family.Binomial()))
 
     def __post_init__(self):
 
-        if not isinstance(self.family, sm_family.Binomial):
-            msg = 'BinomialRegGLM expects a Binomial family.'
+        if (not hasattr(self.family, 'base')
+            or not isinstance(self.family.base, sm_family.Binomial)):
+            msg = f'{self.__class__} expects a Binomial family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
 
@@ -230,13 +233,16 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
 
     def predict(self, X, prediction_type='class'):
 
+        if not hasattr(self.family, 'base'):
+            raise ValueError(f'{self.__class__} expects to have a base family')
+        family = self.family.base
         eta = X @ self.coef_ + self.intercept_
         if prediction_type == 'link':
             return eta
         elif prediction_type == 'response':
-            return self.family.link.inverse(eta)
+            return family.link.inverse(eta)
         elif prediction_type == 'class':
-            pi_hat = self.family.link.inverse(eta)
+            pi_hat = family.link.inverse(eta)
             _integer_classes = (pi_hat > 0.5).astype(int)
             return self.classes_[_integer_classes]
         else:

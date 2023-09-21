@@ -194,6 +194,15 @@ offset: np.ndarray
 family: Family
     One-parameter exponential family (from `statsmodels`).''',
 
+    'base':'''
+base: Family
+    One-parameter exponential family (from `statsmodels`).''',
+    
+    'family_spec':'''
+family_spec: GLMFamilySpec
+    Specification of one-parameter exponential family, includes some
+    additional methods.''',
+
     'converged':'''
 converged: bool
     Did the algorithm converge?''',

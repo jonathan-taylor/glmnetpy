@@ -32,6 +32,79 @@ from .irls import IRLS
 
 @add_dataclass_docstring
 @dataclass
+class GLMFamilySpec(object):
+    
+    base: sm_family.Family = field(default_factory=sm_family.Gaussian)
+
+    def link(self,
+             mu):
+        return self.base.link(mu)
+    
+    def deviance(self,
+                 y,
+                 mu,
+                 sample_weight):
+        return self.base.deviance(y, mu, freq_weights=sample_weight)
+
+    def null_fit(self,
+                 y,
+                 sample_weight,
+                 fit_intercept):
+        sample_weight = np.asarray(sample_weight)
+        y = np.asarray(y)
+        if fit_intercept:
+            mu0 = (y * sample_weight).sum() * np.ones_like(y) / sample_weight.sum()
+        else:
+            mu0 = self.base.link.inverse(np.zeros(y.shape, float))
+        return mu0
+
+    def get_null_deviance(self,
+                          y,
+                          sample_weight,
+                          fit_intercept):
+        mu0 = self.null_fit(y, sample_weight, fit_intercept)
+        return mu0, self.deviance(y, mu0, sample_weight)
+
+    def get_null_state(self,
+                       null_fit,
+                       nvars):
+        coefold = np.zeros(nvars)   # initial coefs = 0
+        intold = self.base.link(null_fit[0]) # a GLM family specific
+        return GLMState(coef=coefold,
+                        intercept=intold)
+
+# would be good to have the family know how to do this...
+# maybe our family should be an sm.Family with this method (and others?)
+
+    def get_response_and_weights(self,
+                                 state,
+                                 y,
+                                 offset,
+                                 weights):
+
+        family = self.base
+
+        # some checks for NAs/zeros
+        varmu = family.variance(state.mu)
+        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+
+        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+
+        dmu_deta = family.link.inverse_deriv(state.eta)
+        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
+
+        newton_weights = weights * dmu_deta**2 / varmu
+
+        # compute working response and weights
+        if offset is not None:
+            pseudo_response = (state.eta - offset) + (y - state.mu) / dmu_deta
+        else:
+            pseudo_response = state.eta + (y - state.mu) / dmu_deta
+
+        return pseudo_response, newton_weights
+        
+@add_dataclass_docstring
+@dataclass
 class GLMControl(object):
 
     mxitnr: int = 25
@@ -42,17 +115,21 @@ class GLMControl(object):
 @dataclass
 class GLMBaseSpec(object):
 
-    family: sm_family.Family = field(default_factory=sm_family.Gaussian)
+    family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     fit_intercept: bool = True
     control: GLMControl = field(default_factory=GLMControl)
 
+    def __post_init__(self):
+        if isinstance(self.family, sm_family.Family):
+            self.family = GLMFamilySpec(base=self.family)
+            
 add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
 
 @add_dataclass_docstring
 @dataclass
 class GLMResult(object):
 
-    family: sm_family.Family
+    family: GLMFamilySpec
     offset: bool
     converged: bool
     boundary: bool
@@ -77,6 +154,7 @@ class GLMState(object):
                offset,
                objective=None):
         '''pin the mu/eta values to coef/intercept'''
+        family = family.base
         self.eta = design @ self._stack
         if offset is None:
             self.linear_predictor = self.eta
@@ -94,6 +172,7 @@ class GLMState(object):
                    family,
                    y):
 
+        family = family.base
         varmu = family.variance(self.mu)
         dmu_deta = family.link.inverse_deriv(self.eta)
         
@@ -224,13 +303,11 @@ class GLMBase(BaseEstimator,
             self.design_ = design = self._get_design(X, normed_sample_weight)
         else:
             design = self.design_
-        
-        if self.fit_intercept:
-            mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
-        else:
-            mu0 = self.family.link.inverse(np.zeros(y.shape, float))
-        # for Cox there is no null deviance?
-        self.null_deviance_ = self.family.deviance(y, mu0, freq_weights=sample_weight)
+            
+        (null_fit,
+         self.null_deviance_) = self.family.get_null_deviance(y,
+                                                              normed_sample_weight,
+                                                              self.fit_intercept)
 
         # for GLM there is no regularization, but this pattern
         # is repeated for GLMNet
@@ -245,19 +322,21 @@ class GLMBase(BaseEstimator,
             self.regularizer_.warm_state):
             state = self.regularizer_.warm_state
         else:
-            coefold = np.zeros(nvars)   # initial coefs = 0
-            intold = self.family.link(mu0[0]) # a GLM family specific
-            state = GLMState(coef=coefold,
-                             intercept=intold)
+            state = self.family.get_null_state(null_fit,
+                                                    nvars)
 
         # for Cox, the state could have mu==eta so that this need not change
         def obj_function(y, normed_sample_weight, family, regularizer, state):
-            val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
+            val1 = family.deviance(y, state.mu, normed_sample_weight) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
             if self.control.logging: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
-        obj_function = partial(obj_function, y.copy(), normed_sample_weight.copy(), self.family, regularizer)
+        obj_function = partial(obj_function,
+                               y.copy(),
+                               normed_sample_weight.copy(),
+                               self.family,
+                               regularizer)
         
         state.update(design,
                      self.family,
@@ -284,12 +363,13 @@ class GLMBase(BaseEstimator,
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
         self.deviance_ = self.family.deviance(y,
-                                              state.mu,
-                                              freq_weights=sample_weight) # not the normalized weights!
+                                                   state.mu,
+                                                   sample_weight) # not the normalized weights!
 
         self._set_coef_intercept(state)
 
-        if isinstance(self.family, sm_family.Gaussian): # GLM specific
+        if (hasattr(self.family, "base") and 
+            isinstance(self.family.base, sm_family.Gaussian)): # GLM specific
             self.dispersion_ = self.deviance_ / (n-p-self.fit_intercept) # usual estimate of sigma^2
         else:
             self.dispersion_ = dispersion
@@ -321,7 +401,7 @@ self: object
         if prediction_type == 'link':
             return eta
         elif prediction_type == 'response':
-            return self.family.link.inverse(eta)
+            return self.family.base.link.inverse(eta)
         else:
             raise ValueError("prediction should be one of 'response' or 'link'")
     predict.__doc__ = '''
@@ -343,7 +423,7 @@ Returns
         mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
             sample_weight = np.ones_like(y)
-        return -self.family.deviance(y, mu, freq_weights=sample_weight) / 2 # GLM specific
+        return -self.family.deviance(y, mu, sample_weight) / 2 # GLM specific
     score.__doc__ = '''
 Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
 default to `np.ones_like(y) / y.shape[0]`.
@@ -452,8 +532,9 @@ class GLM(GLMBase):
             coef = self.coef_
             T = self.coef_ / SE
 
-        if (isinstance(self.family, sm_family.Gaussian) and
-            isinstance(self.family.link, sm_links.Identity)):
+        family = self.family.base
+        if (isinstance(family, sm_family.Gaussian) and
+            isinstance(family.link, sm_links.Identity)):
             n, p = X_shape
             self.resid_df_ = n - p - self.fit_intercept
             summary_ = pd.DataFrame({'coef':coef,
@@ -475,20 +556,23 @@ class GaussianGLM(RegressorMixin, GLM):
 
     def __post_init__(self):
 
-        if not isinstance(self.family, sm_families.Gaussian):
-            msg = 'GaussianGLM expects a Gaussian family.'
+        if (not hasattr(self.family, 'base')
+            or not isinstance(self.family.base, sm_family.Gaussian)):
+            msg = f'{self.__class__} expects a Gaussian family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
 
 @dataclass
 class BinomialGLM(ClassifierMixin, GLM):
 
-    family: sm_family.Family = field(default_factory=sm_family.Binomial)
+    family: GLMFamilySpec = field( \
+                              default_factory=lambda: GLMFamilySpec(family=sm_family.Binomial()))
 
     def __post_init__(self):
 
-        if not isinstance(self.family, sm_family.Binomial):
-            msg = 'BinomialGLM expects a Binomial family.'
+        if (not hasattr(self.family, 'base')
+            or not isinstance(self.family.base, sm_family.Binomial)):
+            msg = f'{self.__class__} expects a Binomial family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
 
@@ -521,12 +605,13 @@ class BinomialGLM(ClassifierMixin, GLM):
     def predict(self, X, prediction_type='class'):
 
         eta = X @ self.coef_ + self.intercept_
+        family = self.family.base
         if prediction_type == 'link':
             return eta
         elif prediction_type == 'response':
-            return self.family.link.inverse(eta)
+            return family.link.inverse(eta)
         elif prediction_type == 'class':
-            pi_hat = self.family.link.inverse(eta)
+            pi_hat = family.link.inverse(eta)
             _integer_classes = (pi_hat > 0.5).astype(int)
             return self.classes_[_integer_classes]
         else:
