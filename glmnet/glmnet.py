@@ -281,7 +281,10 @@ class GLMNet(BaseEstimator,
 
         scores_ = []
 
-        fam_name = self.family.__class__.__name__
+        if hasattr(self.family, 'base'):
+            fam_name = self.family.base.__class__.__name__
+        else:
+            fam_name = self.family.__class__.__name__
         if scorers is None:
             # create default scorers
             scorers_ = [(f'{fam_name} Deviance', (lambda y, yhat, sample_weight:
@@ -395,7 +398,10 @@ class GLMNet(BaseEstimator,
                               scatter_s=None,
                               **plot_args):
 
-        fam_name = self.family.__class__.__name__
+        if hasattr(self.family, 'base'):
+            fam_name = self.family.base.__class__.__name__
+        else:
+            fam_name = self.family.__class__.__name__
         if score is None:
             score = f'{fam_name} Deviance'
 
