@@ -83,8 +83,9 @@ class ElNetRegularizer(Penalty):
     def half_step(self,
                   state,
                   oldstate):
-        return GLMState(0.5 * (oldstate.coef + state.coef),
-                        0.5 * (oldstate.intercept + state.intercept))
+        klass = oldstate.__class__
+        return klass(0.5 * (oldstate.coef + state.coef),
+                     0.5 * (oldstate.intercept + state.intercept))
 
     def _debug_msg(self,
                    state):
@@ -117,8 +118,9 @@ class ElNetRegularizer(Penalty):
                                              warm=warm,
                                              check=False)
         
-        self.warm_state = GLMState(elnet_fit.raw_coef_,
-                                   elnet_fit.raw_intercept_)
+        klass = cur_state.__class__
+        self.warm_state = klass(elnet_fit.raw_coef_,
+                                elnet_fit.raw_intercept_)
 
         return self.warm_state
 
@@ -186,8 +188,8 @@ class GaussianRegGLM(RegressorMixin, RegGLM):
 
     def __post_init__(self):
 
-        if (not hasattr(self.family, 'base')
-            or not isinstance(self.family.base, sm_family.Gaussian)):
+        if (not hasattr(self._family, 'base')
+            or not isinstance(self._family.base, sm_family.Gaussian)):
             msg = f'{self.__class__.__name__} expects a Gaussian family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
@@ -199,8 +201,8 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
 
     def __post_init__(self):
 
-        if (not hasattr(self.family, 'base')
-            or not isinstance(self.family.base, sm_family.Binomial)):
+        if (not hasattr(self._family, 'base')
+            or not isinstance(self._family.base, sm_family.Binomial)):
             msg = f'{self.__class__.__name__} expects a Binomial family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)

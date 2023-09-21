@@ -35,6 +35,7 @@ def quasi_newton_step(regularizer,
                  offset,
                  objective)
 
+
     # check to make sure it is a feasible descent step
 
     boundary = False
@@ -50,16 +51,19 @@ def quasi_newton_step(regularizer,
     def finite_objective(state):
         boundary = True
         halved = True
+        print(state.obj_val, 'finite')
         return np.isfinite(state.obj_val) and state.obj_val < control.big, boundary, halved
 
     def valid(state):
         boundary = True
         halved = True
+        print(state.obj_val, 'valid')
         return _valid(state), boundary, halved
 
     def decreased_obj(state):
         boundary = False
         halved = True
+        print(state.obj_val, oldstate.obj_val, 'decr')
 
         return state.obj_val <= oldstate.obj_val + 1e-7, boundary, halved
 
@@ -70,6 +74,7 @@ def quasi_newton_step(regularizer,
                       (decreased_obj,
                        "Objective did not decrease!")]:
 
+        print(state.coef)
         if not test(state)[0]:
             if control.logging: logging.debug(msg)
             regularizer.check_state(oldstate)
@@ -116,6 +121,7 @@ def IRLS(regularizer,
     for i in range(control.mxitnr):
 
         obj_val_old = state.obj_val
+
         (state,
          boundary,
          halved,
@@ -143,6 +149,7 @@ def IRLS(regularizer,
         if ((np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr) or
             is_gaussian):
             converged = True
+            print(np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)), i, 'huh')
             break
 
     if control.logging:

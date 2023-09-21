@@ -58,10 +58,6 @@ add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 class GLMNet(BaseEstimator,
              GLMNetSpec):
 
-    def __post_init__(self):
-        if isinstance(self.family, sm_family.Family):
-            self.family = GLMFamilySpec(base=self.family)
-            
     def fit(self,
             X,
             y,
@@ -75,6 +71,9 @@ class GLMNet(BaseEstimator,
                          accept_sparse=['csc'],
                          multi_output=False,
                          estimator=self)
+
+        if not hasattr(self, "_family"):
+            self._family = self._get_family_spec(y)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
@@ -112,11 +111,12 @@ class GLMNet(BaseEstimator,
                                                exclude,
                                                offset)
         state.update(self.reg_glm_est_.design_,
-                     self.family,
+                     self._family,
                      offset)
 
-        logl_score = state.logl_score(self.family,
+        logl_score = state.logl_score(self._family,
                                       y)
+
         score_ = (self.reg_glm_est_.design_.T @ (normed_sample_weight * logl_score))[1:]
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf <= 0))
@@ -133,9 +133,9 @@ class GLMNet(BaseEstimator,
         dev_ratios_ = []
         sample_weight_sum = sample_weight.sum()
         
-        null_fit, self.null_deviance_ = self.family.get_null_deviance(y,
-                                                                      sample_weight,
-                                                                      self.fit_intercept)
+        null_fit, self.null_deviance_ = self._family.get_null_deviance(y,
+                                                                       sample_weight,
+                                                                       self.fit_intercept)
 
         for l in self.lambda_values_:
 
@@ -207,7 +207,7 @@ class GLMNet(BaseEstimator,
         linear_pred_ = linear_pred_.T
         if prediction_type == 'linear':
             return linear_pred_
-        family = self.family.base
+        family = self._family.base
         return family.link.inverse(linear_pred_)
         
     def _get_initial_state(self,
@@ -281,16 +281,16 @@ class GLMNet(BaseEstimator,
 
         scores_ = []
 
-        if hasattr(self.family, 'base'):
-            fam_name = self.family.base.__class__.__name__
+        if hasattr(self._family, 'base'):
+            fam_name = self._family.base.__class__.__name__
         else:
-            fam_name = self.family.__class__.__name__
+            fam_name = self._family.__class__.__name__
         if scorers is None:
             # create default scorers
             scorers_ = [(f'{fam_name} Deviance', (lambda y, yhat, sample_weight:
-                                                     self.family.deviance(y,
-                                                                          yhat,
-                                                                          sample_weight) / y.shape[0]),
+                                                     self._family.deviance(y,
+                                                                           yhat,
+                                                                           sample_weight) / y.shape[0]),
                          'min'),
                         ('Mean Squared Error', mean_squared_error, 'min'),
                         ('Mean Absolute Error', mean_absolute_error, 'min')]
@@ -398,10 +398,10 @@ class GLMNet(BaseEstimator,
                               scatter_s=None,
                               **plot_args):
 
-        if hasattr(self.family, 'base'):
-            fam_name = self.family.base.__class__.__name__
+        if hasattr(self._family, 'base'):
+            fam_name = self._family.base.__class__.__name__
         else:
-            fam_name = self.family.__class__.__name__
+            fam_name = self._family.__class__.__name__
         if score is None:
             score = f'{fam_name} Deviance'
 
