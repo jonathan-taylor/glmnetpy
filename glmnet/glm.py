@@ -99,7 +99,7 @@ class GLMState(object):
         
         # compute working residual
         r = (y - self.mu) 
-        return r / varmu * dmu_deta
+        return r * dmu_deta / varmu 
 
 @dataclass
 class GLMRegularizer(object):

@@ -19,32 +19,15 @@ def quasi_newton_step(regularizer,
 
     oldstate = deepcopy(state)
     
-    # some checks for NAs/zeros
-    varmu = family.variance(state.mu)
-    if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+    pseudo_response, newton_weights = get_response_weights(state,
+                                                           family,
+                                                           y,
+                                                           offset,
+                                                           weights)
 
-    if np.any(varmu == 0): raise ValueError("0s in V(mu)")
-
-    dmu_deta = family.link.inverse_deriv(state.eta)
-    if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
-
-    # compute working response and weights
-    if offset is not None:
-        z = (state.eta - offset) + (y - state.mu) / dmu_deta
-    else:
-        z = state.eta + (y - state.mu) / dmu_deta
-    
-    newton_weights = w = (weights * dmu_deta**2)/varmu
-
-    # could have the quasi_newton_step return state instead?
-    
-    # linpred = state.eta
-    # if offset is not None:
-    #     linpred += offset
-        
     state = regularizer.newton_step(design,
-                                    z,
-                                    w,
+                                    pseudo_response,
+                                    newton_weights,
                                     state)
 
     state.update(design,
@@ -60,8 +43,7 @@ def quasi_newton_step(regularizer,
     # three checks we'll apply
 
     # FIX THESE 
-    valideta = lambda eta: True
-    validmu = lambda mu: True
+    _valid = lambda state: True
 
     # not sure boundary / halved handled correctly
 
@@ -73,7 +55,7 @@ def quasi_newton_step(regularizer,
     def valid(state):
         boundary = True
         halved = True
-        return valideta(state.eta) and validmu(state.mu), boundary, halved
+        return _valid(state), boundary, halved
 
     def decreased_obj(state):
         boundary = False
@@ -160,3 +142,28 @@ def IRLS(regularizer,
         logging.info(f'Terminating ISLR after {i+1} iterations.')
         logging.debug(f'{regularizer._debug_msg(state)}')
     return converged, boundary, state, newton_weights
+
+def get_response_weights(state,
+                         family,
+                         y,
+                         offset,
+                         weights):
+
+    # some checks for NAs/zeros
+    varmu = family.variance(state.mu)
+    if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+
+    if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+
+    dmu_deta = family.link.inverse_deriv(state.eta)
+    if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
+
+    newton_weights = weights * dmu_deta**2 / varmu
+
+    # compute working response and weights
+    if offset is not None:
+        pseudo_response = (state.eta - offset) + (y - state.mu) / dmu_deta
+    else:
+        pseudo_response = state.eta + (y - state.mu) / dmu_deta
+
+    return pseudo_response, newton_weights

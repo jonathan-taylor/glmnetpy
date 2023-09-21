@@ -31,6 +31,8 @@ class CoxRightCensored(object):
 
         if self.sample_weight is None:
             self.data['sample_weight'] = 1
+        else:
+            self.data['sample_weight'] = self.sample_weight
         if self.strata is None:
             self.data['strata'] = 1
 
@@ -85,7 +87,7 @@ class CoxRightCensored(object):
         w = self.data['sample_weight'] # shorthand
         d = self.data['status'] # shorthand
         event_count = self.data['_event_risk_count']
-
+        print(event_count, 'event_count')
         exp_eta_event = np.exp(eta_event)
         exp_eta_w = exp_eta_event * w
         _derived_w = self.data['_derived_weight']
