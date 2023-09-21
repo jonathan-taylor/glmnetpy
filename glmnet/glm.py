@@ -558,7 +558,7 @@ class GaussianGLM(RegressorMixin, GLM):
 
         if (not hasattr(self.family, 'base')
             or not isinstance(self.family.base, sm_family.Gaussian)):
-            msg = f'{self.__class__} expects a Gaussian family.'
+            msg = f'{self.__class__.__name__} expects a Gaussian family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
 
@@ -572,7 +572,7 @@ class BinomialGLM(ClassifierMixin, GLM):
 
         if (not hasattr(self.family, 'base')
             or not isinstance(self.family.base, sm_family.Binomial)):
-            msg = f'{self.__class__} expects a Binomial family.'
+            msg = f'{self.__class__.__name__} expects a Binomial family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
 
