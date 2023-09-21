@@ -229,6 +229,7 @@ class GLMBase(BaseEstimator,
             mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
         else:
             mu0 = self.family.link.inverse(np.zeros(y.shape, float))
+        # for Cox there is no null deviance?
         self.null_deviance_ = self.family.deviance(y, mu0, freq_weights=sample_weight)
 
         # for GLM there is no regularization, but this pattern
@@ -245,10 +246,11 @@ class GLMBase(BaseEstimator,
             state = self.regularizer_.warm_state
         else:
             coefold = np.zeros(nvars)   # initial coefs = 0
-            intold = self.family.link(mu0[0])
+            intold = self.family.link(mu0[0]) # a GLM family specific
             state = GLMState(coef=coefold,
                              intercept=intold)
 
+        # for Cox, the state could have mu==eta so that this need not change
         def obj_function(y, normed_sample_weight, family, regularizer, state):
             val1 = family.deviance(y, state.mu, freq_weights=normed_sample_weight) / 2
             val2 = regularizer.objective(state)
@@ -287,7 +289,7 @@ class GLMBase(BaseEstimator,
 
         self._set_coef_intercept(state)
 
-        if isinstance(self.family, sm_family.Gaussian):
+        if isinstance(self.family, sm_family.Gaussian): # GLM specific
             self.dispersion_ = self.deviance_ / (n-p-self.fit_intercept) # usual estimate of sigma^2
         else:
             self.dispersion_ = dispersion
@@ -341,7 +343,7 @@ Returns
         mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
             sample_weight = np.ones_like(y)
-        return -self.family.deviance(y, mu, freq_weights=sample_weight) / 2
+        return -self.family.deviance(y, mu, freq_weights=sample_weight) / 2 # GLM specific
     score.__doc__ = '''
 Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
 default to `np.ones_like(y) / y.shape[0]`.
@@ -423,9 +425,9 @@ class GLM(GLMBase):
             if exclude is not []:
                 keep[exclude] = 0
             keep = np.hstack([self.fit_intercept, keep]).astype(bool)
-            self.covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
+            covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
 
-            SE = np.sqrt(np.diag(self.covariance_)) 
+            SE = np.sqrt(np.diag(covariance_)) 
             index = self.feature_names_in_
             if self.fit_intercept:
                 coef = np.hstack([self.intercept_, self.coef_])
@@ -439,23 +441,26 @@ class GLM(GLMBase):
                 isinstance(self.family.link, sm_links.Identity)):
                 n, p = X.shape
                 self.resid_df_ = n - p - self.fit_intercept
-                self.summary_ = pd.DataFrame({'coef':coef,
-                                              'std err': SE,
-                                              't': T,
-                                              'P>|t|': 2 * t_dbn.sf(np.fabs(T), df=self.resid_df_)},
-                                             index=index)
+                summary_ = pd.DataFrame({'coef':coef,
+                                         'std err': SE,
+                                         't': T,
+                                         'P>|t|': 2 * t_dbn.sf(np.fabs(T), df=self.resid_df_)},
+                                        index=index)
             else:
-                self.summary_ = pd.DataFrame({'coef':coef,
-                                              'std err': SE,
-                                              'z': T,
-                                              'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
-                                             index=index)
-                
+                summary_ = pd.DataFrame({'coef':coef,
+                                         'std err': SE,
+                                         'z': T,
+                                         'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
+                                        index=index)
+
+            self.covariance_, self.summary_ = covariance_, summary_
+
         else:
             self.summary_ = self.covariance_ = None
             
         return self
 
+    
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
 
