@@ -58,6 +58,7 @@ long_description_content_type = 'text/markdown'
 EXTS = [Extension(
     f'glmnet.{mod}',
     sources=[f'src/{mod}_exp.cpp',
+             f'src/internal.cpp',
              ],
     include_dirs=[pybind11.get_include(),
                   eigendir,
@@ -69,7 +70,7 @@ EXTS = [Extension(
                                                    'lognet',
                                                    'fishnet',
                                                    'gaussnet',
-                                                   'multigaussnet'][:1]]
+                                                   'multigaussnet']]
 
 def main(**extra_args):
     setup(name=info.NAME,
