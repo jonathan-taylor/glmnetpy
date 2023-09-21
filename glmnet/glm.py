@@ -417,49 +417,58 @@ class GLM(GLMBase):
 
         if self.summarize:
 
-            # IRLS used normalized weights,
-            # this unnormalizes them...
-            unscaled_precision_ = self.design_.quadratic_form(self._final_weights * self.sample_weight_.sum()) 
+            self.covariance_, self.summary_ = self._summarize(exclude,
+                                                              dispersion,
+                                                              X.shape)
 
-            keep = np.ones(unscaled_precision_.shape[0]-1, bool)
-            if exclude is not []:
-                keep[exclude] = 0
-            keep = np.hstack([self.fit_intercept, keep]).astype(bool)
-            covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
-
-            SE = np.sqrt(np.diag(covariance_)) 
-            index = self.feature_names_in_
-            if self.fit_intercept:
-                coef = np.hstack([self.intercept_, self.coef_])
-                T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
-                index = ['intercept'] + index
-            else:
-                coef = self.coef_
-                T = self.coef_ / SE
-
-            if (isinstance(self.family, sm_family.Gaussian) and
-                isinstance(self.family.link, sm_links.Identity)):
-                n, p = X.shape
-                self.resid_df_ = n - p - self.fit_intercept
-                summary_ = pd.DataFrame({'coef':coef,
-                                         'std err': SE,
-                                         't': T,
-                                         'P>|t|': 2 * t_dbn.sf(np.fabs(T), df=self.resid_df_)},
-                                        index=index)
-            else:
-                summary_ = pd.DataFrame({'coef':coef,
-                                         'std err': SE,
-                                         'z': T,
-                                         'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
-                                        index=index)
-
-            self.covariance_, self.summary_ = covariance_, summary_
 
         else:
             self.summary_ = self.covariance_ = None
             
         return self
 
+    def _summarize(self,
+                   exclude,
+                   dispersion,
+                   X_shape):
+
+        # IRLS used normalized weights,
+        # this unnormalizes them...
+        unscaled_precision_ = self.design_.quadratic_form(self._final_weights * self.sample_weight_.sum()) 
+
+        keep = np.ones(unscaled_precision_.shape[0]-1, bool)
+        if exclude is not []:
+            keep[exclude] = 0
+        keep = np.hstack([self.fit_intercept, keep]).astype(bool)
+        covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
+
+        SE = np.sqrt(np.diag(covariance_)) 
+        index = self.feature_names_in_
+        if self.fit_intercept:
+            coef = np.hstack([self.intercept_, self.coef_])
+            T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
+            index = ['intercept'] + index
+        else:
+            coef = self.coef_
+            T = self.coef_ / SE
+
+        if (isinstance(self.family, sm_family.Gaussian) and
+            isinstance(self.family.link, sm_links.Identity)):
+            n, p = X_shape
+            self.resid_df_ = n - p - self.fit_intercept
+            summary_ = pd.DataFrame({'coef':coef,
+                                     'std err': SE,
+                                     't': T,
+                                     'P>|t|': 2 * t_dbn.sf(np.fabs(T), df=self.resid_df_)},
+                                    index=index)
+        else:
+            summary_ = pd.DataFrame({'coef':coef,
+                                     'std err': SE,
+                                     'z': T,
+                                     'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
+                                    index=index)
+        return covariance_, summary_
+        
     
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
