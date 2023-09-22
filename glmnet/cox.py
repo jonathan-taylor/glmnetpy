@@ -149,12 +149,12 @@ class CoxFamilySpec(object):
                                                            sample_weight),
                                              hash=hash([linear_predictor,
                                                         sample_weight]))
-        else:
-            print('got it')
-        gradient = self._result.gradient
-        diag_hessian = self._result.diag_hessian
+        # self._coxdev computes value, gradient and hessian of deviance
+        # we want the gradient, hessian of deviance / 2
+        gradient = self._result.gradient / 2
+        diag_hessian = self._result.diag_hessian / 2
         test = diag_hessian != 0
-        newton_weights = np.where(test, sample_weight / (diag_hessian + (1 - test)), 0)
+        newton_weights = diag_hessian
         inv_weights = np.where(test, 1 / (diag_hessian + (1 - test)), 0)
         if offset is not None:
             pseudo_response = (linear_predictor - offset) - gradient * inv_weights

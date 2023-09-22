@@ -233,8 +233,6 @@ class GLMRegularizer(object):
                 coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
                 intnew = 0
 
-        print(coefnew, 'coefnew')
-
         klass = cur_state.__class__
         self.warm_state = klass(coefnew,
                                 intnew)
