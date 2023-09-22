@@ -164,7 +164,8 @@ class GLMState(object):
         
     def logl_score(self,
                    family,
-                   y):
+                   y,
+                   sample_weight):
 
         family = family.base
         varmu = family.variance(self.mu)
@@ -172,7 +173,7 @@ class GLMState(object):
         
         # compute working residual
         r = (y - self.mu) 
-        return r * dmu_deta / varmu 
+        return sample_weight * r * dmu_deta / varmu 
 
 @dataclass
 class GLMRegularizer(object):

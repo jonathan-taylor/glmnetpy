@@ -55,15 +55,18 @@ class CoxState(GLMState):
         
     def logl_score(self,
                    family,
-                   y):
-
-        family = family.base
-        varmu = family.variance(self.mu)
-        dmu_deta = family.link.inverse_deriv(self.linear_predictor)
-        
-        # compute working residual
-        r = (y - self.mu) 
-        return r * dmu_deta / varmu 
+                   y,
+                   sample_weight):
+        linear_predictor = self.linear_predictor
+        _hash = hash([linear_predictor, sample_weight])
+        if not hasattr(family, "_result") or family._result.hash != _hash:
+            family._result = CoxDevianceResult(*family._coxdev(linear_predictor,
+                                                               sample_weight),
+                                               hash=hash([linear_predictor,
+                                                          sample_weight]))
+        # the gradient is the gradient of the deviance
+        # we want deviance of the log-likelihood
+        return - family._result.gradient / 2
 
 @dataclass
 class CoxFamily(object):
@@ -210,12 +213,14 @@ class RegCoxLM(RegGLM):
 class CoxNet(GLMNet):
     
     fit_intercept: Literal[False] = False
-
+    regularized_estimator: BaseEstimator = RegCoxLM
+    
     def _check(self, X, y):
-        return check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=True,
-                         estimator=self)
+        X, _ =  check_X_y(X, y,
+                          accept_sparse=['csc'],
+                          multi_output=True,
+                          estimator=self)
+        return X, y
 
     def _get_family_spec(self,
                          y):
@@ -226,6 +231,29 @@ class CoxNet(GLMNet):
                              status_col=self.family.status_col,
                              start_col=self.family.start_col)
     
+    def _get_initial_state(self,
+                           X,
+                           y,
+                           sample_weight,
+                           exclude,
+                           offset):
+
+        n, p = X.shape
+        keep = self.reg_glm_est_.regularizer_.penalty_factor == 0
+        keep[exclude] = 0
+
+        coef_ = np.zeros(p)
+        intercept_ = 0
+
+        if keep.sum() > 0:
+            X_keep = X[:,keep]
+
+            coxlm = CoxLM(family=self.family)
+            coxlm.fit(X_keep, y, sample_weight, offset=offset)
+            coef_[keep] = coxlm.coef_
+
+        return CoxState(coef_, intercept_), keep.astype(float)
+
     
 
 

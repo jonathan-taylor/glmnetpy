@@ -277,6 +277,11 @@ dispersion_: float
     'regularizer_':'''
 regularizer_: object
     Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.''',
+
+    'regularized_estimator':'''
+regularized_estimator: BaseEstimator    
+    Estimator class used for fitting each point on path.
+    ''',
 }
 
 

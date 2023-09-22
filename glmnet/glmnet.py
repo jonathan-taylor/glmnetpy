@@ -51,7 +51,8 @@ class GLMNetSpec(object):
     standardize: bool = True
     family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     control: GLMNetControl = field(default_factory=GLMNetControl)
-
+    regularized_estimator: BaseEstimator = RegGLM
+    
 add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 
 @dataclass
@@ -99,15 +100,17 @@ class GLMNet(BaseEstimator,
             sample_weight = np.ones(X.shape[0])
         self.normed_sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
-        self.reg_glm_est_ = RegGLM(lambda_val=self.control.big,
-                                   family=self.family,
-                                   alpha=self.alpha,
-                                   penalty_factor=self.penalty_factor,
-                                   lower_limits=self.lower_limits,
-                                   upper_limits=self.upper_limits,
-                                   fit_intercept=self.fit_intercept,
-                                   standardize=self.standardize,
-                                   control=self.control)
+        
+        self.reg_glm_est_ = self.regularized_estimator(lambda_val=self.control.big,
+                                                       family=self.family,
+                                                       alpha=self.alpha,
+                                                       penalty_factor=self.penalty_factor,
+                                                       lower_limits=self.lower_limits,
+                                                       upper_limits=self.upper_limits,
+                                                       fit_intercept=self.fit_intercept,
+                                                       standardize=self.standardize,
+                                                       control=self.control)
+
         self.reg_glm_est_.fit(X, y, normed_sample_weight)
         regularizer_ = self.reg_glm_est_.regularizer_
 
@@ -121,9 +124,10 @@ class GLMNet(BaseEstimator,
                      offset)
 
         logl_score = state.logl_score(self._family,
-                                      y)
+                                      y,
+                                      normed_sample_weight)
 
-        score_ = (self.reg_glm_est_.design_.T @ (normed_sample_weight * logl_score))[1:]
+        score_ = (self.reg_glm_est_.design_.T @ logl_score)[1:]
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf <= 0))
         score_[exclude] = 0
