@@ -87,6 +87,11 @@ class GLMNet(BaseEstimator,
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
+        X, y = check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=False,
+                         estimator=self)
+
         nobs, nvar = X.shape
 
         if self.lambda_values is None:
@@ -356,8 +361,12 @@ class GLMNet(BaseEstimator,
         ax.set_xlabel(index.name)
         ax.set_ylabel(r'Coefficients ($\beta$)')
         ax.axhline(0, c='k', ls='--')
+
         if legend:
             fig = ax.figure
+            if fig.get_layout_engine() is not None:
+                warnings.warn('If plotting a legend, layout of figure will be set to "constrained".')
+            fig.set_layout_engine('constrained')
             fig.legend(loc='outside right upper')
         return ax
 
@@ -454,7 +463,7 @@ class GLMNet(BaseEstimator,
             if have_std:
                 ax.axvline(np.fabs(dev_ratios.iloc[_1se_idx]).sum(), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         if legend:
-            ax.legend(loc='upper right')
+            ax.legend()
         return ax
 
     def _get_scores(self,
