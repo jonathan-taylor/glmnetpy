@@ -1,11 +1,13 @@
 from dataclasses import dataclass, InitVar
 from typing import Optional, Literal
+from functools import partial
 
 import numpy as np
 import pandas as pd
 from joblib import hash
 
 from sklearn.utils import check_X_y
+from sklearn.base import BaseEstimator
 
 from coxdev import CoxDeviance
 
@@ -84,7 +86,8 @@ class CoxFamilySpec(object):
     event_col: Optional[str] = 'event'
     status_col: Optional[str] = 'status'
     start_col: Optional[str] = None
-
+    name: str = 'Cox'
+    
     def __post_init__(self, event_data):
 
         if (self.event_col not in event_data.columns or
@@ -253,6 +256,53 @@ class CoxNet(GLMNet):
             coef_[keep] = coxlm.coef_
 
         return CoxState(coef_, intercept_), keep.astype(float)
+
+    def predict(self,
+                X):
+        
+        linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
+        linear_pred_ = linear_pred_.T
+        return linear_pred_
+        
+    def _get_scores(self,
+                    y,
+                    predictions,
+                    test_splits,
+                    scorers=[]):
+
+        event_data = y
+
+        scores_ = []
+
+        if hasattr(self._family, 'base'):
+            fam_name = self._family.base.__class__.__name__
+        else:
+            fam_name = self._family.__class__.__name__
+
+        def _dev(family, event_data, eta, sample_weight):
+            fam = CoxFamilySpec(tie_breaking=family.tie_breaking,
+                                event_col=family.event_col,
+                                status_col=family.status_col,
+                                start_col=family.start_col,
+                                event_data=event_data)
+            return fam._coxdev(eta, sample_weight)[1] / event_data.shape[0]
+        _dev = partial(_dev, self.family)
+
+        if scorers is None:
+            # create default scorers
+            scorers_ = [(f'{self._family.name} Deviance', _dev, 'min')]
+
+        else:
+            scorers_ = scorers
+            
+        for split in test_splits:
+            preds_ = predictions[split]
+            y_ = event_data.iloc[split]
+            w_ = np.ones(y_.shape[0])
+            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
+                            for i in range(preds_.shape[1])])
+
+        return scorers_, np.array(scores_)
 
     
 

@@ -207,8 +207,7 @@ class GLMNet(BaseEstimator,
     
     def predict(self,
                 X,
-                prediction_type='response',
-                lambda_values=None):
+                prediction_type='response'):
 
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
@@ -289,41 +288,10 @@ class GLMNet(BaseEstimator,
 
         test_splits = [test for _, test in cv.split(np.arange(X.shape[0]))]
 
-        scores_ = []
-
-        if hasattr(self._family, 'base'):
-            fam_name = self._family.base.__class__.__name__
-        else:
-            fam_name = self._family.__class__.__name__
-        if scorers is None:
-            # create default scorers
-            scorers_ = [(f'{fam_name} Deviance', (lambda y, yhat, sample_weight:
-                                                     self._family.deviance(y,
-                                                                           yhat,
-                                                                           sample_weight) / y.shape[0]),
-                         'min'),
-                        ('Mean Squared Error', mean_squared_error, 'min'),
-                        ('Mean Absolute Error', mean_absolute_error, 'min')]
-
-            if isinstance(self.family, sm_family.Binomial):
-                def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
-                    return accuracy_score(y,
-                                          yhat>0.5,
-                                          sample_weight=sample_weight,
-                                          normalize=True)
-                scorers_.extend([('Accuracy', _accuracy_score, 'max'),
-                                 ('AUC', roc_auc_score, 'max')])
-
-        else:
-            scorers_ = scorers
-            
-        for split in test_splits:
-            preds_ = predictions[split]
-            y_ = y[split]
-            w_ = np.ones_like(y_)
-            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
-                            for i in range(preds_.shape[1])])
-        scores_ = np.array(scores_)
+        scorers_, scores_ = self._get_scores(y,
+                                             predictions,
+                                             test_splits,
+                                             scorers=scorers)
 
         scores_mean_ = scores_.mean(0)
         if isinstance(cv, KFold):
@@ -411,7 +379,7 @@ class GLMNet(BaseEstimator,
         if hasattr(self._family, 'base'):
             fam_name = self._family.base.__class__.__name__
         else:
-            fam_name = self._family.__class__.__name__
+            fam_name = self._family.name
         if score is None:
             score = f'{fam_name} Deviance'
 
@@ -489,4 +457,45 @@ class GLMNet(BaseEstimator,
             ax.legend(loc='upper right')
         return ax
 
+    def _get_scores(self,
+                    y,
+                    predictions,
+                    scorers=[]):
+
+        scores_ = []
+
+        if hasattr(self._family, 'base'):
+            fam_name = self._family.base.__class__.__name__
+        else:
+            fam_name = self._family.__class__.__name__
+
+        if scorers is None:
+            # create default scorers
+            scorers_ = [(f'{fam_name} Deviance', (lambda y, yhat, sample_weight:
+                                                     self._family.deviance(y,
+                                                                           yhat,
+                                                                           sample_weight) / y.shape[0]),
+                         'min'),
+                        ('Mean Squared Error', mean_squared_error, 'min'),
+                        ('Mean Absolute Error', mean_absolute_error, 'min')]
+
+            if isinstance(self.family, sm_family.Binomial):
+                def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
+                    return accuracy_score(y,
+                                          yhat>0.5,
+                                          sample_weight=sample_weight,
+                                          normalize=True)
+                scorers_.extend([('Accuracy', _accuracy_score, 'max'),
+                                 ('AUC', roc_auc_score, 'max')])
+
+        else:
+            scorers_ = scorers
+            
+        for split in test_splits:
+            preds_ = predictions[split]
+            y_ = y[split]
+            w_ = np.ones_like(y_)
+            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
+                            for i in range(preds_.shape[1])])
+        return scorers_, np.array(scores_)
 
