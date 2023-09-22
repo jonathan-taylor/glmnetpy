@@ -21,6 +21,8 @@ class CoxDevianceResult(object):
 from .glm import (GLMFamilySpec,
                   GLMState,
                   GLM)
+from .regularized_glm import RegGLM
+from .glmnet import GLMNet
 
 @dataclass
 class CoxState(GLMState):
@@ -167,7 +169,7 @@ class CoxFamilySpec(object):
 @dataclass
 class CoxLM(GLM):
     
-    fit_intercept: bool = False
+    fit_intercept: Literal[False] = False
 
     def _get_family_spec(self,
                          y):
@@ -184,6 +186,47 @@ class CoxLM(GLM):
                          multi_output=True,
                          estimator=self)
 
+@dataclass
+class RegCoxLM(RegGLM):
+    
+    fit_intercept: Literal[False] = False
+
+    def _check(self, X, y):
+        return check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=True,
+                         estimator=self)
+
+    def _get_family_spec(self,
+                         y):
+        event_data = y
+        return CoxFamilySpec(event_data=event_data,
+                             tie_breaking=self.family.tie_breaking,
+                             event_col=self.family.event_col,
+                             status_col=self.family.status_col,
+                             start_col=self.family.start_col)
+
+@dataclass
+class CoxNet(GLMNet):
+    
+    fit_intercept: Literal[False] = False
+
+    def _check(self, X, y):
+        return check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=True,
+                         estimator=self)
+
+    def _get_family_spec(self,
+                         y):
+        event_data = y
+        return CoxFamilySpec(event_data=event_data,
+                             tie_breaking=self.family.tie_breaking,
+                             event_col=self.family.event_col,
+                             status_col=self.family.status_col,
+                             start_col=self.family.start_col)
+    
+    
 
 
   

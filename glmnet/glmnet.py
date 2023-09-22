@@ -58,6 +58,15 @@ add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 class GLMNet(BaseEstimator,
              GLMNetSpec):
 
+    def _check(self,
+               X,
+               y):
+
+        return check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=False,
+                         estimator=self)
+
     def fit(self,
             X,
             y,
@@ -67,13 +76,10 @@ class GLMNet(BaseEstimator,
             offset=None,
             interpolation_grid=None):
 
-        X, y = check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=False,
-                         estimator=self)
-
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
+
+        X, y = self._check(X, y)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)

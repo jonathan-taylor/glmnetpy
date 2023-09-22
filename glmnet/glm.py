@@ -313,7 +313,7 @@ class GLMBase(BaseEstimator,
             
         (null_fit,
          self.null_deviance_) = self._family.get_null_deviance(y,
-                                                               normed_sample_weight,
+                                                               sample_weight,
                                                                self.fit_intercept)
 
         # for GLM there is no regularization, but this pattern
