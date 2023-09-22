@@ -87,11 +87,6 @@ class GLMNet(BaseEstimator,
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        X, y = check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=False,
-                         estimator=self)
-
         nobs, nvar = X.shape
 
         if self.lambda_values is None:
