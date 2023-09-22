@@ -194,6 +194,15 @@ offset: np.ndarray
 family: Family
     One-parameter exponential family (from `statsmodels`).''',
 
+    'base':'''
+base: Family
+    One-parameter exponential family (from `statsmodels`).''',
+    
+    'family_spec':'''
+family_spec: GLMFamilySpec
+    Specification of one-parameter exponential family, includes some
+    additional methods.''',
+
     'converged':'''
 converged: bool
     Did the algorithm converge?''',
@@ -268,6 +277,11 @@ dispersion_: float
     'regularizer_':'''
 regularizer_: object
     Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.''',
+
+    'regularized_estimator':'''
+regularized_estimator: BaseEstimator    
+    Estimator class used for fitting each point on path.
+    ''',
 }
 
 

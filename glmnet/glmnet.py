@@ -29,7 +29,8 @@ from .docstrings import add_dataclass_docstring
 from .regularized_glm import (RegGLMControl,
                               RegGLM)
 from .glm import (GLM,
-                  GLMState)
+                  GLMState,
+                  GLMFamilySpec)
 
 @dataclass
 class GLMNetControl(RegGLMControl):
@@ -48,14 +49,24 @@ class GLMNetSpec(object):
     penalty_factor: Optional[Union[float, np.ndarray]] = None
     fit_intercept: bool = True
     standardize: bool = True
-    family: sm_family.Family = field(default_factory=sm_family.Gaussian)
+    family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     control: GLMNetControl = field(default_factory=GLMNetControl)
-
+    regularized_estimator: BaseEstimator = RegGLM
+    
 add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 
 @dataclass
 class GLMNet(BaseEstimator,
              GLMNetSpec):
+
+    def _check(self,
+               X,
+               y):
+
+        return check_X_y(X, y,
+                         accept_sparse=['csc'],
+                         multi_output=False,
+                         estimator=self)
 
     def fit(self,
             X,
@@ -65,6 +76,11 @@ class GLMNet(BaseEstimator,
             exclude=[],
             offset=None,
             interpolation_grid=None):
+
+        if not hasattr(self, "_family"):
+            self._family = self._get_family_spec(y)
+
+        X, y = self._check(X, y)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
@@ -89,15 +105,17 @@ class GLMNet(BaseEstimator,
             sample_weight = np.ones(X.shape[0])
         self.normed_sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
-        self.reg_glm_est_ = RegGLM(lambda_val=self.control.big,
-                                   family=self.family,
-                                   alpha=self.alpha,
-                                   penalty_factor=self.penalty_factor,
-                                   lower_limits=self.lower_limits,
-                                   upper_limits=self.upper_limits,
-                                   fit_intercept=self.fit_intercept,
-                                   standardize=self.standardize,
-                                   control=self.control)
+        
+        self.reg_glm_est_ = self.regularized_estimator(lambda_val=self.control.big,
+                                                       family=self.family,
+                                                       alpha=self.alpha,
+                                                       penalty_factor=self.penalty_factor,
+                                                       lower_limits=self.lower_limits,
+                                                       upper_limits=self.upper_limits,
+                                                       fit_intercept=self.fit_intercept,
+                                                       standardize=self.standardize,
+                                                       control=self.control)
+
         self.reg_glm_est_.fit(X, y, normed_sample_weight)
         regularizer_ = self.reg_glm_est_.regularizer_
 
@@ -107,12 +125,14 @@ class GLMNet(BaseEstimator,
                                                exclude,
                                                offset)
         state.update(self.reg_glm_est_.design_,
-                     self.family,
+                     self._family,
                      offset)
 
-        logl_score = state.logl_score(self.family,
-                                      y)
-        score_ = (self.reg_glm_est_.design_.T @ (normed_sample_weight * logl_score))[1:]
+        logl_score = state.logl_score(self._family,
+                                      y,
+                                      normed_sample_weight)
+
+        score_ = (self.reg_glm_est_.design_.T @ logl_score)[1:]
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf <= 0))
         score_[exclude] = 0
@@ -128,13 +148,9 @@ class GLMNet(BaseEstimator,
         dev_ratios_ = []
         sample_weight_sum = sample_weight.sum()
         
-        if self.fit_intercept:
-            mu0 = (y * normed_sample_weight).sum() * np.ones_like(y)
-        else:
-            mu0 = self.family.link.inverse(np.zeros(y.shape, float))
-        self.null_deviance_ = self.family.deviance(y,
-                                                   mu0,
-                                                   freq_weights=sample_weight) # not normed_sample_weight!
+        null_fit, self.null_deviance_ = self._family.get_null_deviance(y,
+                                                                       sample_weight,
+                                                                       self.fit_intercept)
 
         for l in self.lambda_values_:
 
@@ -196,8 +212,7 @@ class GLMNet(BaseEstimator,
     
     def predict(self,
                 X,
-                prediction_type='response',
-                lambda_values=None):
+                prediction_type='response'):
 
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
@@ -206,7 +221,8 @@ class GLMNet(BaseEstimator,
         linear_pred_ = linear_pred_.T
         if prediction_type == 'linear':
             return linear_pred_
-        return self.family.link.inverse(linear_pred_)
+        family = self._family.base
+        return family.link.inverse(linear_pred_)
         
     def _get_initial_state(self,
                            X,
@@ -277,37 +293,10 @@ class GLMNet(BaseEstimator,
 
         test_splits = [test for _, test in cv.split(np.arange(X.shape[0]))]
 
-        scores_ = []
-
-        fam_name = self.family.__class__.__name__
-        if scorers is None:
-            # create default scorers
-            scorers_ = [(f'{fam_name} Deviance', lambda y, yhat, sample_weight: self.family.deviance(y,
-                                                                                              yhat,
-                                                                                              freq_weights=sample_weight) / y.shape[0],
-                         'min'),
-                        ('Mean Squared Error', mean_squared_error, 'min'),
-                        ('Mean Absolute Error', mean_absolute_error, 'min')]
-
-            if isinstance(self.family, sm_family.Binomial):
-                def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
-                    return accuracy_score(y,
-                                          yhat>0.5,
-                                          sample_weight=sample_weight,
-                                          normalize=True)
-                scorers_.extend([('Accuracy', _accuracy_score, 'max'),
-                                 ('AUC', roc_auc_score, 'max')])
-
-        else:
-            scorers_ = scorers
-            
-        for split in test_splits:
-            preds_ = predictions[split]
-            y_ = y[split]
-            w_ = np.ones_like(y_)
-            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
-                            for i in range(preds_.shape[1])])
-        scores_ = np.array(scores_)
+        scorers_, scores_ = self._get_scores(y,
+                                             predictions,
+                                             test_splits,
+                                             scorers=scorers)
 
         scores_mean_ = scores_.mean(0)
         if isinstance(cv, KFold):
@@ -396,7 +385,10 @@ class GLMNet(BaseEstimator,
                               scatter_s=None,
                               **plot_args):
 
-        fam_name = self.family.__class__.__name__
+        if hasattr(self._family, 'base'):
+            fam_name = self._family.base.__class__.__name__
+        else:
+            fam_name = self._family.name
         if score is None:
             score = f'{fam_name} Deviance'
 
@@ -474,4 +466,45 @@ class GLMNet(BaseEstimator,
             ax.legend()
         return ax
 
+    def _get_scores(self,
+                    y,
+                    predictions,
+                    scorers=[]):
+
+        scores_ = []
+
+        if hasattr(self._family, 'base'):
+            fam_name = self._family.base.__class__.__name__
+        else:
+            fam_name = self._family.__class__.__name__
+
+        if scorers is None:
+            # create default scorers
+            scorers_ = [(f'{fam_name} Deviance', (lambda y, yhat, sample_weight:
+                                                     self._family.deviance(y,
+                                                                           yhat,
+                                                                           sample_weight) / y.shape[0]),
+                         'min'),
+                        ('Mean Squared Error', mean_squared_error, 'min'),
+                        ('Mean Absolute Error', mean_absolute_error, 'min')]
+
+            if isinstance(self.family, sm_family.Binomial):
+                def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
+                    return accuracy_score(y,
+                                          yhat>0.5,
+                                          sample_weight=sample_weight,
+                                          normalize=True)
+                scorers_.extend([('Accuracy', _accuracy_score, 'max'),
+                                 ('AUC', roc_auc_score, 'max')])
+
+        else:
+            scorers_ = scorers
+            
+        for split in test_splits:
+            preds_ = predictions[split]
+            y_ = y[split]
+            w_ = np.ones_like(y_)
+            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
+                            for i in range(preds_.shape[1])])
+        return scorers_, np.array(scores_)
 
