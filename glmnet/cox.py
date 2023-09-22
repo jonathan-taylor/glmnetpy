@@ -4,21 +4,11 @@ from functools import partial
 
 import numpy as np
 import pandas as pd
-from joblib import hash
 
 from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
 
 from coxdev import CoxDeviance
-
-@dataclass
-class CoxDevianceResult(object):
-
-    loglik_sat: float
-    deviance: float
-    gradient: Optional[np.ndarray]
-    diag_hessian: Optional[np.ndarray]
-    hash: str
     
 from .glm import (GLMFamilySpec,
                   GLMState,
@@ -60,12 +50,8 @@ class CoxState(GLMState):
                    y,
                    sample_weight):
         linear_predictor = self.linear_predictor
-        _hash = hash([linear_predictor, sample_weight])
-        if not hasattr(family, "_result") or family._result.hash != _hash:
-            family._result = CoxDevianceResult(*family._coxdev(linear_predictor,
-                                                               sample_weight),
-                                               hash=hash([linear_predictor,
-                                                          sample_weight]))
+        family._result = family._coxdev(linear_predictor,
+                                        sample_weight)
         # the gradient is the gradient of the deviance
         # we want deviance of the log-likelihood
         return - family._result.gradient / 2
@@ -117,10 +103,8 @@ class CoxFamilySpec(object):
                  sample_weight):
 
         linear_predictor = mu
-        self._result = CoxDevianceResult(*self._coxdev(linear_predictor,
-                                                       sample_weight),
-                                         hash=hash([linear_predictor,
-                                                    sample_weight]))
+        self._result = self._coxdev(linear_predictor,
+                                    sample_weight)
         return self._result.deviance
     
     def null_fit(self,
@@ -151,12 +135,8 @@ class CoxFamilySpec(object):
                                  sample_weight):
 
         linear_predictor = state.linear_predictor
-        _hash = hash([linear_predictor, sample_weight])
-        if not hasattr(self, "_result") or self._result.hash != _hash:
-            self._result = CoxDevianceResult(*self._coxdev(linear_predictor,
-                                                           sample_weight),
-                                             hash=hash([linear_predictor,
-                                                        sample_weight]))
+        self._result = self._coxdev(linear_predictor,
+                                    sample_weight)
         # self._coxdev computes value, gradient and hessian of deviance
         # we want the gradient, hessian of deviance / 2
         gradient = self._result.gradient / 2
@@ -285,7 +265,7 @@ class CoxNet(GLMNet):
                                 status_col=family.status_col,
                                 start_col=family.start_col,
                                 event_data=event_data)
-            return fam._coxdev(eta, sample_weight)[1] / event_data.shape[0]
+            return fam._coxdev(eta, sample_weight).deviance / event_data.shape[0]
         _dev = partial(_dev, self.family)
 
         if scorers is None:
