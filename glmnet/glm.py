@@ -312,11 +312,12 @@ class GLMBase(BaseEstimator,
         else:
             design = self.design_
             
+        print(sample_weight, 1)
         (null_fit,
          self.null_deviance_) = self._family.get_null_deviance(y,
                                                                sample_weight,
                                                                self.fit_intercept)
-
+        print(sample_weight, 2)
         # for GLM there is no regularization, but this pattern
         # is repeated for GLMNet
         
@@ -364,6 +365,7 @@ class GLMBase(BaseEstimator,
                                      obj_function,
                                      self.control)
 
+        print(sample_weight, 3)
         # checks on convergence and fitted values
         if not converged:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
@@ -494,19 +496,25 @@ class GLM(GLMBase):
             offset=None,
             check=True):
 
+        print(sample_weight, 4)
         super().fit(X,
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
                     exclude=exclude,
-                    dispersion=1,
+                    dispersion=dispersion,
                     offset=offset,
                     check=check)
 
+        if sample_weight is None:
+            sample_weight = np.ones(y.shape[0])
+            
         if self.summarize:
-
+            print(sample_weight, 5)
+            print(self.sample_weight_, 6)
             self.covariance_, self.summary_ = self._summarize(exclude,
-                                                              dispersion,
+                                                              self.dispersion_,
+                                                              sample_weight, # not normalized!
                                                               X.shape)
 
 
@@ -518,11 +526,13 @@ class GLM(GLMBase):
     def _summarize(self,
                    exclude,
                    dispersion,
+                   sample_weight,
                    X_shape):
 
         # IRLS used normalized weights,
         # this unnormalizes them...
-        unscaled_precision_ = self.design_.quadratic_form(self._final_weights * self.sample_weight_.sum()) 
+        print(self._final_weights * sample_weight.sum(), 'huh')
+        unscaled_precision_ = self.design_.quadratic_form(self._final_weights * sample_weight.sum()) 
 
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
@@ -530,6 +540,8 @@ class GLM(GLMBase):
         keep = np.hstack([self.fit_intercept, keep]).astype(bool)
         covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
 
+        print(unscaled_precision_, 'prec')
+        print(dispersion, 'dispersion')
         SE = np.sqrt(np.diag(covariance_)) 
         index = self.feature_names_in_
         if self.fit_intercept:
