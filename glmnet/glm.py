@@ -316,7 +316,6 @@ class GLMBase(BaseEstimator,
          self.null_deviance_) = self._family.get_null_deviance(y,
                                                                sample_weight,
                                                                self.fit_intercept)
-
         # for GLM there is no regularization, but this pattern
         # is repeated for GLMNet
         
@@ -499,14 +498,17 @@ class GLM(GLMBase):
                     sample_weight=sample_weight,
                     regularizer=regularizer,
                     exclude=exclude,
-                    dispersion=1,
+                    dispersion=dispersion,
                     offset=offset,
                     check=check)
 
+        if sample_weight is None:
+            sample_weight = np.ones(y.shape[0])
+            
         if self.summarize:
-
             self.covariance_, self.summary_ = self._summarize(exclude,
-                                                              dispersion,
+                                                              self.dispersion_,
+                                                              sample_weight, # not normalized!
                                                               X.shape)
 
 
@@ -518,11 +520,12 @@ class GLM(GLMBase):
     def _summarize(self,
                    exclude,
                    dispersion,
+                   sample_weight,
                    X_shape):
 
         # IRLS used normalized weights,
         # this unnormalizes them...
-        unscaled_precision_ = self.design_.quadratic_form(self._final_weights * self.sample_weight_.sum()) 
+        unscaled_precision_ = self.design_.quadratic_form(self._final_weights * sample_weight.sum()) 
 
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
