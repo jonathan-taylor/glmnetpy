@@ -112,8 +112,7 @@ class LogNet(GLMNet):
         # extract the coefficients
         
         nvars = design.X.shape[1]
-        coefs_ = np.ascontiguousarray(self._fit['ca'])
-        self.coefs_ = coefs_[:nvars*_nfits].reshape((_nfits, nvars))
+        self.coefs_ = self._fit['ca'][:nvars*_nfits].reshape((_nfits, nvars))
         self.lambda_values_ = self._fit['alm'][:_nfits]
         self.lambda_values_[0] = self.lambda_values_[1] # lambda_max not set
         dev_ratios_ = self._fit['dev'][:_nfits]
