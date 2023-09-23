@@ -113,7 +113,7 @@ class LogNet(GLMNet):
         # extract the coefficients
         
         self._fit['a0'] = self._fit['a0'].reshape(-1) # for binary data only!
-        result = _extract_fits(self._fit, self._args)
+        result = self._extract_fits()
         nvars = design.X.shape[1]
         ncat = self.categories_.shape[0]
         self.coefs_ = result['coefs'] / design.scaling_[None,:]
@@ -135,30 +135,31 @@ class LogNet(GLMNet):
 
         return self
 
-def _extract_fits(_fit, _args): # getcoef.R
-    nx = _args['nx']
-    nvars = _args['ni']
-    nfits = _fit['lmu']
+    def _extract_fits(self): # getcoef.R
+        _fit, _args = self._fit, self._args
+        nx = _args['nx']
+        nvars = _args['ni']
+        nfits = _fit['lmu']
 
-    if nfits < 1:
-        warnings.warn("an empty model has been returned; probably a convergence issue")
+        if nfits < 1:
+            warnings.warn("an empty model has been returned; probably a convergence issue")
 
-    nin = _fit['nin'][:nfits]
-    ninmax = max(nin)
-    lambda_values = _fit['alm'][:nfits]
+        nin = _fit['nin'][:nfits]
+        ninmax = max(nin)
+        lambda_values = _fit['alm'][:nfits]
 
-    if ninmax > 0:
-        coefs = _fit['ca'][:(nx*nfits)].reshape(nfits, nx)
-        df = (np.fabs(coefs) > 0).sum(1)
-        active_seq = _fit['ia'][:nfits] - 1 # _fit returns in 1-based ordering
-        _argsort = np.argsort(active_seq)
-        coefs = coefs[:, _argsort]
-        intercepts = _fit['a0'][:nfits]
-        
-    return {'coefs':coefs,
-            'intercepts':intercepts,
-            'df':df,
-            'lambda_values':lambda_values}
+        if ninmax > 0:
+            coefs = _fit['ca'][:(nx*nfits)].reshape(nfits, nx)
+            df = (np.fabs(coefs) > 0).sum(1)
+            active_seq = _fit['ia'][:nfits] - 1 # _fit returns in 1-based ordering
+            _argsort = np.argsort(active_seq)
+            coefs = coefs[:, _argsort]
+            intercepts = _fit['a0'][:nfits]
+
+        return {'coefs':coefs,
+                'intercepts':intercepts,
+                'df':df,
+                'lambda_values':lambda_values}
 
 def _lognet_wrapper_args(design,
                          y_onehot,
@@ -224,8 +225,8 @@ def _lognet_wrapper_args(design,
             'modified_Newton':1}[type_logistic]
 
     nc = y_onehot.shape[1]
+    nc = 1
     if try_offset:
-        nc = 1
         offset = offset[:,:1]
     # take out components of x and run C++ subroutine
 
