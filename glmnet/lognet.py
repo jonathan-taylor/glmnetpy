@@ -27,6 +27,8 @@ from ._utils import _jerr_elnetfit
 from .docstrings import (make_docstring,
                          add_dataclass_docstring)
 
+try_offset = False
+
 @dataclass
 class LogNet(GLMNet):
 
@@ -78,7 +80,9 @@ class LogNet(GLMNet):
         encoder = OneHotEncoder(sparse_output=False)
         y_onehot = np.asfortranarray(encoder.fit_transform(y.reshape((-1,1))))
         self.categories_ = encoder.categories_[0]
-
+        if self.categories_.shape[0] > 2:
+            raise ValueError('use multnet for multinomial')
+        
         self._args = _lognet_wrapper_args(design,
                                           y_onehot,
                                           sample_weight,
@@ -114,9 +118,10 @@ class LogNet(GLMNet):
         nvars = design.X.shape[1]
         ncat = self.categories_.shape[0]
         coefs_ = np.ascontiguousarray(self._fit['ca'])
-        self.coefs_ = coefs_[:(nvars*_nfits*ncat)].reshape((_nfits, nvars, ncat))[:,:,1]
+        if try_offset:
+            ncat = 1 #XXXXXXXXXXXXXXX
+        self.coefs_ = coefs_[:(nvars*_nfits*ncat)].reshape((_nfits, ncat, nvars))[:,0]
         self.lambda_values_ = self._fit['alm'][:_nfits]
-        self.lambda_values_[0] = self.lambda_values_[1] # lambda_max not set
         dev_ratios_ = self._fit['dev'][:_nfits]
         self.summary_ = pd.DataFrame({'Fraction Deviance Explained':dev_ratios_},
                                      index=pd.Series(self.lambda_values_[:len(dev_ratios_)],
@@ -191,7 +196,9 @@ def _lognet_wrapper_args(design,
             'modified_Newton':1}[type_logistic]
 
     nc = y_onehot.shape[1]
-
+    nc = 1
+    if try_offset:
+        offset = offset[:,:1]
     # take out components of x and run C++ subroutine
 
     # from https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/lognet.R#L80
