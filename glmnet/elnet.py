@@ -10,8 +10,8 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LinearRegression
 from sklearn.utils import check_X_y
 
-from .elnet_point import elnet_point as dense_wls
-from .elnet_point import spelnet_point as sparse_wls
+from ._elnet_point import elnet_point as dense_wls
+from ._elnet_point import spelnet_point as sparse_wls
 from .base import (Base,
                    Penalty,
                    Design,
@@ -105,7 +105,6 @@ class ElNet(BaseEstimator,
                                                     y,
                                                     sample_weight,
                                                     self.lambda_val,
-                                                    self.penalty_factor,
                                                     alpha=self.alpha,
                                                     intercept=self.fit_intercept,
                                                     penalty_factor=self.penalty_factor,
@@ -179,7 +178,6 @@ def _elnet_wrapper_args(design,
                         y,
                         sample_weight,
                         lambda_val,
-                        vp, 
                         alpha=1.0,
                         intercept=True,
                         thresh=1e-7,
@@ -205,8 +203,6 @@ def _elnet_wrapper_args(design,
     ybar = np.sum(y * sample_weight) / np.sum(sample_weight)
     nulldev = np.sum(sample_weight * (y - ybar)**2)
 
-    # if calling from glmnet.fit(), we do not need to check on exclude
-    # and penalty.factor arguments as they have been prepared by glmnet.fit()
     # compute ju
     # assume that there are no constant variables
 
@@ -261,7 +257,7 @@ def _elnet_wrapper_args(design,
              'v':v,
              'intr':intr,
              'ju':ju,
-             'vp':vp,
+             'vp':penalty_factor,
              'cl':cl,
              'nx':nx,
              'thr':thr,

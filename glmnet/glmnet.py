@@ -68,6 +68,13 @@ class GLMNet(BaseEstimator,
                          multi_output=False,
                          estimator=self)
 
+    def _get_family_spec(self,
+                         y):
+        if isinstance(self.family, sm_family.Family):
+            return GLMFamilySpec(self.family)
+        elif isinstance(self.family, GLMFamilySpec):
+            return self.family
+
     def fit(self,
             X,
             y,
@@ -464,6 +471,7 @@ class GLMNet(BaseEstimator,
     def _get_scores(self,
                     y,
                     predictions,
+                    test_splits,
                     scorers=[]):
 
         scores_ = []

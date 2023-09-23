@@ -172,7 +172,7 @@ void update_pb(py::object pb, int step_inc) {
     pb.attr("update")(step_inc);
 }
 
-PYBIND11_MODULE(elnet_point, m) {
+PYBIND11_MODULE(_elnet_point, m) {
     m.def("elnet_point", &elnet_point_exp,
 	  py::arg("alm0"),
 	  py::arg("almc"),

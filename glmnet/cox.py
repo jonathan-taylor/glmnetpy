@@ -167,10 +167,11 @@ class CoxLM(GLM):
                              start_col=self.family.start_col)
 
     def _check(self, X, y):
-        return check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=True,
-                         estimator=self)
+        X, _y = check_X_y(X, y,
+                          accept_sparse=['csc'],
+                          multi_output=True,
+                          estimator=self)
+        return X, y
 
 @dataclass
 class RegCoxLM(RegGLM):
@@ -178,10 +179,11 @@ class RegCoxLM(RegGLM):
     fit_intercept: Literal[False] = False
 
     def _check(self, X, y):
-        return check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=True,
-                         estimator=self)
+        X, _y = check_X_y(X, y,
+                          accept_sparse=['csc'],
+                          multi_output=True,
+                          estimator=self)
+        return X, y
 
     def _get_family_spec(self,
                          y):
@@ -199,7 +201,7 @@ class CoxNet(GLMNet):
     regularized_estimator: BaseEstimator = RegCoxLM
     
     def _check(self, X, y):
-        X, _ =  check_X_y(X, y,
+        X, _y = check_X_y(X, y,
                           accept_sparse=['csc'],
                           multi_output=True,
                           estimator=self)
