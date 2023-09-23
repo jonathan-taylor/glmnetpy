@@ -158,7 +158,7 @@ PYBIND11_MODULE(_fishnet, m) {
 	  py::arg("no"),
 	  py::arg("x"),
 	  py::arg("y"),
-	  py::arg("y"),
+	  py::arg("w"),
 	  py::arg("g"),
 	  py::arg("jd"),
 	  py::arg("vp"),
