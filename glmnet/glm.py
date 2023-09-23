@@ -262,7 +262,10 @@ class GLMBase(BaseEstimator,
 
     def _get_family_spec(self,
                          y):
-        return GLMFamilySpec(self.family)
+        if isinstance(self.family, sm_family.Family):
+            return GLMFamilySpec(self.family)
+        elif isinstance(self.family, GLMFamilySpec):
+            return self.family
 
     def _check(self, X, y):
         return check_X_y(X, y,

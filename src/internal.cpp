@@ -1,4 +1,5 @@
 #include "internal.h"
+#include <pybind11/pybind11.h>
 #include <cstddef>
 
 double InternalParams::sml = 1e-5;

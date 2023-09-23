@@ -10,18 +10,17 @@ namespace py = pybind11;
 
 void update_pb(py::object, int);
 
-// Gaussian for dense X.
-py::dict gaussnet_exp(
-    int ka,
+// Binomial/Multinomial for dense X.
+py::dict lognet(
     double parm,
     int ni,
     int no,
     Eigen::Ref<Eigen::MatrixXd> x,          // TODO: map?
-    Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
-    Eigen::Ref<Eigen::VectorXd> w,          // TODO: figure out if we should allow updating (safe choice is to copy)
+    Eigen::Ref<Eigen::MatrixXd> y,          // TODO: map?
+    Eigen::Ref<Eigen::MatrixXd> g,          // TODO: map? 
     const Eigen::Ref<Eigen::VectorXi> jd,
     const Eigen::Ref<Eigen::VectorXd> vp,
-    Eigen::Ref<Eigen::MatrixXd> cl,         // TODO: map?
+    Eigen::MatrixXd cl,         // TODO: map?
     int ne,
     int nx,
     int nlam,
@@ -31,25 +30,27 @@ py::dict gaussnet_exp(
     int isd,
     int intr,
     int maxit,
+    int kopt,
     py::object pb,
     int lmu,
-    Eigen::Ref<Eigen::VectorXd> a0,
-    Eigen::Ref<Eigen::MatrixXd> ca,
+    Eigen::Ref<Eigen::MatrixXd> a0,
+    Eigen::Ref<Eigen::VectorXd> ca,
     Eigen::Ref<Eigen::VectorXi> ia,
     Eigen::Ref<Eigen::VectorXi> nin,
-    Eigen::Ref<Eigen::VectorXd> rsq,
+    double nulldev,
+    Eigen::Ref<Eigen::VectorXd> dev,
     Eigen::Ref<Eigen::VectorXd> alm,
     int nlp,
     int jerr
     )
 {
-    using elnet_driver_t = ElnetDriver<util::glm_type::gaussian>;
+    using elnet_driver_t = ElnetDriver<util::glm_type::binomial>;
     elnet_driver_t driver;
     auto f = [&]() {
         driver.fit(
-                ka == 2, parm, x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
-                ulam, thr, isd == 1, intr == 1, maxit, 
-                lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr, 
+                parm, x, y, g, jd, vp, cl, ne, nx, nlam, flmin,
+                ulam, thr, isd, intr, maxit, kopt,
+                lmu, a0, ca, ia, nin, nulldev, dev, alm, nlp, jerr,
                 [&](int v) {update_pb(pb, v);}, ::InternalParams());
     };
     run(f, jerr);
@@ -62,27 +63,27 @@ py::dict gaussnet_exp(
   result["ca"] = ca;
   result["ia"] = ia;
   result["lmu"] = lmu;
-  result["rsq"] = rsq;
+  result["nulldev"] = nulldev;
+  result["dev"] = dev;
   result["nlp"] = nlp;
   result["jerr"] = jerr;
 
   return result;
 }
 
-// Gaussian for sparse X.
-py::dict spgaussnet_exp(
-    int ka,
+// Lognet for sparse X.
+py::dict splognet(
     double parm,
     int ni,
     int no,
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
-    Eigen::Ref<Eigen::VectorXd> y, // TODO: map?
-    Eigen::Ref<Eigen::VectorXd> w, // TODO: map?
+    Eigen::MatrixXd y,          // TODO: map?
+    Eigen::MatrixXd g,          // TODO: map? 
     const Eigen::Ref<Eigen::VectorXi> jd,
     const Eigen::Ref<Eigen::VectorXd> vp,
-    Eigen::Ref<Eigen::MatrixXd> cl, // TODO: map?
+    Eigen::MatrixXd cl,         // TODO: map?
     int ne,
     int nx,
     int nlam,
@@ -92,19 +93,20 @@ py::dict spgaussnet_exp(
     int isd,
     int intr,
     int maxit,
+    int kopt,
     py::object pb,
     int lmu,
-    Eigen::Ref<Eigen::VectorXd> a0,
-    Eigen::Ref<Eigen::MatrixXd> ca,
+    Eigen::Ref<Eigen::MatrixXd> a0,
+    Eigen::Ref<Eigen::VectorXd> ca,
     Eigen::Ref<Eigen::VectorXi> ia,
     Eigen::Ref<Eigen::VectorXi> nin,
-    Eigen::Ref<Eigen::VectorXd> rsq,
+    double nulldev,
+    Eigen::Ref<Eigen::VectorXd> dev,
     Eigen::Ref<Eigen::VectorXd> alm,
     int nlp,
     int jerr
     )
 {
-
 
     // Map the scipy csc_matrix x  to Eigen
     // This prevents copying. However, note the lack of 'const' use, but we take care not to change data
@@ -122,13 +124,13 @@ py::dict spgaussnet_exp(
 							       x_indices_map.data(),
 							       x_data_map.data());
 
-    using elnet_driver_t = ElnetDriver<util::glm_type::gaussian>;
+    using elnet_driver_t = ElnetDriver<util::glm_type::binomial>;
     elnet_driver_t driver;
     auto f = [&]() {
         driver.fit(
-                ka == 2, parm, eigen_x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
-                ulam, thr, isd == 1, intr == 1, maxit, 
-                lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr, 
+                parm, eigen_x, y, g, jd, vp, cl, ne, nx, nlam, flmin,
+                ulam, thr, isd, intr, maxit, kopt,
+                lmu, a0, ca, ia, nin, nulldev, dev, alm, nlp, jerr,
                 [&](int v) {update_pb(pb, v);}, ::InternalParams());
     };
     run(f, jerr);
@@ -141,22 +143,22 @@ py::dict spgaussnet_exp(
   result["ca"] = ca;
   result["ia"] = ia;
   result["lmu"] = lmu;
-  result["rsq"] = rsq;
+  result["nulldev"] = nulldev;
+  result["dev"] = dev;
   result["nlp"] = nlp;
   result["jerr"] = jerr;
 
   return result;
 }
 
-PYBIND11_MODULE(gaussnet, m) {
-    m.def("gaussnet", &gaussnet_exp,
-	  py::arg("ka"),
+PYBIND11_MODULE(_lognet, m) {
+    m.def("lognet", &lognet,
 	  py::arg("parm"),
 	  py::arg("ni"),
 	  py::arg("no"),
 	  py::arg("x"),
 	  py::arg("y"),
-	  py::arg("w"),
+	  py::arg("g"),
 	  py::arg("jd"),
 	  py::arg("vp"),
 	  py::arg("cl"),	  
@@ -169,19 +171,20 @@ PYBIND11_MODULE(gaussnet, m) {
 	  py::arg("isd"),
 	  py::arg("intr"),
 	  py::arg("maxit"),
+	  py::arg("kopt"),
 	  py::arg("pb"),
 	  py::arg("lmu"),
 	  py::arg("a0"),
 	  py::arg("ca"),
 	  py::arg("ia"),
 	  py::arg("nin"),
-	  py::arg("rsq"),
+	  py::arg("nulldev"),
+	  py::arg("dev"),
 	  py::arg("alm"),
 	  py::arg("nlp"),
 	  py::arg("jerr"));
     
-    m.def("spgaussnet", &spgaussnet_exp,
-	  py::arg("ka"),
+    m.def("splognet", &splognet,
 	  py::arg("parm"),
 	  py::arg("ni"),
 	  py::arg("no"),
@@ -189,7 +192,7 @@ PYBIND11_MODULE(gaussnet, m) {
 	  py::arg("x_indices_array"),
 	  py::arg("x_indptr_array"),
 	  py::arg("y"),
-	  py::arg("w"),
+	  py::arg("g"),
 	  py::arg("jd"),
 	  py::arg("vp"),
 	  py::arg("cl"),	  
@@ -201,13 +204,15 @@ PYBIND11_MODULE(gaussnet, m) {
 	  py::arg("thr"),
 	  py::arg("isd"),
 	  py::arg("intr"),
+	  py::arg("maxit"),
+	  py::arg("kopt"),
 	  py::arg("pb"),
 	  py::arg("lmu"),
 	  py::arg("a0"),
 	  py::arg("ca"),
 	  py::arg("ia"),
 	  py::arg("nin"),
-	  py::arg("rsq"),
+	  py::arg("nulldev"),
 	  py::arg("dev"),
 	  py::arg("alm"),
 	  py::arg("nlp"),

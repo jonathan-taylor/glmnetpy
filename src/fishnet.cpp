@@ -151,7 +151,7 @@ py::dict spfishnet_exp(
   return result;
 }
 
-PYBIND11_MODULE(fishnet, m) {
+PYBIND11_MODULE(_fishnet, m) {
     m.def("fishnet", &fishnet_exp,
 	  py::arg("parm"),
 	  py::arg("ni"),
