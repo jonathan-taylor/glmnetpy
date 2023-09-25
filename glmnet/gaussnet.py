@@ -127,7 +127,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             df = (np.fabs(coefs) > 0).sum(1)
             # this is order variables appear in the path
             # reorder to set original coords
-            active_seq = _fit['ia'][:nfits]
+            active_seq = _fit['ia']
             _argsort = np.argsort(active_seq)
             coefs = coefs[:, _argsort]
             intercepts = _fit['a0'][:nfits]
@@ -174,6 +174,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             offset = np.asarray(offset).astype(float)
             y = y - offset # makes a copy, does not modify y
+            is_offset = True
         y = y.copy().reshape((-1,1))
         offset = np.asfortranarray(offset)
 

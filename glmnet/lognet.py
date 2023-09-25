@@ -32,7 +32,9 @@ class LogNet(FastNetMixin):
         # reshape to (nfits,)
         # specific to binary
         self._fit['a0'] = self._fit['a0'].reshape(-1)
-        return super()._extract_fits()
+        V = super()._extract_fits()
+        print(V['coefs'].shape)
+        return V
 
     def _check(self, X, y):
 
@@ -51,6 +53,12 @@ class LogNet(FastNetMixin):
                       offset,
                       exclude=[]):
 
+        _args = super()._wrapper_args(design,
+                                      y,
+                                      sample_weight,
+                                      offset,
+                                      exclude=exclude)
+
         # adjust dim of offset -- seems necessary to get 1d?
 
         if offset is None:
@@ -61,12 +69,7 @@ class LogNet(FastNetMixin):
         if self.univariate_beta:
             if offset.ndim == 2 and offset.shape[1] != 1:
                 raise ValueError('for binary classification as univariate, offset should be 1d')
-
-        _args = super()._wrapper_args(design,
-                                      y,
-                                      sample_weight,
-                                      offset,
-                                      exclude=exclude)
+        offset = np.asfortranarray(offset)
 
         nobs, nvars = design.X.shape
 
@@ -85,109 +88,11 @@ class LogNet(FastNetMixin):
         _args['ca'] = np.zeros((nvars*self.nlambda*nc, 1))
 
         # reshape y
-        _args['y'] = _args['y'].reshape((nobs, len(self.categories_)))
+        _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, len(self.categories_))))
+#        probably should scale these?
 #        _args['y'] *= sample_weight[:,None]
 
         # remove w
         del(_args['w'])
         
-        print([(k, _args[k]) for k in sorted(_args.keys())])
         return _args
-
-
-    # def _wrapper_args(self,
-    #                   design,
-    #                   y,
-    #                   sample_weight,
-    #                   offset,
-    #                   exclude=[]):
-        
-    #     X = design.X
-
-    #     nobs, nvars = X.shape
-
-    #     if self.lambda_min_ratio is None:
-    #         if nobs < nvars:
-    #             self.lambda_min_ratio = 1e-2
-    #         else:
-    #             self.lambda_min_ratio = 1e-4
-
-    #     if self.lambda_values is None:
-    #         if self.lambda_min_ratio > 1:
-    #             raise ValueError('lambda_min_ratio should be less than 1')
-    #         flmin = float(self.lambda_min_ratio)
-    #         ulam = np.zeros((1, 1))
-    #     else:
-    #         flmin = 1.
-    #         if np.any(self.lambda_values < 0):
-    #             raise ValueError('lambdas should be non-negative')
-    #         ulam = np.sort(self.lambda_values)[::-1].reshape((-1, 1))
-    #         self.nlambda = self.lambda_values.shape[0]
-
-    #     if self.penalty_factor is None:
-    #         self.penalty_factor = np.ones(nvars)
-
-    #     if offset is None:
-    #         offset = y * 0.
-    #         if self.univariate_beta:
-    #             offset = offset[:,:1]
-
-    #     offset = np.asfortranarray(offset)
-
-    #     # compute jd
-    #     # assume that there are no constant variables
-
-    #     jd = np.ones((nvars, 1), np.int32)
-    #     jd[exclude] = 0
-    #     jd = np.nonzero(jd)[0].astype(np.int32)
-
-    #     cl = np.asarray([self.lower_limits,
-    #                      self.upper_limits], float)
-
-    #     kopt = {'Newton':0,
-    #             'modified_Newton':1}[self.type_logistic]
-
-    #     nc = y.shape[1]
-    #     if self.univariate_beta:
-    #         nc = 1
-
-    #     # from https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/lognet.R#L80
-    #     # and https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/src/elnet_exp.cpp#L124
-
-    #     # all but the X -- this is set below
-
-    #     nx = min((nvars+1)*2+20, nvars)
-
-    #     _args = {'parm':float(self.alpha),
-    #              'ni':nvars,
-    #              'no':nobs,
-    #              'y':y,
-    #              'g':offset,
-    #              'jd':jd,
-    #              'vp':self.penalty_factor,
-    #              'cl':cl,
-    #              'ne':nvars+1,
-    #              'nx':nx,
-    #              'nlam':self.nlambda,
-    #              'flmin':flmin,
-    #              'ulam':ulam,
-    #              'thr':float(self.control.thresh),
-    #              'isd':int(self.standardize),
-    #              'intr':int(self.fit_intercept),
-    #              'maxit':int(self.control.maxit),
-    #              'kopt':kopt,
-    #              'pb':None,
-    #              'lmu':0,
-    #              'a0':np.asfortranarray(np.zeros((nc, self.nlambda), float)),
-    #              'ca':np.zeros((nx*self.nlambda*nc, 1)),
-    #              'ia':np.zeros((nx, 1), np.int32),
-    #              'nin':np.zeros((self.nlambda, 1), np.int32),
-    #              'nulldev':0.,
-    #              'dev':np.zeros((self.nlambda, 1)),
-    #              'alm':np.zeros((self.nlambda, 1)),
-    #              'nlp':0,
-    #              'jerr':0,
-    #              }
-
-        # return _args
-

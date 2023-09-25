@@ -39,79 +39,65 @@ class FishNet(FastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
+
+        _args = super()._wrapper_args(design,
+                                      y,
+                                      sample_weight,
+                                      offset,
+                                      exclude=exclude)
+
+        # adjust dim of offset -- seems necessary to get 1d?
+
+        if offset is None:
+            offset = y * 0.
+            if self.univariate_beta:
+                offset = offset[:,:1]
+
+        if self.univariate_beta:
+            if offset.ndim == 2 and offset.shape[1] != 1:
+                raise ValueError('for binary classification as univariate, offset should be 1d')
+        offset = np.asfortranarray(offset)
+
+        nobs, nvars = design.X.shape
+
+        # add 'kopt' 
+        _args['kopt'] = {'Newton':0,
+                         'modified_Newton':1}[self.type_logistic]
+
+        # add 'g'
+        _args['g'] = offset
         
-        X = design.X
+        # fix intercept and coefs
 
-        nobs, nvars = X.shape
+        if self.univariate_beta:
+            nc = 1
+        _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
+        _args['ca'] = np.zeros((nvars*self.nlambda*nc, 1))
 
-        if self.lambda_min_ratio is None:
-            if nobs < nvars:
-                self.lambda_min_ratio = 1e-2
-            else:
-                self.lambda_min_ratio = 1e-4
+        # reshape y
+        _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, len(self.categories_))))
+#        probably should scale these?
+#        _args['y'] *= sample_weight[:,None]
 
-        if self.lambda_values is None:
-            if self.lambda_min_ratio > 1:
-                raise ValueError('lambda_min_ratio should be less than 1')
-            flmin = float(self.lambda_min_ratio)
-            ulam = np.zeros((1, 1))
-        else:
-            flmin = 1.
-            if np.any(self.lambda_values < 0):
-                raise ValueError('lambdas should be non-negative')
-            ulam = np.sort(lambda_values)[::-1].reshape((-1, 1))
-            self.nlambda = self.lambda_values.shape[0]
-        if penalty_factor is None:
-            penalty_factor = np.ones(nvars)
+        # remove w
+        del(_args['w'])
+        
+        return _args
 
+    def _wrapper_args(self,
+                      design,
+                      y,
+                      sample_weight,
+                      offset,
+                      exclude=[]):
+        
         if offset is None:
             offset = 0. * y
         offset = np.asfortranarray(offset.reshape((-1,1)))
 
-        # compute jd
-        # assume that there are no constant variables
-
-        jd = np.ones((nvars, 1), np.int32)
-        jd[exclude] = 0
-        jd = np.nonzero(jd)[0].astype(np.int32)
-
-        cl = np.asarray([lower_limits,
-                         upper_limits], float)
-
-        # all but the X -- this is set below
-
-        nx = min((nvars+1)*2+20, nvars)
-
-        _args = {'parm':float(alpha),
-                 'ni':nvars,
-                 'no':nobs,
-                 'y':(y * 1.).reshape((-1,1)),
-                 'w':sample_weight.reshape((-1,1)),
-                 'g':offset,
-                 'jd':jd,
-                 'vp':penalty_factor,
-                 'cl':np.asfortranarray(cl),
-                 'ne':nvars+1,
-                 'nx':nx,
-                 'nlam':nlambda,
-                 'flmin':flmin,
-                 'ulam':ulam,
-                 'thr':float(thresh),
-                 'isd':int(standardize),
-                 'intr':int(fit_intercept),
-                 'maxit':int(maxit),
-                 'pb':None,
-                 'lmu':0, # these asfortran calls not necessary -- nullop
-                 'a0':np.asfortranarray(np.zeros((nlambda, 1), float)),
-                 'ca':np.asfortranarray(np.zeros((nx, nlambda))),
-                 'ia':np.zeros((nx, 1), np.int32),
-                 'nin':np.zeros((nlambda, 1), np.int32),
-                 'nulldev':float(0),
-                 'dev':np.zeros((nlambda, 1)),
-                 'alm':np.zeros((nlambda, 1)),
-                 'nlp':0,
-                 'jerr':0,
-                 }
-
-        return _args
+        return super()._wrapper_args(design,
+                                     y,
+                                     sample_weight,
+                                     offset,
+                                     exclude=exclude)
 
