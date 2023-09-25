@@ -62,14 +62,13 @@ class LogNet(FastNetMixin):
             if offset.ndim == 2 and offset.shape[1] != 1:
                 raise ValueError('for binary classification as univariate, offset should be 1d')
 
-        print(y, 'y')
         _args = super()._wrapper_args(design,
                                       y,
                                       sample_weight,
                                       offset,
                                       exclude=exclude)
 
-        print(y, 'y')
+        nobs, nvars = design.X.shape
 
         # add 'kopt' 
         _args['kopt'] = {'Newton':0,
@@ -83,9 +82,16 @@ class LogNet(FastNetMixin):
         if self.univariate_beta:
             nc = 1
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
-        nvars = design.X.shape[1]
         _args['ca'] = np.zeros((nvars*self.nlambda*nc, 1))
 
+        # reshape y
+        _args['y'] = _args['y'].reshape((nobs, len(self.categories_)))
+#        _args['y'] *= sample_weight[:,None]
+
+        # remove w
+        del(_args['w'])
+        
+        print([(k, _args[k]) for k in sorted(_args.keys())])
         return _args
 
 
