@@ -121,15 +121,18 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         if ninmax > 0:
             if _fit['ca'].ndim == 1: # logistic is like this
-                coefs = _fit['ca'][:(nx*nfits)].reshape(nfits, nx)
+                unsort_coefs = _fit['ca'][:(nx*nfits)].reshape(nfits, nx)
             else:
-                coefs = _fit['ca'][:,:nfits].T
-            df = (np.fabs(coefs) > 0).sum(1)
+                unsort_coefs = _fit['ca'][:,:nfits].T
+            df = (np.fabs(unsort_coefs) > 0).sum(1)
+
             # this is order variables appear in the path
             # reorder to set original coords
-            active_seq = _fit['ia']
-            _argsort = np.argsort(active_seq)
-            coefs = coefs[:, _argsort]
+
+            active_seq = _fit['ia'].reshape(-1)[:ninmax] - 1
+
+            coefs = np.zeros((nfits, nx))
+            coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
             intercepts = _fit['a0'][:nfits]
 
         return {'coefs':coefs,
@@ -145,7 +148,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                       exclude=[]):
 
         X = design.X
-
         nobs, nvars = X.shape
 
         if self.lambda_min_ratio is None:
@@ -175,6 +177,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             offset = np.asarray(offset).astype(float)
             y = y - offset # makes a copy, does not modify y
             is_offset = True
+
         y = y.copy().reshape((-1,1))
         offset = np.asfortranarray(offset)
 
