@@ -26,6 +26,9 @@ from .docstrings import (make_docstring,
 @dataclass
 class FastNetMixin(GLMNet): # base class for C++ path methods
 
+    lambda_min_ratio: float = None
+    nlambda: int = 100
+
     def fit(self,
             X,
             y,
@@ -63,16 +66,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self._args = self._wrapper_args(design,
                                         y,
                                         sample_weight,
-                                        self.lambda_values,
-                                        alpha=self.alpha,
                                         offset=offset,
-                                        fit_intercept=self.fit_intercept,
-                                        penalty_factor=self.penalty_factor,
-                                        exclude=exclude,
-                                        lower_limits=self.lower_limits,
-                                        upper_limits=self.upper_limits,
-                                        thresh=self.control.thresh,
-                                        maxit=self.control.maxit)
+                                        exclude=exclude)
 
         self._args.update(**_design_wrapper_args(design))
 
@@ -146,21 +141,89 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                       design,
                       y,
                       sample_weight,
-                      lambda_values,
                       offset,
-                      nlambda=100,
-                      alpha=1.0,
-                      lambda_min_ratio=None,
-                      fit_intercept=True,
-                      standardize=True,
-                      thresh=1e-7,
-                      maxit=100000,
-                      penalty_factor=None, 
-                      exclude=[],
-                      lower_limits=-np.inf,
-                      upper_limits=np.inf):
-        raise NotImplementedError('abstract method')
+                      exclude=[]):
 
+        X = design.X
+
+        nobs, nvars = X.shape
+
+        if self.lambda_min_ratio is None:
+            if nobs < nvars:
+                self.lambda_min_ratio = 1e-2
+            else:
+                self.lambda_min_ratio = 1e-4
+
+        if self.lambda_values is None:
+            if self.lambda_min_ratio > 1:
+                raise ValueError('lambda_min_ratio should be less than 1')
+            flmin = float(self.lambda_min_ratio)
+            ulam = np.zeros((1, 1))
+        else:
+            flmin = 1.
+            if np.any(self.lambda_values < 0):
+                raise ValueError('lambdas should be non-negative')
+            ulam = np.sort(self.lambda_values)[::-1].reshape((-1, 1))
+            self.nlambda = self.lambda_values.shape[0]
+
+        # if self.penalty_factor is None:
+        #     self.penalty_factor = np.ones(nvars)
+
+        if offset is None:
+            is_offset = False
+        else:
+            offset = np.asarray(offset).astype(float)
+            y = y - offset # makes a copy, does not modify y
+        y = y.copy().reshape((-1,1))
+        offset = np.asfortranarray(offset)
+
+        # compute jd
+        # assume that there are no constant variables
+
+        jd = np.ones((nvars, 1), np.int32)
+        jd[exclude] = 0
+        jd = np.nonzero(jd)[0].astype(np.int32)
+
+        # compute cl from upper and lower limits
+        cl = np.asarray([self.lower_limits,
+                         self.upper_limits], float)
+
+        # all but the X -- this is set below
+
+        nx = min((nvars+1)*2+20, nvars)
+
+        _args = {'parm':float(self.alpha),
+                 'ni':nvars,
+                 'no':nobs,
+                 'y':y,
+                 'w':sample_weight.reshape((-1,1)),
+                 'jd':jd,
+                 'vp':self.penalty_factor,
+                 'cl':np.asfortranarray(cl),
+                 'ne':nvars+1,
+                 'nx':nx,
+                 'nlam':self.nlambda,
+                 'flmin':flmin,
+                 'ulam':ulam,
+                 'thr':float(self.control.thresh),
+                 'isd':int(self.standardize),
+                 'intr':int(self.fit_intercept),
+                 'maxit':int(self.control.maxit),
+                 'pb':None,
+                 'lmu':0, # these asfortran calls not necessary -- nullop
+                 'a0':np.asfortranarray(np.zeros((self.nlambda, 1), float)),
+                 'ca':np.asfortranarray(np.zeros((nx, self.nlambda))),
+                 'ia':np.zeros((nx, 1), np.int32),
+                 'nin':np.zeros((self.nlambda, 1), np.int32),
+                 'dev':np.zeros((self.nlambda, 1)),
+                 'alm':np.zeros((self.nlambda, 1)),
+                 'nlp':0,
+                 'jerr':0,
+                 }
+
+        _args.update(**_design_wrapper_args(design))
+
+        return _args
 
 @dataclass
 class GaussNet(FastNetMixin):
@@ -180,70 +243,8 @@ class GaussNet(FastNetMixin):
                       design,
                       y,
                       sample_weight,
-                      lambda_values,
                       offset,
-                      nlambda=100,
-                      alpha=1.0,
-                      lambda_min_ratio=None,
-                      fit_intercept=True,
-                      standardize=True,
-                      thresh=1e-7,
-                      maxit=100000,
-                      penalty_factor=None, 
-                      exclude=[],
-                      lower_limits=-np.inf,
-                      upper_limits=np.inf):
-        X = design.X
-
-        nobs, nvars = X.shape
-
-        if lambda_min_ratio is None:
-            if nobs < nvars:
-                lambda_min_ratio = 1e-2
-            else:
-                lambda_min_ratio = 1e-4
-
-        if lambda_values is None:
-            if lambda_min_ratio > 1:
-                raise ValueError('lambda_min_ratio should be less than 1')
-            flmin = float(lambda_min_ratio)
-            ulam = np.zeros((1, 1))
-        else:
-            flmin = 1.
-            if np.any(lambda_values < 0):
-                raise ValueError('lambdas should be non-negative')
-            ulam = np.sort(lambda_values)[::-1].reshape((-1, 1))
-
-        if penalty_factor is None:
-            penalty_factor = np.ones(nvars)
-
-        if offset is None:
-            is_offset = False
-        else:
-            offset = np.asarray(offset).astype(float)
-            y = y - offset # makes a copy, does not modify y
-        y = y.copy().reshape((-1,1))
-        offset = np.asfortranarray(offset)
-
-        # compute jd
-        # assume that there are no constant variables
-
-        jd = np.ones((nvars, 1), np.int32)
-        jd[exclude] = 0
-        jd = np.nonzero(jd)[0].astype(np.int32)
-
-        # compute cl from upper and lower limits
-        cl = np.asarray([lower_limits,
-                         upper_limits], float)
-
-        if self.type_gaussian is None:
-            if nvars < 500:
-                self.type_gaussian = 'covariance'
-            else:
-                self.type_gaussian = 'naive'
-
-        ka = {'covariance':1,
-                'naive':2}[self.type_gaussian]
+                      exclude=[]):
 
         # compute nulldeviance
 
@@ -251,43 +252,26 @@ class GaussNet(FastNetMixin):
         nulldev = ((y - ybar)**2 * sample_weight).sum() / sample_weight.sum()
 
         if nulldev == 0:
-            raise ValueError("y is constant; gaussian glmnet fails at standardization step")
+            raise ValueError("y is constant; GaussNet fails at standardization step")
 
-        # all but the X -- this is set below
+        _args = super()._wrapper_args(design,
+                                      y,
+                                      sample_weight,
+                                      offset,
+                                      exclude=exclude)
 
-        nx = min((nvars+1)*2+20, nvars)
+        # add 'ka' 
+        if self.type_gaussian is None:
+            if nvars < 500:
+                self.type_gaussian = 'covariance'
+            else:
+                self.type_gaussian = 'naive'
 
-        _args = {'ka':ka,
-                 'parm':float(alpha),
-                 'ni':nvars,
-                 'no':nobs,
-                 'y':y,
-                 'w':sample_weight.reshape((-1,1)),
-                 'jd':jd,
-                 'vp':penalty_factor,
-                 'cl':np.asfortranarray(cl),
-                 'ne':nvars+1,
-                 'nx':nx,
-                 'nlam':nlambda,
-                 'flmin':flmin,
-                 'ulam':ulam,
-                 'thr':float(thresh),
-                 'isd':int(standardize),
-                 'intr':int(fit_intercept),
-                 'maxit':int(maxit),
-                 'pb':None,
-                 'lmu':0, # these asfortran calls not necessary -- nullop
-                 'a0':np.asfortranarray(np.zeros((nlambda, 1), float)),
-                 'ca':np.asfortranarray(np.zeros((nx, nlambda))),
-                 'ia':np.zeros((nx, 1), np.int32),
-                 'nin':np.zeros((nlambda, 1), np.int32),
-                 'rsq':np.zeros((nlambda, 1)),
-                 'alm':np.zeros((nlambda, 1)),
-                 'nlp':0,
-                 'jerr':0,
-                 }
+        _args['ka'] = {'covariance':1,
+                       'naive':2}[self.type_gaussian]
 
-        _args.update(**_design_wrapper_args(design))
+        # Gaussian calls it rsq
+        _args['rsq'] = _args['dev']
+        del(_args['dev'])
 
         return _args
-

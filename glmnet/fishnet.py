@@ -37,41 +37,30 @@ class FishNet(FastNetMixin):
                       design,
                       y,
                       sample_weight,
-                      lambda_values,
                       offset,
-                      nlambda=100,
-                      alpha=1.0,
-                      lambda_min_ratio=None,
-                      fit_intercept=True,
-                      standardize=True,
-                      thresh=1e-7,
-                      maxit=100000,
-                      penalty_factor=None, 
-                      exclude=[],
-                      lower_limits=-np.inf,
-                      upper_limits=np.inf):
+                      exclude=[]):
         
         X = design.X
 
         nobs, nvars = X.shape
 
-        if lambda_min_ratio is None:
+        if self.lambda_min_ratio is None:
             if nobs < nvars:
-                lambda_min_ratio = 1e-2
+                self.lambda_min_ratio = 1e-2
             else:
-                lambda_min_ratio = 1e-4
+                self.lambda_min_ratio = 1e-4
 
-        if lambda_values is None:
-            if lambda_min_ratio > 1:
+        if self.lambda_values is None:
+            if self.lambda_min_ratio > 1:
                 raise ValueError('lambda_min_ratio should be less than 1')
-            flmin = float(lambda_min_ratio)
+            flmin = float(self.lambda_min_ratio)
             ulam = np.zeros((1, 1))
         else:
             flmin = 1.
-            if np.any(lambda_values < 0):
+            if np.any(self.lambda_values < 0):
                 raise ValueError('lambdas should be non-negative')
             ulam = np.sort(lambda_values)[::-1].reshape((-1, 1))
-
+            self.nlambda = self.lambda_values.shape[0]
         if penalty_factor is None:
             penalty_factor = np.ones(nvars)
 
