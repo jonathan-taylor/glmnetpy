@@ -215,6 +215,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'ca':np.asfortranarray(np.zeros((nx, self.nlambda))),
                  'ia':np.zeros((nx, 1), np.int32),
                  'nin':np.zeros((self.nlambda, 1), np.int32),
+                 'nulldev':0.,
                  'dev':np.zeros((self.nlambda, 1)),
                  'alm':np.zeros((self.nlambda, 1)),
                  'nlp':0,
@@ -262,6 +263,7 @@ class GaussNet(FastNetMixin):
 
         # add 'ka' 
         if self.type_gaussian is None:
+            nvars = design.X.shape[1]
             if nvars < 500:
                 self.type_gaussian = 'covariance'
             else:
@@ -274,4 +276,6 @@ class GaussNet(FastNetMixin):
         _args['rsq'] = _args['dev']
         del(_args['dev'])
 
+        # doesn't use nulldev
+        del(_args['nulldev'])
         return _args
