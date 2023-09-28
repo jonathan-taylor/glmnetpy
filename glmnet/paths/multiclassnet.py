@@ -36,6 +36,15 @@ class MultiClassNet(MultiFastNetMixin):
         self.categories_ = encoder.categories_[0]
         return X, y_onehot
 
+    def _extract_fits(self,
+                      X_shape,
+                      y_shape):
+        # center the intercepts -- any constant
+        # added does not affect class probabilities
+        
+        self._fit['a0'] = self._fit['a0'] - self._fit['a0'].mean(0)[None,:]
+        return super()._extract_fits(X_shape, y_shape)
+
     def _wrapper_args(self,
                       design,
                       y,
