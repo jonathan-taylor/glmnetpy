@@ -5,9 +5,11 @@ from .elnet import ElNet
 
 # fast paths
 
-from .lognet import LogNet
-from .gaussnet import GaussNet
-from .fishnet import FishNet
+from .paths import (LogNet,
+                    FishNet,
+                    GaussNet,
+                    MultiGaussNet,
+                    MultiClassNet)
 
 # Cox models
 

@@ -149,7 +149,7 @@ py::dict spmultigauss_exp(
 
 PYBIND11_MODULE(_multigaussnet, m) {
 
-    m.def("multigauss", &multigauss_exp,
+    m.def("multigaussnet", &multigauss_exp,
 	  py::arg("parm"),
 	  py::arg("ni"),
 	  py::arg("no"),
@@ -180,7 +180,7 @@ PYBIND11_MODULE(_multigaussnet, m) {
 	  py::arg("nlp"),
 	  py::arg("jerr"));
     
-    m.def("spmultigauss", &spmultigauss_exp,
+    m.def("spmultigaussnet", &spmultigauss_exp,
 	  py::arg("parm"),
 	  py::arg("ni"),
 	  py::arg("no"),

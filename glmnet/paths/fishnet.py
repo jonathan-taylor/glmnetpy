@@ -10,20 +10,20 @@ import numpy as np
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils import check_X_y
 
-from .gaussnet import FastNetMixin
+from .fastnet import FastNetMixin
 from .docstrings import (make_docstring,
                          add_dataclass_docstring)
 
-from ._fishnet import fishnet as fishnet_dense
-from ._fishnet import spfishnet as fishnet_sparse
+from ._fishnet import fishnet as _dense
+from ._fishnet import spfishnet as _sparse
 
 @dataclass
 class FishNet(FastNetMixin):
 
     univariate_beta: bool = True
     type_logistic: Literal['Newton', 'modified_Newton'] = 'Newton'
-    _dense = fishnet_dense
-    _sparse = fishnet_sparse
+    _dense = _dense
+    _sparse = _sparse
 
     # private methods
 
@@ -31,8 +31,10 @@ class FishNet(FastNetMixin):
 
         if np.any(y < 0):
             raise ValueError("negative responses encountered;  not permitted for Poisson family")
-        return super()._check(X, y)
-
+        X, y = super()._check(X, y)
+        y = np.asarray(y, float)
+        return X, y
+    
     def _wrapper_args(self,
                       design,
                       y,

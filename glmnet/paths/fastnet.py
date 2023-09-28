@@ -10,8 +10,8 @@ import scipy.sparse
 
 from sklearn.utils import check_X_y
 
-from ._gaussnet import gaussnet as gaussnet_dense
-from ._gaussnet import spgaussnet as gaussnet_sparse
+from ._gaussnet import gaussnet as _dense
+from ._gaussnet import spgaussnet as _sparse
 
 from .base import _get_design
 from .glmnet import GLMNet
@@ -28,7 +28,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
     lambda_min_ratio: float = None
     nlambda: int = 100
-
+    df_max: int = None
+    
     def fit(self,
             X,
             y,
@@ -50,7 +51,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
         X, y = self._check(X, y)
-
+        if self.df_max is None:
+            self.df_max = X.shape[1] + self.fit_intercept
+            
         self.exclude_ = exclude
         if self.control is None:
             self.control = GLMNetControl()
@@ -85,12 +88,20 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # extract the coefficients
         
-        result = self._extract_fits()
+        result = self._extract_fits(X.shape, y.shape)
         nvars = design.X.shape[1]
-        self.coefs_ = result['coefs'] / design.scaling_[None,:]
-        self.intercepts_ = (result['intercepts'] -
-                            (self.coefs_ * design.centers_[None,:]).sum(1))
-
+        if result['coefs'].ndim == 2:
+            self.coefs_ = result['coefs'] / design.scaling_[None,:]
+        else: # (nlam, nvar, nresponse)
+            self.coefs_ = result['coefs'] / design.scaling_[None,:,None]
+        if result['intercepts'].ndim == 1:
+            self.intercepts_ = (result['intercepts'] -
+                                (self.coefs_ * design.centers_[None,:]).sum(1))
+        else:
+            self.intercepts_ = (result['intercepts'] -
+                                (self.coefs_ *
+                                 design.centers_[None,:,None]).sum(1))
+            
         self.lambda_values_ = result['lambda_values']
         nfits = self.lambda_values_.shape[0]
         dev_ratios_ = self._fit['dev'][:nfits]
@@ -106,10 +117,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
     # private methods
 
-    def _extract_fits(self): # getcoef.R
+    def _extract_fits(self,
+                      X_shape,
+                      y_shape): # getcoef.R
         _fit, _args = self._fit, self._args
-        nx = _args['nx']
-        nvars = _args['ni']
+        nvars = X_shape[1]
         nfits = _fit['lmu']
 
         if nfits < 1:
@@ -121,7 +133,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         if ninmax > 0:
             if _fit['ca'].ndim == 1: # logistic is like this
-                unsort_coefs = _fit['ca'][:(nx*nfits)].reshape(nfits, nx)
+                unsort_coefs = _fit['ca'][:(nvars*nfits)].reshape(nfits, nvars)
             else:
                 unsort_coefs = _fit['ca'][:,:nfits].T
             df = (np.fabs(unsort_coefs) > 0).sum(1)
@@ -131,7 +143,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
             active_seq = _fit['ia'].reshape(-1)[:ninmax] - 1
 
-            coefs = np.zeros((nfits, nx))
+            coefs = np.zeros((nfits, nvars))
             coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
             intercepts = _fit['a0'][:nfits]
 
@@ -139,12 +151,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                 'intercepts':intercepts,
                 'df':df,
                 'lambda_values':lambda_values}
-
+ 
     def _wrapper_args(self,
                       design,
                       y,
                       sample_weight,
-                      offset,
+                      offset, # ignored, but subclasses use it
                       exclude=[]):
 
         X = design.X
@@ -168,18 +180,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             ulam = np.sort(self.lambda_values)[::-1].reshape((-1, 1))
             self.nlambda = self.lambda_values.shape[0]
 
-        # if self.penalty_factor is None:
-        #     self.penalty_factor = np.ones(nvars)
-
-        if offset is None:
-            is_offset = False
-        else:
-            offset = np.asarray(offset).astype(float)
-            y = y - offset # makes a copy, does not modify y
-            is_offset = True
-
-        y = y.copy().reshape((-1,1))
-        offset = np.asfortranarray(offset)
+        if y.ndim == 1:
+            y = y.reshape((-1,1))
 
         # compute jd
         # assume that there are no constant variables
@@ -194,7 +196,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # all but the X -- this is set below
 
-        nx = min((nvars+1)*2+20, nvars)
+        # isn't this always nvars?
+        # should have a df_max arg
+        nx = min(self.df_max*2+20, nvars)
 
         _args = {'parm':float(self.alpha),
                  'ni':nvars,
@@ -235,14 +239,17 @@ class GaussNet(FastNetMixin):
 
     type_gaussian: Literal['covariance', 'naive'] = None
 
-    _dense = gaussnet_dense
-    _sparse = gaussnet_sparse
+    _dense = _dense
+    _sparse = _sparse
 
     # private methods
 
-    def _extract_fits(self):
+    def _extract_fits(self,
+                      X_shape,
+                      y_shape):
         self._fit['dev'] = self._fit['rsq'] # gaussian fit calls it rsq
-        return super()._extract_fits()
+        return super()._extract_fits(X_shape,
+                                     y_shape)
         
     def _wrapper_args(self,
                       design,
@@ -250,6 +257,13 @@ class GaussNet(FastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
+
+        if offset is None:
+            is_offset = False
+        else:
+            offset = np.asarray(offset).astype(float)
+            y = y - offset # makes a copy, does not modify y
+            is_offset = True
 
         # compute nulldeviance
 
@@ -282,4 +296,65 @@ class GaussNet(FastNetMixin):
 
         # doesn't use nulldev
         del(_args['nulldev'])
+        return _args
+
+@dataclass
+class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
+
+    def _extract_fits(self,
+                      X_shape,
+                      y_shape):
+        _fit, _args = self._fit, self._args
+        nvars = X_shape[1]
+        nresp = y_shape[1]
+        nfits = _fit['lmu']
+        if nfits < 1:
+            warnings.warn("an empty model has been returned; probably a convergence issue")
+
+        nin = _fit['nin'][:nfits]
+        ninmax = max(nin)
+        lambda_values = _fit['alm'][:nfits]
+
+        if ninmax > 0:
+            unsort_coefs = _fit['ca'][:(nresp*nvars*nfits)].reshape(nfits,
+                                                                    nresp,
+                                                                    nvars)
+            unsort_coefs = np.transpose(unsort_coefs, [0,2,1])
+            df = ((unsort_coefs**2).sum(2) > 0).sum(1)
+
+            # this is order variables appear in the path
+            # reorder to set original coords
+
+            active_seq = _fit['ia'].reshape(-1)[:ninmax] - 1
+
+            coefs = np.zeros((nfits, nvars, nresp))
+            coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
+            intercepts = _fit['a0'][:,:nfits].T
+
+        return {'coefs':coefs,
+                'intercepts':intercepts,
+                'df':df,
+                'lambda_values':lambda_values}
+
+
+    def _wrapper_args(self,
+                      design,
+                      y,
+                      sample_weight,
+                      offset,
+                      exclude=[]):
+           
+        _args = super()._wrapper_args(design,
+                                      y,
+                                      sample_weight,
+                                      offset,
+                                      exclude=exclude)
+
+        # ensure shapes are correct
+
+        (nobs, nvars), nr = design.X.shape, y.shape[1]
+        _args['a0'] = np.asfortranarray(np.zeros((nr, self.nlambda), float))
+        _args['ca'] = np.zeros((self.nlambda * nr * nvars, 1))
+        _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, nr)))
+
         return _args
