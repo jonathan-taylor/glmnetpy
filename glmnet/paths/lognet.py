@@ -19,10 +19,11 @@ from ._lognet import splognet as _sparse
 @dataclass
 class LogNet(FastNetMixin):
 
-    univariate_beta: bool = True
     modified_newton: bool = False
     _dense = _dense
     _sparse = _sparse
+
+    univariate_beta = True # not tested as False
 
     # private methods
 
@@ -83,6 +84,8 @@ class LogNet(FastNetMixin):
 
         if self.univariate_beta:
             nc = 1
+        else:
+            nc = len(self.categories_)
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
         _args['ca'] = np.zeros((nvars*self.nlambda*nc, 1))
 

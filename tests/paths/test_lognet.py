@@ -54,16 +54,17 @@ def get_glmnet_soln(X,
 @pytest.mark.parametrize('n', [1000,50])
 @pytest.mark.parametrize('p', [10,100])
 def test_lognet(modified_newton,
-                  standardize,
-                  fit_intercept,
-                  n,
-                  p):
+                standardize,
+                fit_intercept,
+                n,
+                p):
 
     X = rng.standard_normal((n, p))
     Y = rng.choice(['A', 'B'], size=n)
     L = LogNet(modified_newton=modified_newton,
                standardize=standardize,
                fit_intercept=fit_intercept)
+
     L.fit(X, Y)
     C = get_glmnet_soln(X,
                         Y,
