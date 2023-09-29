@@ -20,7 +20,7 @@ from ._lognet import splognet as _sparse
 class LogNet(FastNetMixin):
 
     univariate_beta: bool = True
-    type_logistic: Literal['Newton', 'modified_Newton'] = 'Newton'
+    modified_newton: bool = False
     _dense = _dense
     _sparse = _sparse
 
@@ -74,8 +74,7 @@ class LogNet(FastNetMixin):
         nobs, nvars = design.X.shape
 
         # add 'kopt' 
-        _args['kopt'] = {'Newton':0,
-                         'modified_Newton':1}[self.type_logistic]
+        _args['kopt'] = int(self.modified_newton)
 
         # add 'g'
         _args['g'] = offset
@@ -90,8 +89,9 @@ class LogNet(FastNetMixin):
         # reshape y
         _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, len(self.categories_))))
 
-#        probably should scale these?
-#        _args['y'] *= sample_weight[:,None]
+        # probably should scale these?
+
+        _args['y'] *= sample_weight[:,None]
 
         # remove w
         del(_args['w'])

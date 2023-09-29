@@ -21,6 +21,7 @@ from ._lognet import splognet as _sparse
 class MultiClassNet(MultiFastNetMixin):
 
     standardize_response: bool = False
+    grouped: bool = False
     univariate_beta: bool = True
     type_logistic: Literal['Newton', 'modified_Newton'] = 'Newton'
     _dense = _dense
@@ -67,12 +68,15 @@ class MultiClassNet(MultiFastNetMixin):
         # add 'kopt' 
         _args['kopt'] = {'Newton':0,
                          'modified_Newton':1}[self.type_logistic]
+        # if grouped, we set kopt to 2
+        if self.grouped:
+            _args['kopt'] = 2
 
         # add 'g'
         _args['g'] = offset
 
-#        probably should scale these?
-#        _args['y'] *= sample_weight[:,None]
+        # take care of weights
+        _args['y'] *= sample_weight[:,None]
 
         # remove w
         del(_args['w'])

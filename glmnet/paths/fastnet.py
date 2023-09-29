@@ -36,12 +36,14 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             sample_weight=None,
             offset=None,
             exclude=[]):
-
+    
+        # the C++ path codes handle standardization
+        # themselves so we shouldn't handle it at this level
         if not hasattr(self, "design_"):
             self.design_ = design = _get_design(X,
                                                 sample_weight,
-                                                standardize=self.standardize,
-                                                intercept=self.fit_intercept)
+                                                standardize=False,
+                                                intercept=False)
         else:
             design = self.design_
 
@@ -90,17 +92,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         
         result = self._extract_fits(X.shape, y.shape)
         nvars = design.X.shape[1]
-        if result['coefs'].ndim == 2:
-            self.coefs_ = result['coefs'] / design.scaling_[None,:]
-        else: # (nlam, nvar, nresponse)
-            self.coefs_ = result['coefs'] / design.scaling_[None,:,None]
-        if result['intercepts'].ndim == 1:
-            self.intercepts_ = (result['intercepts'] -
-                                (self.coefs_ * design.centers_[None,:]).sum(1))
-        else:
-            self.intercepts_ = (result['intercepts'] -
-                                (self.coefs_ *
-                                 design.centers_[None,:,None]).sum(1))
+
+        self.coefs_ = result['coefs']
+        self.intercepts_ = result['intercepts']
             
         self.lambda_values_ = result['lambda_values']
         nfits = self.lambda_values_.shape[0]
