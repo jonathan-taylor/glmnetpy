@@ -11,18 +11,16 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils import check_X_y
 
 from .fastnet import MultiFastNetMixin
-from .docstrings import (make_docstring,
-                         add_dataclass_docstring)
+from ..docstrings import (make_docstring,
+                          add_dataclass_docstring)
 
-from ._multigaussnet import multigaussnet as _dense
-from ._multigaussnet import spmultigaussnet as _sparse
+from .._multigaussnet import multigaussnet as _dense
+from .._multigaussnet import spmultigaussnet as _sparse
 
 @dataclass
 class MultiGaussNet(MultiFastNetMixin):
 
     standardize_response: bool = False
-    univariate_beta: bool = True
-    type_logistic: Literal['Newton', 'modified_Newton'] = 'Newton'
     _dense = _dense
     _sparse = _sparse
 

@@ -11,11 +11,11 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils import check_X_y
 
 from .fastnet import MultiFastNetMixin
-from .docstrings import (make_docstring,
-                         add_dataclass_docstring)
+from ..docstrings import (make_docstring,
+                          add_dataclass_docstring)
 
-from ._lognet import lognet as _dense
-from ._lognet import splognet as _sparse
+from .._lognet import lognet as _dense
+from .._lognet import splognet as _sparse
 
 @dataclass
 class MultiClassNet(MultiFastNetMixin):

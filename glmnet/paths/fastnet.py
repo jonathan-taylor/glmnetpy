@@ -10,18 +10,15 @@ import scipy.sparse
 
 from sklearn.utils import check_X_y
 
-from ._gaussnet import gaussnet as _dense
-from ._gaussnet import spgaussnet as _sparse
-
-from .base import _get_design
-from .glmnet import GLMNet
-from .elnet import (_check_and_set_limits,
+from ..base import _get_design
+from ..glmnet import GLMNet
+from ..elnet import (_check_and_set_limits,
                     _check_and_set_vp,
                     _design_wrapper_args)
 
-from ._utils import _jerr_elnetfit
-from .docstrings import (make_docstring,
-                         add_dataclass_docstring)
+from .._utils import _jerr_elnetfit
+from ..docstrings import (make_docstring,
+                          add_dataclass_docstring)
 
 @dataclass
 class FastNetMixin(GLMNet): # base class for C++ path methods
@@ -54,7 +51,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         X, y = self._check(X, y)
         if self.df_max is None:
-            self.df_max = X.shape[1] + self.fit_intercept
+            self.df_max = X.shape[1] + 1
             
         self.exclude_ = exclude
         if self.control is None:
@@ -180,13 +177,24 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # compute jd
         # assume that there are no constant variables
 
-        jd = np.ones((nvars, 1), np.int32)
-        jd[exclude] = 0
-        jd = np.nonzero(jd)[0].astype(np.int32)
-
+        if len(exclude) > 0:
+            jd = np.hstack([len(exclude), exclude]).astype(np.int32)
+        else:
+            jd = np.array([0], np.int32)
+            
         # compute cl from upper and lower limits
+
+        if not np.all(self.lower_limits <= 0):
+            raise ValueError('lower limits should be <= 0')
+
+        if not np.all(self.upper_limits >= 0):
+            raise ValueError('upper limits should be >= 0')
+
         cl = np.asarray([self.lower_limits,
                          self.upper_limits], float)
+
+        if np.any(cl[0] == 0) or np.any(cl[-1] == 0):
+            self.control.fdev = 0
 
         # all but the X -- this is set below
 
@@ -202,7 +210,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'jd':jd,
                  'vp':self.penalty_factor,
                  'cl':np.asfortranarray(cl),
-                 'ne':nvars+1,
+                 'ne':self.df_max,
                  'nx':nx,
                  'nlam':self.nlambda,
                  'flmin':flmin,
@@ -228,69 +236,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         return _args
 
-@dataclass
-class GaussNet(FastNetMixin):
-
-    type_gaussian: Literal['covariance', 'naive'] = None
-
-    _dense = _dense
-    _sparse = _sparse
-
-    # private methods
-
-    def _extract_fits(self,
-                      X_shape,
-                      y_shape):
-        self._fit['dev'] = self._fit['rsq'] # gaussian fit calls it rsq
-        return super()._extract_fits(X_shape,
-                                     y_shape)
-        
-    def _wrapper_args(self,
-                      design,
-                      y,
-                      sample_weight,
-                      offset,
-                      exclude=[]):
-
-        if offset is None:
-            is_offset = False
-        else:
-            offset = np.asarray(offset).astype(float)
-            y = y - offset # makes a copy, does not modify y
-            is_offset = True
-
-        # compute nulldeviance
-
-        ybar = (y * sample_weight).sum() / sample_weight.sum()
-        nulldev = ((y - ybar)**2 * sample_weight).sum() / sample_weight.sum()
-
-        if nulldev == 0:
-            raise ValueError("y is constant; GaussNet fails at standardization step")
-
-        _args = super()._wrapper_args(design,
-                                      y,
-                                      sample_weight,
-                                      offset,
-                                      exclude=exclude)
-
-        # add 'ka' 
-        if self.type_gaussian is None:
-            nvars = design.X.shape[1]
-            if nvars < 500:
-                self.type_gaussian = 'covariance'
-            else:
-                self.type_gaussian = 'naive'
-
-        _args['ka'] = {'covariance':1,
-                       'naive':2}[self.type_gaussian]
-
-        # Gaussian calls it rsq
-        _args['rsq'] = _args['dev']
-        del(_args['dev'])
-
-        # doesn't use nulldev
-        del(_args['nulldev'])
-        return _args
 
 @dataclass
 class MultiFastNetMixin(FastNetMixin): # paths with multiple responses

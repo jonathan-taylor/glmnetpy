@@ -10,11 +10,11 @@ import numpy as np
 from sklearn.preprocessing import OneHotEncoder
 
 from .fastnet import FastNetMixin
-from .docstrings import (make_docstring,
-                         add_dataclass_docstring)
+from ..docstrings import (make_docstring,
+                          add_dataclass_docstring)
 
-from ._lognet import lognet as _dense
-from ._lognet import splognet as _sparse
+from .._lognet import lognet as _dense
+from .._lognet import splognet as _sparse
 
 @dataclass
 class LogNet(FastNetMixin):
