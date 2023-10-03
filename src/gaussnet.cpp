@@ -43,6 +43,8 @@ py::dict gaussnet_exp(
     int jerr
     )
 {
+  InternalParams iparm = ::InternalParams();
+  iparm.sml = 0.;
     using elnet_driver_t = ElnetDriver<util::glm_type::gaussian>;
     elnet_driver_t driver;
     auto f = [&]() {
@@ -50,7 +52,7 @@ py::dict gaussnet_exp(
                 ka == 2, parm, x, y, w, jd, vp, cl, ne, nx, nlam, flmin,
                 ulam, thr, isd == 1, intr == 1, maxit, 
                 lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr, 
-                [&](int v) {update_pb(pb, v);}, ::InternalParams());
+                [&](int v) {update_pb(pb, v);}, iparm);
     };
     run(f, jerr);
 
