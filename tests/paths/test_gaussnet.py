@@ -62,11 +62,7 @@ def get_glmnet_soln(X,
             args.append('nlambda=nlambda')
 
         if covariance:
-            rpy.r.assign('type.gaussian', "covariance")
             args.append('type.gaussian="covariance"')
-        else:
-            rpy.r.assign('type.gaussian', "naive")
-            args.append('type.gaussian="naive"')
 
         if standardize:
             rpy.r.assign('standardize', True)

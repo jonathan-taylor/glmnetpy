@@ -2,7 +2,7 @@ import logging
 import warnings
 
 from typing import Literal
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
    
 import numpy as np
 import pandas as pd
@@ -21,12 +21,33 @@ from ..docstrings import (make_docstring,
                           add_dataclass_docstring)
 
 @dataclass
+class FastNetControl(object):
+
+    fdev: float = 1e-5
+    eps: float = 1e-6
+    big: float = 9.9e35
+    mnlam: int = 5
+    devmax: float = 0.999
+    pmin: float = 1e-9
+    exmx: float = 250.
+    itrace: int = 0
+    prec: float = 1e-10
+    mxit: int = 100
+    epsnr: float = 1e-6
+    mxitnr: int = 25
+    # thresh & logging not part of glmnet.control but used in the wrapper
+    maxit: int = 100000
+    thresh: float = 1e-7
+    logging: bool = False
+    
+@dataclass
 class FastNetMixin(GLMNet): # base class for C++ path methods
 
     lambda_min_ratio: float = None
     nlambda: int = 100
     df_max: int = None
-    
+    control: FastNetControl = field(default_factory=FastNetControl)
+
     def fit(self,
             X,
             y,
@@ -55,7 +76,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             
         self.exclude_ = exclude
         if self.control is None:
-            self.control = GLMNetControl()
+            self.control = FastNetControl()
 
         nobs, nvars = design.X.shape
 
@@ -73,6 +94,13 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         self._args.update(**_design_wrapper_args(design))
 
+        # set control args
+        D = asdict(self.control)
+        del(D['maxit']) # maxit is not in glmnet.control
+        del(D['thresh']) # thresh is not in glmnet.control
+        del(D['logging']) # logging is not in glmnet.control
+        self._args.update(**D)
+
         if scipy.sparse.issparse(design.X):
             self._fit = self._sparse(**self._args)
         else:
@@ -82,7 +110,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # if error code < 0, non-fatal error occurred: return error code
 
         if self._fit['jerr'] != 0:
-            errmsg = _jerr_elnetfit(self._fit['jerr'], self.control.maxit)
+            errmsg = _jerr_elnetfit(self._fit['jerr'], self.control.mxit)
             if self.control.logging: logging.debug(errmsg['msg'])
 
         # extract the coefficients
@@ -231,8 +259,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'nlp':0,
                  'jerr':0,
                  }
-
-        _args.update(**_design_wrapper_args(design))
 
         return _args
 
