@@ -110,7 +110,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # if error code < 0, non-fatal error occurred: return error code
 
         if self._fit['jerr'] != 0:
-            errmsg = _jerr_elnetfit(self._fit['jerr'], self.control.mxit)
+            errmsg = _jerr_elnetfit(self._fit['jerr'], self.control.maxit)
             if self.control.logging: logging.debug(errmsg['msg'])
 
         # extract the coefficients
