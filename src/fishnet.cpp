@@ -41,9 +41,36 @@ py::dict fishnet_exp(
     Eigen::Ref<Eigen::VectorXd> dev,
     Eigen::Ref<Eigen::VectorXd> alm,
     int nlp,
-    int jerr
+    int jerr,
+    double fdev,   // begin glmnet.control
+    double eps,
+    double big,
+    int mnlam,
+    double devmax,
+    double pmin,
+    double exmx,
+    int itrace,
+    double prec,
+    int mxit,
+    double epsnr,
+    int mxitnr     //end glmnet.control
     )
 {
+  InternalParams params = ::InternalParams();
+
+  params.sml = fdev;
+  params.eps = eps;
+  params.big = big;
+  params.mnlam = mnlam;
+  params.rsqmax = devmax; // change of name
+  params.pmin = pmin;
+  params.exmx = exmx;
+  params.itrace = itrace;
+  params.bnorm_thr = prec;
+  params.bnorm_mxit = mxit;
+  params.epsnr = epsnr;
+  params.mxitnr = mxitnr;
+
     using elnet_driver_t = ElnetDriver<util::glm_type::poisson>;
     elnet_driver_t driver;
     auto f = [&]() {
@@ -51,7 +78,7 @@ py::dict fishnet_exp(
                 parm, x, y, g, w, jd, vp, cl, ne, nx, nlam, flmin,
                 ulam, thr, isd, intr, maxit,
                 lmu, a0, ca, ia, nin, nulldev, dev, alm, nlp, jerr,
-                [&](int v) {update_pb(pb, v);}, ::InternalParams());
+                [&](int v) {update_pb(pb, v);}, params);
     };
     run(f, jerr);
 
@@ -104,9 +131,36 @@ py::dict spfishnet_exp(
     Eigen::Ref<Eigen::VectorXd> dev,
     Eigen::Ref<Eigen::VectorXd> alm,
     int nlp,
-    int jerr
+    int jerr,
+    double fdev,   // begin glmnet.control
+    double eps,
+    double big,
+    int mnlam,
+    double devmax,
+    double pmin,
+    double exmx,
+    int itrace,
+    double prec,
+    int mxit,
+    double epsnr,
+    int mxitnr     //end glmnet.control
     )
 {
+
+  InternalParams params = ::InternalParams();
+
+  params.sml = fdev;
+  params.eps = eps;
+  params.big = big;
+  params.mnlam = mnlam;
+  params.rsqmax = devmax; // change of name
+  params.pmin = pmin;
+  params.exmx = exmx;
+  params.itrace = itrace;
+  params.bnorm_thr = prec;
+  params.bnorm_mxit = mxit;
+  params.epsnr = epsnr;
+  params.mxitnr = mxitnr;
 
     // Map the scipy csc_matrix x  to Eigen
     // This prevents copying. However, note the lack of 'const' use, but we take care not to change data
@@ -131,7 +185,7 @@ py::dict spfishnet_exp(
                 parm, eigen_x, y, g, w, jd, vp, cl, ne, nx, nlam, flmin,
                 ulam, thr, isd, intr, maxit,
                 lmu, a0, ca, ia, nin, nulldev, dev, alm, nlp, jerr,
-                [&](int v) {update_pb(pb, v);}, ::InternalParams());
+                [&](int v) {update_pb(pb, v);}, params);
     };
     run(f, jerr);
 
@@ -182,7 +236,19 @@ PYBIND11_MODULE(_fishnet, m) {
 	  py::arg("dev"),
 	  py::arg("alm"),
 	  py::arg("nlp"),
-	  py::arg("jerr"));
+	  py::arg("jerr"),
+	  py::arg("fdev"),
+	  py::arg("eps"),
+	  py::arg("big"),
+	  py::arg("mnlam"),
+	  py::arg("devmax"),
+	  py::arg("pmin"),
+	  py::arg("exmx"),
+	  py::arg("itrace"),
+	  py::arg("prec"),
+	  py::arg("mxit"),
+	  py::arg("epsnr"),
+	  py::arg("mxitnr"));
     
     m.def("spfishnet", &spfishnet_exp,
 	  py::arg("parm"),
@@ -216,6 +282,18 @@ PYBIND11_MODULE(_fishnet, m) {
 	  py::arg("dev"),
 	  py::arg("alm"),
 	  py::arg("nlp"),
-	  py::arg("jerr"));
+	  py::arg("jerr"),
+	  py::arg("fdev"),
+	  py::arg("eps"),
+	  py::arg("big"),
+	  py::arg("mnlam"),
+	  py::arg("devmax"),
+	  py::arg("pmin"),
+	  py::arg("exmx"),
+	  py::arg("itrace"),
+	  py::arg("prec"),
+	  py::arg("mxit"),
+	  py::arg("epsnr"),
+	  py::arg("mxitnr"));
 
 }

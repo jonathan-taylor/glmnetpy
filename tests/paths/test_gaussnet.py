@@ -62,11 +62,7 @@ def get_glmnet_soln(X,
             args.append('nlambda=nlambda')
 
         if covariance:
-            rpy.r.assign('type.gaussian', "covariance")
             args.append('type.gaussian="covariance"')
-        else:
-            rpy.r.assign('type.gaussian', "naive")
-            args.append('type.gaussian="naive"')
 
         if standardize:
             rpy.r.assign('standardize', True)
@@ -108,140 +104,142 @@ def sample2(n):
     V[:n//2] = 0
 
 
-# @pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
-# @pytest.mark.parametrize('df_max', [None, 5])
-# @pytest.mark.parametrize('exclude', [[], [1,2,3]])
-# @pytest.mark.parametrize('lower_limits', [-1e-3,-1, None][1:])
-# @pytest.mark.parametrize('covariance', [True, False])
-# @pytest.mark.parametrize('standardize', [True, False])
-# @pytest.mark.parametrize('fit_intercept', [True, False])
-# @pytest.mark.parametrize('nlambda', [None, 20])
-# @pytest.mark.parametrize('lambda_min_ratio', [None,0.02])
-# @pytest.mark.parametrize('n', [1000,50])
-# @pytest.mark.parametrize('p', [10,100])
-# def test_gaussnet(covariance,
-#                   standardize,
-#                   fit_intercept,
-#                   exclude,
-#                   lower_limits,
-#                   nlambda,
-#                   lambda_min_ratio,
-#                   sample_weight,
-#                   df_max,
-#                   n,
-#                   p):
+@pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
+@pytest.mark.parametrize('df_max', [None, 5])
+@pytest.mark.parametrize('exclude', [[], [1,2,3]])
+@pytest.mark.parametrize('lower_limits', [-1e-3,-1, None][1:])
+# covariance changes type.gaussian, behaves unpredictably even in R
+@pytest.mark.parametrize('covariance', [None]) 
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('nlambda', [None, 20])
+@pytest.mark.parametrize('lambda_min_ratio', [None,0.02])
+@pytest.mark.parametrize('n', [1000,50])
+@pytest.mark.parametrize('p', [10,100])
+def test_gaussnet(covariance,
+                  standardize,
+                  fit_intercept,
+                  exclude,
+                  lower_limits,
+                  nlambda,
+                  lambda_min_ratio,
+                  sample_weight,
+                  df_max,
+                  n,
+                  p):
 
-#     if lower_limits is not None:
-#         lower_limits = np.ones(p) * lower_limits
-#     X = rng.standard_normal((n, p))
-#     Y = rng.standard_normal(n)
-#     L = GaussNet(covariance=covariance,
-#                  standardize=standardize,
-#                  fit_intercept=fit_intercept,
-#                  lambda_min_ratio=lambda_min_ratio,
-#                  df_max=df_max)
-#     if nlambda is not None:
-#         L.nlambda = nlambda
+    if lower_limits is not None:
+        lower_limits = np.ones(p) * lower_limits
+    X = rng.standard_normal((n, p))
+    Y = rng.standard_normal(n)
+    L = GaussNet(covariance=covariance,
+                 standardize=standardize,
+                 fit_intercept=fit_intercept,
+                 lambda_min_ratio=lambda_min_ratio,
+                 df_max=df_max)
+    if nlambda is not None:
+        L.nlambda = nlambda
 
-#     if sample_weight is not None:
-#         weights = sample_weight(n)
-#     else:
-#         weights = None
+    if sample_weight is not None:
+        weights = sample_weight(n)
+    else:
+        weights = None
 
-#     L.fit(X,
-#           Y,
-#           exclude=exclude,
-#           sample_weight=weights)
+    L.fit(X,
+          Y,
+          exclude=exclude,
+          sample_weight=weights)
 
-#     C = get_glmnet_soln(X,
-#                         Y,
-#                         covariance=covariance,
-#                         standardize=standardize,
-#                         fit_intercept=fit_intercept,
-#                         lower_limits=lower_limits,
-#                         exclude=exclude,
-#                         weights=weights,
-#                         nlambda=nlambda,
-#                         lambda_min_ratio=lambda_min_ratio,
-#                         df_max=df_max)
-
-
-#     assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < 1e-10
-#     if fit_intercept:
-#         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
+    C = get_glmnet_soln(X,
+                        Y,
+                        covariance=covariance,
+                        standardize=standardize,
+                        fit_intercept=fit_intercept,
+                        lower_limits=lower_limits,
+                        exclude=exclude,
+                        weights=weights,
+                        nlambda=nlambda,
+                        lambda_min_ratio=lambda_min_ratio,
+                        df_max=df_max)
 
 
-# @pytest.mark.parametrize('limits', [(-1, np.inf), (-np.inf, 1),
-#                                     (-np.inf, np.inf),
-#                                     (-1, 1),
-#                                     (0, 1)])
-# @pytest.mark.parametrize('penalty_factor', [None,
-#                                             sample1(50), # should match p=50 below
-#                                             sample2(50)])
-# @pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
-# def test_limits(limits,
-#                 penalty_factor,
-#                 sample_weight,
-#                 df_max=None,
-#                 covariance=None,
-#                 standardize=True,
-#                 fit_intercept=True,
-#                 exclude=[],
-#                 nlambda=None,
-#                 lambda_min_ratio=None,
-#                 n=100,
-#                 p=50):
+    assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < 1e-10
+    if fit_intercept:
+        assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
 
-#     lower_limits, upper_limits = limits
-#     if lower_limits is not None:
-#         lower_limits = np.ones(p) * lower_limits
-#     if upper_limits is not None:
-#         upper_limits = np.ones(p) * upper_limits
-#     X = rng.standard_normal((n, p))
-#     Y = rng.standard_normal(n)
-#     L = GaussNet(covariance=covariance,
-#                  standardize=standardize,
-#                  fit_intercept=fit_intercept,
-#                  lambda_min_ratio=lambda_min_ratio,
-#                  upper_limits=upper_limits,
-#                  lower_limits=lower_limits,
-#                  penalty_factor=penalty_factor,
-#                  df_max=df_max)
-#     if nlambda is not None:
-#         L.nlambda = nlambda
 
-#     if sample_weight is not None:
-#         weights = sample_weight(n)
-#     else:
-#         weights = None
+@pytest.mark.parametrize('limits', [(-1, np.inf), (-np.inf, 1),
+                                    (-np.inf, 0), (0, np.inf),
+                                    (-np.inf, np.inf),
+                                    (-1, 1),
+                                    (0, 1)])
+@pytest.mark.parametrize('penalty_factor', [None,
+                                            sample1(50), # should match p=50 below
+                                            sample2(50)])
+@pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
+def test_limits(limits,
+                penalty_factor,
+                sample_weight,
+                df_max=None,
+                covariance=None,
+                standardize=True,
+                fit_intercept=True,
+                exclude=[],
+                nlambda=None,
+                lambda_min_ratio=None,
+                n=100,
+                p=50):
 
-#     L.fit(X,
-#           Y,
-#           exclude=exclude,
-#           sample_weight=weights)
+    lower_limits, upper_limits = limits
+    if lower_limits is not None:
+        lower_limits = np.ones(p) * lower_limits
+    if upper_limits is not None:
+        upper_limits = np.ones(p) * upper_limits
+    X = rng.standard_normal((n, p))
+    Y = rng.standard_normal(n)
+    L = GaussNet(covariance=covariance,
+                 standardize=standardize,
+                 fit_intercept=fit_intercept,
+                 lambda_min_ratio=lambda_min_ratio,
+                 upper_limits=upper_limits,
+                 lower_limits=lower_limits,
+                 penalty_factor=penalty_factor,
+                 df_max=df_max)
+    if nlambda is not None:
+        L.nlambda = nlambda
 
-#     C = get_glmnet_soln(X,
-#                         Y,
-#                         covariance=covariance,
-#                         standardize=standardize,
-#                         fit_intercept=fit_intercept,
-#                         lower_limits=lower_limits,
-#                         upper_limits=upper_limits,
-#                         penalty_factor=penalty_factor,
-#                         exclude=exclude,
-#                         weights=weights,
-#                         nlambda=nlambda,
-#                         df_max=df_max,
-#                         lambda_min_ratio=lambda_min_ratio)
+    if sample_weight is not None:
+        weights = sample_weight(n)
+    else:
+        weights = None
 
-#     if np.any(lower_limits == 0) or np.any(upper_limits == 0):
-#         tol = 1e-3
-#     else:
-#         tol = 1e-10
-#     print(tol, 'tol')
-#     assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < tol
-#     if fit_intercept:
-#         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
+    L.fit(X,
+          Y,
+          exclude=exclude,
+          sample_weight=weights)
+
+    C = get_glmnet_soln(X,
+                        Y,
+                        covariance=covariance,
+                        standardize=standardize,
+                        fit_intercept=fit_intercept,
+                        lower_limits=lower_limits,
+                        upper_limits=upper_limits,
+                        penalty_factor=penalty_factor,
+                        exclude=exclude,
+                        weights=weights,
+                        nlambda=nlambda,
+                        df_max=df_max,
+                        lambda_min_ratio=lambda_min_ratio)
+
+    if np.any(lower_limits == 0) or np.any(upper_limits == 0):
+        tol = 1e-3
+    else:
+        tol = 1e-10
+    print(tol, 'tol')
+    assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < tol
+    if fit_intercept:
+        assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
 @pytest.mark.parametrize('offset', [None, np.zeros(100), 20*sample1(100)]) # should match n=100 below
 @pytest.mark.parametrize('penalty_factor', [None,

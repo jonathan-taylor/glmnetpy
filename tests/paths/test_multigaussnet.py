@@ -61,7 +61,8 @@ def get_glmnet_soln(X,
 @pytest.mark.parametrize('fit_intercept', [True, False])
 @pytest.mark.parametrize('n', [1000,50])
 @pytest.mark.parametrize('p', [10,100])
-@pytest.mark.parametrize('q', [3,1])
+# R fails for q=1
+@pytest.mark.parametrize('q', [3,1][:1])
 def test_multigaussnet(standardize_response,
                        standardize,
                        fit_intercept,
