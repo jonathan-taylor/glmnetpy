@@ -8,8 +8,6 @@ import numpy as np
 import pandas as pd
 import scipy.sparse
 
-from sklearn.utils import check_X_y
-
 from ..base import _get_design
 from ..glmnet import GLMNet
 from ..elnet import (_check_and_set_limits,
@@ -53,8 +51,21 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             y,
             sample_weight=None,
             offset=None,
-            exclude=[]):
+            exclude=[],
+            interpolation_grid=None):
     
+        if not hasattr(self, "_family"):
+            self._family = self._get_family_spec(y)
+
+        if isinstance(X, pd.DataFrame):
+            self.feature_names_in_ = list(X.columns)
+        else:
+            self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
+
+        X, y = self._check(X, y)
+        if not scipy.sparse.issparse(X):
+            X = np.asfortranarray(X)
+        
         # the C++ path codes handle standardization
         # themselves so we shouldn't handle it at this level
         if not hasattr(self, "design_"):
@@ -65,12 +76,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             design = self.design_
 
-        if isinstance(X, pd.DataFrame):
-            self.feature_names_in_ = list(X.columns)
-        else:
-            self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        X, y = self._check(X, y)
         if self.df_max is None:
             self.df_max = X.shape[1] + 1
             
@@ -131,6 +137,18 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         df = result['df']
         df[0] = 0
         self.summary_.insert(0, 'Degrees of Freedom', df)
+
+        # set lambda_max
+
+        # following https://github.com/trevorhastie/glmnet/blob/master/R/glmnet.R#L523
+        # will work with equispaced values on log scale
+
+        self.lambda_values_[0] = self.lambda_values_[1]**2 / self.lambda_values_[2]
+
+        self.lambda_max_ = self.lambda_values_[0]
+
+        if interpolation_grid is not None:
+            self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
 
         return self
 
@@ -196,7 +214,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             flmin = 1.
             if np.any(self.lambda_values < 0):
                 raise ValueError('lambdas should be non-negative')
-            ulam = np.sort(self.lambda_values)[::-1].reshape((-1, 1))
+            ulam = np.asfortranarray(np.sort(self.lambda_values)[::-1].reshape((-1, 1)))
             self.nlambda = self.lambda_values.shape[0]
 
         if y.ndim == 1:
@@ -236,7 +254,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'y':y,
                  'w':sample_weight.reshape((-1,1)),
                  'jd':jd,
-                 'vp':self.penalty_factor,
+                 'vp':self.penalty_factor.reshape((-1,1)),
                  'cl':np.asfortranarray(cl),
                  'ne':self.df_max,
                  'nx':nx,

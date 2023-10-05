@@ -39,7 +39,6 @@ class GaussNet(FastNetMixin):
                       offset,
                       exclude=[]):
 
-        print(exclude, 'exclude')
         if offset is None:
             is_offset = False
         else:
