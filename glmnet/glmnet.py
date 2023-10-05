@@ -192,23 +192,7 @@ class GLMNet(BaseEstimator,
         self.lambda_values_ = self.lambda_values_[:nfit]
         
         if interpolation_grid is not None:
-            L = self.lambda_values_
-            interpolation_grid = np.clip(interpolation_grid, L.min(), L.max())
-            idx_ = interp1d(L, np.arange(L.shape[0]))(interpolation_grid)
-            coefs_ = []
-            intercepts_ = []
-
-            for v_ in idx_:
-                v_ceil = int(np.ceil(v_))
-                w_ = (v_ceil - v_)
-                if v_ceil > 0:
-                    coefs_.append(self.coefs_[v_ceil] * w_ + (1 - w_) * self.coefs_[v_ceil-1])
-                    intercepts_.append(self.intercepts_[v_ceil] * w_ + (1 - w_) * self.intercepts_[v_ceil-1])
-                else:
-                    coefs_.append(self.coefs_[0])
-                    intercepts_.append(self.intercepts_[0])
-            self.coefs_ = np.asarray(coefs_)
-            self.intercepts_ = np.asarray(intercepts_)
+            self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
            
         return self
     
@@ -226,6 +210,26 @@ class GLMNet(BaseEstimator,
         family = self._family.base
         return family.link.inverse(linear_pred_)
         
+    def interpolate_coefs(self,
+                          interpolation_grid):
+
+        L = self.lambda_values_
+        interpolation_grid = np.clip(interpolation_grid, L.min(), L.max())
+        idx_ = interp1d(L, np.arange(L.shape[0]))(interpolation_grid)
+        coefs_ = []
+        intercepts_ = []
+
+        for v_ in idx_:
+            v_ceil = int(np.ceil(v_))
+            w_ = (v_ceil - v_)
+            if v_ceil > 0:
+                coefs_.append(self.coefs_[v_ceil] * w_ + (1 - w_) * self.coefs_[v_ceil-1])
+                intercepts_.append(self.intercepts_[v_ceil] * w_ + (1 - w_) * self.intercepts_[v_ceil-1])
+            else:
+                coefs_.append(self.coefs_[0])
+                intercepts_.append(self.intercepts_[0])
+        return np.asarray(coefs_), np.asarray(intercepts_)
+
     def _get_initial_state(self,
                            X,
                            y,
@@ -378,9 +382,9 @@ class GLMNet(BaseEstimator,
                               ax=None,
                               capsize=3,
                               legend=False,
-                              col_min='#c0c0c0',
+                              col_min='#909090',
                               ls_min='--',
-                              col_1se='#c0c0c0',
+                              col_1se='#909090',
                               ls_1se='--',
                               c='#c0c0c0',
                               scatter_c='red',
