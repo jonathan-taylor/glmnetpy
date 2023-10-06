@@ -221,7 +221,7 @@ class GLMNet(BaseEstimator,
         
         linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
         linear_pred_ = linear_pred_.T
-        if prediction_type == 'linear':
+        if prediction_type == 'link':
             return linear_pred_
         family = self._family.base
         return family.link.inverse(linear_pred_)

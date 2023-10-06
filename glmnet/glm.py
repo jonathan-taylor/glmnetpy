@@ -24,7 +24,7 @@ from statsmodels.genmod.families import links as sm_links
 
 from ._utils import _parent_dataclass_from_child
 
-from .base import Design, _get_design
+from .base import _get_design
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
@@ -356,15 +356,16 @@ class GLMBase(BaseEstimator,
         (converged,
          boundary,
          state,
-         self._final_weights) = IRLS(regularizer,
-                                     self._family,
-                                     design,
-                                     y,
-                                     offset,
-                                     normed_sample_weight,
-                                     state,
-                                     obj_function,
-                                     self.control)
+         self._final_weights,
+         self._history) = IRLS(regularizer,
+                               self._family,
+                               design,
+                               y,
+                               offset,
+                               normed_sample_weight,
+                               state,
+                               obj_function,
+                               self.control)
 
         # checks on convergence and fitted values
         if not converged:
