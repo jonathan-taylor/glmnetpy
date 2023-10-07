@@ -63,7 +63,7 @@ class MultiClassNet(MultiFastNetMixin):
             offset = response * 0.
         if offset.shape != response.shape:
             raise ValueError('offset shape should match one-hot response shape')
-        offset = np.asfortranarray(offset)
+        offset = np.asfortranarray(offset.copy())
 
         # add 'kopt' 
         _args['kopt'] = {'Newton':0,

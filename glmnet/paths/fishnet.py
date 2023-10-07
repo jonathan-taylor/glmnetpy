@@ -7,10 +7,10 @@ from dataclasses import (dataclass,
    
 import numpy as np
 
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.utils import check_X_y
+from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
+from ..glm import GLMFamilySpec
 from ..docstrings import (make_docstring,
                           add_dataclass_docstring)
 
@@ -28,12 +28,12 @@ class FishNet(FastNetMixin):
     def __post_init__(self):
         self._family = GLMFamilySpec(base=sm_family.Poisson())
 
-    def _check(self, X, y):
+    def _check(self, X, y, check=True):
 
-        if np.any(y < 0):
+        X, y, response, offset, weight = super()._check(X, y, check=check)
+        if np.any(response < 0):
             raise ValueError("negative responses encountered;  not permitted for Poisson family")
-        X, y, response, offset, weight = super()._check(X, y)
-        response = np.asarray(response, float)
+        response = np.asarray(response, float).copy()
         return X, y, response, offset, weight
     
     def _wrapper_args(self,
@@ -52,6 +52,6 @@ class FishNet(FastNetMixin):
                                       offset,
                                       exclude=exclude)
 
-        _args['g'] = np.asfortranarray(offset.reshape((-1,1)))
+        _args['g'] = np.asfortranarray(offset.reshape((-1,1)).copy())
         return _args
 
