@@ -196,6 +196,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                       offset, # ignored, but subclasses use it
                       exclude=[]):
 
+        sample_weight = np.asfortranarray(sample_weight)
+        
         X = design.X
         nobs, nvars = X.shape
 
@@ -283,6 +285,41 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
 @dataclass
 class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
+
+    def predict(self,
+                X,
+                prediction_type='link' # ignored except checking valid
+                ):
+
+        if prediction_type not in ['response', 'link']:
+            raise ValueError("prediction should be one of 'response' or 'link'")
+        
+        term1 = np.einsum('ijk,lj->ilk',
+                          self.coefs_,
+                          X)
+        fits = term1 + self.intercepts_[:, None, :]
+        fits = np.transpose(fits, [1,0,2])
+
+        # make return based on original
+        # promised number of lambdas
+        # pad with last value
+
+        # if possible we might want to do less than `self.nlambda`
+        
+        if self.lambda_values is not None:
+            nlambda = self.lambda_values.shape[0]
+        else:
+            nlambda = self.nlambda
+
+        value = np.empty((fits.shape[0],
+                          nlambda,
+                          fits.shape[2]), float) * np.nan
+        value[:,:fits.shape[1]] = fits
+        value[:,fits.shape[1]:] = fits[:,-1][:,None]
+
+        return value
+
+    # private methods
 
     def _extract_fits(self,
                       X_shape,

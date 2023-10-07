@@ -115,9 +115,9 @@ class GLMBaseSpec(object):
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     fit_intercept: bool = True
     control: GLMControl = field(default_factory=GLMControl)
-    offset_col: Union[str,int] = None
-    weight_col: Union[str,int] = None
-    response_col: Union[str,int] = None
+    offset_id: Union[str,int] = None
+    weight_id: Union[str,int] = None
+    response_id: Union[str,int] = None
 
 add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
 
@@ -279,9 +279,9 @@ class GLMBase(BaseEstimator,
         return _get_data(self,
                          X,
                          y,
-                         offset_col=self.offset_col,
-                         response_col=self.response_col,
-                         weight_col=self.weight_col,
+                         offset_id=self.offset_id,
+                         response_id=self.response_id,
+                         weight_id=self.weight_id,
                          check=check)
     def fit(self,
             X,

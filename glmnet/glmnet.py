@@ -55,9 +55,9 @@ class GLMNetSpec(object):
     family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     control: GLMNetControl = field(default_factory=GLMNetControl)
     regularized_estimator: BaseEstimator = RegGLM
-    offset_col: Union[str,int] = None
-    weight_col: Union[str,int] = None
-    response_col: Union[str,int] = None
+    offset_id: Union[str,int] = None
+    weight_id: Union[str,int] = None
+    response_id: Union[str,int] = None
     exclude: list = field(default_factory=list)
     
 add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
@@ -73,9 +73,9 @@ class GLMNet(BaseEstimator,
         return _get_data(self,
                          X,
                          y,
-                         offset_col=self.offset_col,
-                         response_col=self.response_col,
-                         weight_col=self.weight_col,
+                         offset_id=self.offset_id,
+                         response_id=self.response_id,
+                         weight_id=self.weight_id,
                          check=check)
 
     def _get_family_spec(self, y):
@@ -126,9 +126,9 @@ class GLMNet(BaseEstimator,
                                fit_intercept=self.fit_intercept,
                                standardize=self.standardize,
                                control=self.control,
-                               offset_col=self.offset_col,
-                               weight_col=self.weight_col,            
-                               response_col=self.response_col,
+                               offset_id=self.offset_id,
+                               weight_id=self.weight_id,            
+                               response_id=self.response_id,
                                exclude=self.exclude
                                )
 
@@ -219,14 +219,15 @@ class GLMNet(BaseEstimator,
         
         linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
         linear_pred_ = linear_pred_.T
-        if prediction_type == 'linear':
-            return linear_pred_
-        family = self._family.base
-        fits = family.link.inverse(linear_pred_)
+        if prediction_type == 'response':
+            family = self._family.base
+            fits = family.link.inverse(linear_pred_)
+        else:
+            fits = linear_pred_
 
         # make return based on original
         # promised number of lambdas
-        # pad with np.nans
+        # pad with last value
         if self.lambda_values is not None:
             nlambda = self.lambda_values.shape[0]
         else:
@@ -276,9 +277,9 @@ class GLMNet(BaseEstimator,
 
             glm = GLM(fit_intercept=self.fit_intercept,
                       family=self.family,
-                      offset_col=self.offset_col,
-                      weight_col=self.weight_col,
-                      response_col=self.response_col)
+                      offset_id=self.offset_id,
+                      weight_id=self.weight_id,
+                      response_id=self.response_id)
             glm.fit(X_keep, y)
             coef_[keep] = glm.coef_
             intercept_ = glm.intercept_
@@ -338,9 +339,8 @@ class GLMNet(BaseEstimator,
         # because predictions are just X\beta
 
         if offset is not None:
-            family = self._family.base
-            predictions = family.link.inverse(family.link(predictions) +
-                                              offset[:,None])
+            predictions = self._offset_predictions(predictions,
+                                                   offset)
 
         scorers_, scores_ = self._get_scores(response,
                                              y,
@@ -534,6 +534,13 @@ class GLMNet(BaseEstimator,
         if legend:
             ax.legend()
         return ax
+
+    def _offset_predictions(self,
+                            predictions,
+                            offset):
+        family = self._family.base
+        return family.link.inverse(family.link(predictions) +
+                                   offset[:,None])
 
     def _get_scores(self,
                     response,

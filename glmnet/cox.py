@@ -64,31 +64,31 @@ class CoxState(GLMState):
 class CoxFamily(object):
 
     tie_breaking: Literal['breslow', 'efron'] = 'efron'
-    event_col: Optional[str] = 'event'
-    status_col: Optional[str] = 'status'
-    start_col: Optional[str] = None
+    event_id: Optional[str] = 'event'
+    status_id: Optional[str] = 'status'
+    start_id: Optional[str] = None
 
 @dataclass
 class CoxFamilySpec(object):
 
     event_data: InitVar[np.ndarray]
     tie_breaking: Literal['breslow', 'efron'] = 'efron'
-    event_col: Optional[str] = 'event'
-    status_col: Optional[str] = 'status'
-    start_col: Optional[str] = None
+    event_id: Optional[str] = 'event'
+    status_id: Optional[str] = 'status'
+    start_id: Optional[str] = None
     name: str = 'Cox'
     
     def __post_init__(self, event_data):
 
-        if (self.event_col not in event_data.columns or
-            self.status_col not in event_data.columns):
-            raise ValueError(f'expecting f{event_col} and f{status_col} columns')
+        if (self.event_id not in event_data.columns or
+            self.status_id not in event_data.columns):
+            raise ValueError(f'expecting f{event_id} and f{status_id} columns')
         
-        event = event_data[self.event_col]
-        status = event_data[self.status_col]
+        event = event_data[self.event_id]
+        status = event_data[self.status_id]
         
-        if self.start_col is not None:
-            start = event_data[self.start_col]
+        if self.start_id is not None:
+            start = event_data[self.start_id]
         else:
             start = None
 
@@ -164,9 +164,9 @@ class CoxLM(GLM):
         event_data = y
         return CoxFamilySpec(event_data=event_data,
                              tie_breaking=self.family.tie_breaking,
-                             event_col=self.family.event_col,
-                             status_col=self.family.status_col,
-                             start_col=self.family.start_col)
+                             event_id=self.family.event_id,
+                             status_id=self.family.status_id,
+                             start_id=self.family.start_id)
 
     def _check(self,
                X,
@@ -175,9 +175,9 @@ class CoxLM(GLM):
         return _get_data(self,
                          X,
                          y,
-                         offset_col=self.offset_col,
-                         response_col=self.response_col,
-                         weight_col=self.weight_col,
+                         offset_id=self.offset_id,
+                         response_id=self.response_id,
+                         weight_id=self.weight_id,
                          check=check,
                          multi_output=True)
 
@@ -190,9 +190,9 @@ class RegCoxLM(RegGLM):
         return _get_data(self,
                          X,
                          y,
-                         offset_col=self.offset_col,
-                         response_col=self.response_col,
-                         weight_col=self.weight_col,
+                         offset_id=self.offset_id,
+                         response_id=self.response_id,
+                         weight_id=self.weight_id,
                          check=check,
                          multi_output=True)
 
@@ -201,9 +201,9 @@ class RegCoxLM(RegGLM):
         event_data = y
         return CoxFamilySpec(event_data=event_data,
                              tie_breaking=self.family.tie_breaking,
-                             event_col=self.family.event_col,
-                             status_col=self.family.status_col,
-                             start_col=self.family.start_col)
+                             event_id=self.family.event_id,
+                             status_id=self.family.status_id,
+                             start_id=self.family.start_id)
 
 @dataclass
 class CoxNet(GLMNet):
@@ -218,9 +218,9 @@ class CoxNet(GLMNet):
         return _get_data(self,
                          X,
                          y,
-                         offset_col=self.offset_col,
-                         response_col=self.response_col,
-                         weight_col=self.weight_col,
+                         offset_id=self.offset_id,
+                         response_id=self.response_id,
+                         weight_id=self.weight_id,
                          check=check,
                          multi_output=True)
 
@@ -229,9 +229,9 @@ class CoxNet(GLMNet):
         event_data = y
         return CoxFamilySpec(event_data=event_data,
                              tie_breaking=self.family.tie_breaking,
-                             event_col=self.family.event_col,
-                             status_col=self.family.status_col,
-                             start_col=self.family.start_col)
+                             event_id=self.family.event_id,
+                             status_id=self.family.status_id,
+                             start_id=self.family.start_id)
     
     def _get_initial_state(self,
                            X,
@@ -250,9 +250,9 @@ class CoxNet(GLMNet):
             X_keep = X[:,keep]
 
             coxlm = CoxLM(family=self.family,
-                          offset_col=self.offset_col,
-                          weight_col=self.weight_col,
-                          response_col=self.response_col)
+                          offset_id=self.offset_id,
+                          weight_id=self.weight_id,
+                          response_id=self.response_id)
             coxlm.fit(X_keep, y)
             coef_[keep] = coxlm.coef_
 
@@ -284,9 +284,9 @@ class CoxNet(GLMNet):
 
         def _dev(family, event_data, eta, sample_weight):
             fam = CoxFamilySpec(tie_breaking=family.tie_breaking,
-                                event_col=family.event_col,
-                                status_col=family.status_col,
-                                start_col=family.start_col,
+                                event_id=family.event_id,
+                                status_id=family.status_id,
+                                start_id=family.start_id,
                                 event_data=event_data)
             return fam._coxdev(eta, sample_weight).deviance / event_data.shape[0]
         _dev = partial(_dev, self.family)

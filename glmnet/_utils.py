@@ -8,21 +8,21 @@ from dataclasses import fields
 def _get_data(estimator,
               X,
               y,
-              offset_col=None,
-              weight_col=None,
-              response_col=None,
+              offset_id=None,
+              weight_id=None,
+              response_id=None,
               check=True,
               multi_output=True # always true below
               ):
 
     weight = None
-    if offset_col is None and weight_col is None:
+    if offset_id is None and weight_id is None:
         # col could be 0 so check for None
-        if response_col is not None:
+        if response_id is not None:
             if isinstance(y, pd.DataFrame):
-                response = y.loc[:,response_col]
+                response = y.loc[:,response_id]
             else:
-                response = y[:,response_col]
+                response = y[:,response_id]
         else:
             response = y
         if check:
@@ -34,26 +34,32 @@ def _get_data(estimator,
     else:
         if isinstance(y, pd.DataFrame):
             response = y
-            if offset_col is not None:
-                offset = np.asarray(y.loc[:,offset_col])
-                response = response.drop(columns=[offset_col])
+            if offset_id is not None:
+                offset = np.asarray(y.loc[:,offset_id])
+                if type(offset_id) in [str, int]:
+                    response = response.drop(columns=[offset_id])
+                else:
+                    response = response.drop(columns=offset_id)
             else:
                 offset = None
-            if weight_col is not None:
-                weight = np.asarray(y.loc[:,weight_col])
-                response = response.drop(columns=[weight_col])
+            if weight_id is not None:
+                weight = np.asarray(y.loc[:,weight_id])
+                if type(weight_id) in [str, int]:
+                    response = response.drop(columns=[weight_id])
+                else:
+                    response = response.drop(columns=weight_id)
             else:
                 weight = None
         else:
             keep = np.ones(y.shape[1], bool)
-            if offset_col is not None:
-                offset = y[:,offset_col]
-                keep[offset_col] = 0
+            if offset_id is not None:
+                offset = y[:,offset_id]
+                keep[offset_id] = 0
             else:
                 offset = None
-            if weight_col is not None:
-                weight = y[:,weight_col]
-                keep[weight_col] = 0
+            if weight_id is not None:
+                weight = y[:,weight_id]
+                keep[weight_id] = 0
             else:
                 weight = None
 
@@ -64,15 +70,15 @@ def _get_data(estimator,
                              estimator=estimator)
 
     # col could be 0 so check for None
-    if response_col is not None:
+    if response_id is not None:
         if isinstance(y, pd.DataFrame):
-            response = y.loc[:,response_col]
+            response = y.loc[:,response_id]
         else:
-            response = y[:,response_col]
+            response = y[:,response_id]
     else:
         # we already removed columns of the data frame
         if not isinstance(y, pd.DataFrame):
-            if offset_col is not None or weight_col is not None: 
+            if offset_id is not None or weight_id is not None: 
                 response = y[:,keep]
             else:
                 response = np.asarray(y)
