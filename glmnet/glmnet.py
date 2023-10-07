@@ -57,6 +57,7 @@ class GLMNetSpec(object):
     offset_col: Union[str,int] = None
     weight_col: Union[str,int] = None
     response_col: Union[str,int] = None
+    exclude: list = field(default_factory=list)
     
 add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 
@@ -84,7 +85,6 @@ class GLMNet(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 3 options non sklearn API
-            exclude=[],
             interpolation_grid=None):
 
         if not hasattr(self, "_family"):
@@ -124,7 +124,8 @@ class GLMNet(BaseEstimator,
                                control=self.control,
                                offset_col=self.offset_col,
                                weight_col=self.weight_col,            
-                               response_col=self.response_col
+                               response_col=self.response_col,
+                               exclude=self.exclude
                                )
 
         self.reg_glm_est_.fit(X, y, None) # normed_sample_weight)
@@ -133,7 +134,7 @@ class GLMNet(BaseEstimator,
         state, keep_ = self._get_initial_state(X,
                                                y,
                                                normed_sample_weight,
-                                               exclude)
+                                               self.exclude)
 
         state.update(self.reg_glm_est_.design_,
                      self._family,
@@ -146,7 +147,7 @@ class GLMNet(BaseEstimator,
         score_ = (self.reg_glm_est_.design_.T @ logl_score)[1:]
         pf = regularizer_.penalty_factor
         score_ /= (pf + (pf <= 0))
-        score_[exclude] = 0
+        score_[self.exclude] = 0
         self.lambda_max_ = np.fabs(score_).max() / max(self.alpha, 1e-3)
 
         if self.lambda_fractional:
@@ -279,13 +280,7 @@ class GLMNet(BaseEstimator,
             intercept_ = glm.intercept_
         else:
             if self.fit_intercept:
-                response = _get_data(self,
-                                     X,
-                                     y,
-                                     offset_col=self.offset_col,
-                                     response_col=self.response_col,
-                                     weight_col=self.weight_col,
-                                     check=False)[2]
+                response = self._check(X, y, check=False)[2]
                 intercept_ = self.family.link(response.mean(0))
             else:
                 intercept_ = 0
@@ -333,12 +328,7 @@ class GLMNet(BaseEstimator,
         test_splits = [test for _, test in cv.split(np.arange(X.shape[0]))]
         # compute score
 
-        response, offset, weight = _get_data(self,
-                                             X,
-                                             y,
-                                             offset_col=self.offset_col,
-                                             response_col=self.response_col,
-                                             weight_col=self.weight_col)[2:]
+        response, offset, weight = self._check(X, y, check=False)[2:]
 
         # adjust for offset
         # because predictions are just X\beta
@@ -349,6 +339,7 @@ class GLMNet(BaseEstimator,
                                               offset[:,None])
 
         scorers_, scores_ = self._get_scores(response,
+                                             y,
                                              predictions,
                                              weight,
                                              test_splits,
@@ -541,6 +532,7 @@ class GLMNet(BaseEstimator,
 
     def _get_scores(self,
                     response,
+                    full_y, # ignored by default, used in Cox
                     predictions,
                     sample_weight,
                     test_splits,

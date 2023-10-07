@@ -1,7 +1,10 @@
 import numpy as np
+import pandas as pd
 
 import pytest
 rng = np.random.default_rng(0)
+
+from sklearn.model_selection import KFold
 
 import rpy2.robjects as rpy
 from rpy2.robjects.packages import importr
@@ -25,7 +28,9 @@ def get_glmnet_soln(X,
                     upper_limits=None,
                     penalty_factor=None,
                     offset=None,
-                    weights=None):
+                    weights=None,
+                    foldid=None,
+                    alignment='lambda'):
 
     with np_cv_rules.context():
 
@@ -81,18 +86,37 @@ def get_glmnet_soln(X,
 
         args = ','.join(args)
 
+        cvargs = ','.join([args, f'alignment="{alignment}"'])
+        CV = True
+        rpy.r.assign('doCV', foldid is not None)
+        if foldid is not None:
+            rpy.r.assign('foldid', foldid)
         rpy.r.assign('X', X)
         rpy.r.assign('Y', Y)
         cmd = f'''
-        library(glmnet)
-        G = glmnet(X, Y, {args})
-        C = as.matrix(coef(G))
+library(glmnet)
+Y = as.numeric(Y)
+X = as.matrix(X)
+G = glmnet(X, Y, {args})
+C = as.matrix(coef(G))
+if (doCV) {{
+    foldid = as.integer(foldid)
+    CVG = cv.glmnet(X, Y, {cvargs}, foldid=foldid, grouped=TRUE)
+    CVM = CVG$cvm
+    CVSD = CVG$cvsd
+}}
             '''
         print(cmd)
 
         rpy.r(cmd)
         C = rpy.r('C')
-    return C.T
+        if foldid is not None:
+            CVM = rpy.r('CVM')
+            CVSD = rpy.r('CVSD')
+    if foldid is None:
+        return C.T
+    else:
+        return C.T, CVM, CVSD
 
 # weight functions
 
@@ -102,12 +126,12 @@ def sample1(n):
 def sample2(n):
     V = sample1(n)
     V[:n//2] = 0
-
+    return V
 
 @pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
 @pytest.mark.parametrize('df_max', [None, 5])
 @pytest.mark.parametrize('exclude', [[], [1,2,3]])
-@pytest.mark.parametrize('lower_limits', [-1e-3,-1, None][1:])
+@pytest.mark.parametrize('lower_limits', [-1, None])
 # covariance changes type.gaussian, behaves unpredictably even in R
 @pytest.mark.parametrize('covariance', [None]) 
 @pytest.mark.parametrize('standardize', [True, False])
@@ -132,23 +156,28 @@ def test_gaussnet(covariance,
         lower_limits = np.ones(p) * lower_limits
     X = rng.standard_normal((n, p))
     Y = rng.standard_normal(n)
+    D = pd.DataFrame({'Y':Y})
+    col_args = {'response_col':'Y'}
+    
+    if sample_weight is not None:
+        weights = sample_weight(n)
+        D['weights'] = weights
+        col_args['weight_col'] = 'weights'
+    else:
+        weights = None
+
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
                  fit_intercept=fit_intercept,
                  lambda_min_ratio=lambda_min_ratio,
-                 df_max=df_max)
+                 exclude=exclude,
+                 df_max=df_max, **col_args)
+
     if nlambda is not None:
         L.nlambda = nlambda
 
-    if sample_weight is not None:
-        weights = sample_weight(n)
-    else:
-        weights = None
-
     L.fit(X,
-          Y,
-          exclude=exclude,
-          sample_weight=weights)
+          D)
 
     C = get_glmnet_soln(X,
                         Y,
@@ -197,6 +226,16 @@ def test_limits(limits,
         upper_limits = np.ones(p) * upper_limits
     X = rng.standard_normal((n, p))
     Y = rng.standard_normal(n)
+    D = pd.DataFrame({'Y':Y})
+    col_args = {'response_col':'Y'}
+    
+    if sample_weight is not None:
+        weights = sample_weight(n)
+        D['weights'] = weights
+        col_args['weight_col'] = 'weights'
+    else:
+        weights = None
+
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
                  fit_intercept=fit_intercept,
@@ -204,19 +243,13 @@ def test_limits(limits,
                  upper_limits=upper_limits,
                  lower_limits=lower_limits,
                  penalty_factor=penalty_factor,
-                 df_max=df_max)
+                 exclude=exclude,
+                 df_max=df_max, **col_args)
     if nlambda is not None:
         L.nlambda = nlambda
 
-    if sample_weight is not None:
-        weights = sample_weight(n)
-    else:
-        weights = None
-
     L.fit(X,
-          Y,
-          exclude=exclude,
-          sample_weight=weights)
+          D)
 
     C = get_glmnet_soln(X,
                         Y,
@@ -261,25 +294,32 @@ def test_offset(offset,
 
     X = rng.standard_normal((n, p))
     Y = rng.standard_normal(n) * 100
+    D = pd.DataFrame({'Y':Y})
+    col_args = {'response_col':'Y'}
+
+    if sample_weight is not None:
+        weights = sample_weight(n)
+        D['weights'] = weights
+        col_args['weight_col'] = 'weights'
+    else:
+        weights = None
+
+    if offset is not None:
+        D['offset'] = offset
+        col_args['offset_col'] = 'offset'
+
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
                  fit_intercept=fit_intercept,
                  lambda_min_ratio=lambda_min_ratio,
                  penalty_factor=penalty_factor,
-                 df_max=df_max)
+                 exclude=exclude,
+                 df_max=df_max, **col_args)
     if nlambda is not None:
         L.nlambda = nlambda
 
-    if sample_weight is not None:
-        weights = sample_weight(n)
-    else:
-        weights = None
-
     L.fit(X,
-          Y,
-          exclude=exclude,
-          sample_weight=weights,
-          offset=offset)
+          D)
 
     C = get_glmnet_soln(X,
                         Y.copy(),
@@ -299,4 +339,81 @@ def test_offset(offset,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
+@pytest.mark.parametrize('offset', [None, np.zeros(103), 20*sample1(103)]) # should match n=103 below
+@pytest.mark.parametrize('penalty_factor', [None,
+                                            sample1(50), # should match p=50 below
+                                            sample2(50)])
+@pytest.mark.parametrize('sample_weight', [None, sample1])
+@pytest.mark.parametrize('alignment', ['lambda', 'fraction'])
+def test_CV(offset,
+            penalty_factor,
+            sample_weight,
+            alignment,
+            df_max=None,
+            covariance=None,
+            standardize=True,
+            fit_intercept=True,
+            exclude=[],
+            nlambda=None,
+            lambda_min_ratio=None,
+            n=103,
+            p=50):
+
+    X = rng.standard_normal((n, p))
+    Y = rng.standard_normal(n) * 100
+    D = pd.DataFrame({'Y':Y})
+    col_args = {'response_col':'Y'}
+
+    cv = KFold(5, random_state=0, shuffle=True)
+    foldid = np.empty(n)
+    for i, (train, test) in enumerate(cv.split(np.arange(n))):
+        foldid[test] = i+1
+
+    if sample_weight is not None:
+        weights = sample_weight(n)
+        D['weights'] = weights
+        col_args['weight_col'] = 'weights'
+    else:
+        weights = None
+
+    if offset is not None:
+        D['offset'] = offset
+        col_args['offset_col'] = 'offset'
+
+    L = GaussNet(covariance=covariance,
+                 standardize=standardize,
+                 fit_intercept=fit_intercept,
+                 lambda_min_ratio=lambda_min_ratio,
+                 penalty_factor=penalty_factor,
+                 exclude=exclude,
+                 df_max=df_max, **col_args)
+    if nlambda is not None:
+        L.nlambda = nlambda
+
+    L.fit(X,
+          D)
+    L.cross_validation_path(X,
+                            D,
+                            alignment=alignment,
+                            cv=cv)
+    CVM_ = L.cv_scores_['Mean Squared Error']
+    CVSD_ = L.cv_scores_['SD(Mean Squared Error)']
+    C, CVM, CVSD = get_glmnet_soln(X,
+                                   Y.copy(),
+                                   covariance=covariance,
+                                   standardize=standardize,
+                                   fit_intercept=fit_intercept,
+                                   penalty_factor=penalty_factor,
+                                   exclude=exclude,
+                                   weights=weights,
+                                   nlambda=nlambda,
+                                   offset=offset,
+                                   df_max=df_max,
+                                   lambda_min_ratio=lambda_min_ratio,
+                                   foldid=foldid,
+                                   alignment=alignment)
+
+    print(CVM, CVM_)
+    assert np.allclose(CVM, CVM_)
+    assert np.allclose(CVSD, CVSD_)
 

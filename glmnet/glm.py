@@ -283,7 +283,6 @@ class GLMBase(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
-            exclude=[],
             dispersion=1,
             check=True):
 
@@ -401,7 +400,6 @@ Parameters
 {X}
 {y}
 {weights}
-{exclude}
 {summarize}
     
 Returns
@@ -497,7 +495,6 @@ class GLM(GLMBase):
             y,
             sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
-            exclude=[],
             dispersion=1,
             check=True):
 
@@ -505,7 +502,6 @@ class GLM(GLMBase):
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
-                    exclude=exclude,
                     dispersion=dispersion,
                     check=check)
 
@@ -513,7 +509,7 @@ class GLM(GLMBase):
             sample_weight = np.ones(y.shape[0])
             
         if self.summarize:
-            self.covariance_, self.summary_ = self._summarize(exclude,
+            self.covariance_, self.summary_ = self._summarize(self.exclude,
                                                               self.dispersion_,
                                                               sample_weight, # not normalized!
                                                               X.shape)
@@ -598,7 +594,6 @@ class BinomialGLM(ClassifierMixin, GLM):
             y,
             sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
-            exclude=[],
             dispersion=1,
             check=True):
 
@@ -613,7 +608,6 @@ class BinomialGLM(ClassifierMixin, GLM):
                            y_binary,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
-                           exclude=exclude,
                            dispersion=dispersion,
                            check=check)
 

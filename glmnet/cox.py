@@ -15,6 +15,7 @@ from .glm import (GLMFamilySpec,
                   GLM)
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
+from ._utils import _get_data
 
 @dataclass
 class CoxState(GLMState):
@@ -166,24 +167,33 @@ class CoxLM(GLM):
                              status_col=self.family.status_col,
                              start_col=self.family.start_col)
 
-    def _check(self, X, y):
-        X, _y = check_X_y(X, y,
-                          accept_sparse=['csc'],
-                          multi_output=True,
-                          estimator=self)
-        return X, y
+    def _check(self,
+               X,
+               y,
+               check=True):
+        return _get_data(self,
+                         X,
+                         y,
+                         offset_col=self.offset_col,
+                         response_col=self.response_col,
+                         weight_col=self.weight_col,
+                         check=check,
+                         multi_output=True)
 
 @dataclass
 class RegCoxLM(RegGLM):
     
     fit_intercept: Literal[False] = False
 
-    def _check(self, X, y):
-        X, _y = check_X_y(X, y,
-                          accept_sparse=['csc'],
-                          multi_output=True,
-                          estimator=self)
-        return X, y
+    def _check(self, X, y, check=True):
+        return _get_data(self,
+                         X,
+                         y,
+                         offset_col=self.offset_col,
+                         response_col=self.response_col,
+                         weight_col=self.weight_col,
+                         check=check,
+                         multi_output=True)
 
     def _get_family_spec(self,
                          y):
@@ -200,12 +210,18 @@ class CoxNet(GLMNet):
     fit_intercept: Literal[False] = False
     regularized_estimator: BaseEstimator = RegCoxLM
     
-    def _check(self, X, y):
-        X, _y = check_X_y(X, y,
-                          accept_sparse=['csc'],
-                          multi_output=True,
-                          estimator=self)
-        return X, y
+    def _check(self,
+               X,
+               y,
+               check=True):
+        return _get_data(self,
+                         X,
+                         y,
+                         offset_col=self.offset_col,
+                         response_col=self.response_col,
+                         weight_col=self.weight_col,
+                         check=check,
+                         multi_output=True)
 
     def _get_family_spec(self,
                          y):
@@ -220,8 +236,7 @@ class CoxNet(GLMNet):
                            X,
                            y,
                            sample_weight,
-                           exclude,
-                           offset):
+                           exclude):
 
         n, p = X.shape
         keep = self.reg_glm_est_.regularizer_.penalty_factor == 0
@@ -233,8 +248,11 @@ class CoxNet(GLMNet):
         if keep.sum() > 0:
             X_keep = X[:,keep]
 
-            coxlm = CoxLM(family=self.family)
-            coxlm.fit(X_keep, y, sample_weight, offset=offset)
+            coxlm = CoxLM(family=self.family,
+                          offset_col=self.offset_col,
+                          weight_col=self.weight_col,
+                          response_col=self.response_col)
+            coxlm.fit(X_keep, y)
             coef_[keep] = coxlm.coef_
 
         return CoxState(coef_, intercept_), keep.astype(float)
@@ -247,12 +265,14 @@ class CoxNet(GLMNet):
         return linear_pred_
         
     def _get_scores(self,
-                    y,
+                    response,
+                    full_y, 
                     predictions,
+                    sample_weight,
                     test_splits,
                     scorers=[]):
 
-        event_data = y
+        event_data = full_y
 
         scores_ = []
 
@@ -280,7 +300,8 @@ class CoxNet(GLMNet):
         for split in test_splits:
             preds_ = predictions[split]
             y_ = event_data.iloc[split]
-            w_ = np.ones(y_.shape[0])
+            w_ = sample_weight[split]
+            w_ /= w_.mean()
             scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
                             for i in range(preds_.shape[1])])
 

@@ -11,7 +11,8 @@ def _get_data(estimator,
               offset_col=None,
               weight_col=None,
               response_col=None,
-              check=True):
+              check=True,
+              multi_output=False):
 
     weight = None
     if not offset_col and not weight_col:
@@ -25,7 +26,7 @@ def _get_data(estimator,
         if check:
             X, _ = check_X_y(X, response,
                              accept_sparse=['csc'],
-                             multi_output=False,
+                             multi_output=multi_output,
                              estimator=estimator)
         offset, weight = None, None
     else:

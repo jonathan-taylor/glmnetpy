@@ -50,7 +50,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             X,
             y,
             sample_weight=None, # ignored
-            exclude=[],
             interpolation_grid=None):
     
         if not hasattr(self, "_family"):
@@ -69,6 +68,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # the C++ path codes handle standardization
         # themselves so we shouldn't handle it at this level
         if not hasattr(self, "design_"):
+            if weight is None:
+                weight = np.ones(X.shape[0])
             self.design_ = design = _get_design(X,
                                                 weight,
                                                 standardize=False,
@@ -80,24 +81,21 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if self.df_max is None:
             self.df_max = X.shape[1] + 1
             
-        self.exclude_ = exclude
         if self.control is None:
             self.control = FastNetControl()
 
         nobs, nvars = design.X.shape
 
-        # if sample_weight is None:
-        #     sample_weight = np.ones(nobs) / nobs
         sample_weight = weight
         
         _check_and_set_limits(self, nvars)
-        exclude = _check_and_set_vp(self, nvars, exclude)
+        self.exclude = _check_and_set_vp(self, nvars, self.exclude)
 
         self._args = self._wrapper_args(design,
                                         response,
                                         sample_weight,
                                         offset=offset,
-                                        exclude=exclude)
+                                        exclude=self.exclude)
 
         self._args.update(**_design_wrapper_args(design))
 
@@ -144,7 +142,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # following https://github.com/trevorhastie/glmnet/blob/master/R/glmnet.R#L523
         # will work with equispaced values on log scale
 
-        self.lambda_values_[0] = self.lambda_values_[1]**2 / self.lambda_values_[2]
+        if len(self.lambda_values_) > 2 and self.lambda_values is None:
+            self.lambda_values_[0] = self.lambda_values_[1]**2 / self.lambda_values_[2]
 
         self.lambda_max_ = self.lambda_values_[0]
 

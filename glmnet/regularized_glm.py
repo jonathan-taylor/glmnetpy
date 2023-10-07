@@ -55,6 +55,7 @@ class ElNetRegularizer(Penalty):
     warm_state: dict = field(default_factory=dict)
     nvars: InitVar[int] = None
     control: InitVar[RegGLMControl] = None
+    exclude: list = field(default_factory=list)
 
     def __post_init__(self, nvars, control):
 
@@ -78,7 +79,8 @@ class ElNetRegularizer(Penalty):
                                      upper_limits=self.upper_limits,
                                      fit_intercept=self.fit_intercept,
                                      penalty_factor=self.penalty_factor,
-                                     standardize=False)
+                                     standardize=False,
+                                     exclude=self.exclude)
 
     def half_step(self,
                   state,
@@ -150,7 +152,8 @@ class RegGLM(GLM,
                                 upper_limits=self.upper_limits * self.design_.scaling_,
                                 fit_intercept=self.fit_intercept,
                                 nvars=X.shape[1],
-                                control=self.control)
+                                control=self.control,
+                                exclude=self.exclude)
 
     # no standardization for GLM
     def _get_design(self,
@@ -166,14 +169,12 @@ class RegGLM(GLM,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 3 options non sklearn API
-            exclude=[],
             check=True):
 
         super().fit(X,
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
-                    exclude=exclude,
                     dispersion=1,
                     check=check)
 
@@ -210,7 +211,6 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
-            exclude=[],
             dispersion=1,
             check=True):
 
@@ -225,7 +225,6 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
                            y_binary,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
-                           exclude=exclude,
                            dispersion=dispersion,
                            offset=offset,
                            check=check)

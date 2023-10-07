@@ -35,6 +35,7 @@ class ElNetSpec(Penalty):
     fit_intercept: bool = True
     standardize: bool = True
     control: ElNetControl = field(default_factory=ElNetControl)
+    exclude: list = field(default_factory=list)
 
 add_dataclass_docstring(ElNetSpec, subs={'control':'control_elnet'})
 
@@ -47,7 +48,6 @@ class ElNet(BaseEstimator,
             X,
             y,
             sample_weight=None,
-            exclude=[],
             warm=None,
             check=True):
 
@@ -61,7 +61,6 @@ class ElNet(BaseEstimator,
 
         if self.lambda_val > 0 or not (np.all(design.centers_ == 0) and np.all(design.scaling_ == 1)):
 
-            self.exclude_ = exclude
             if self.control is None:
                 self.control = ElNetControl()
 
@@ -79,7 +78,7 @@ class ElNet(BaseEstimator,
                 sample_weight = np.ones(nobs) / nobs
 
             _check_and_set_limits(self, nvars)
-            exclude = _check_and_set_vp(self, nvars, exclude)
+            self.exclude = _check_and_set_vp(self, nvars, self.exclude)
 
             if hasattr(self, "_wrapper_args") and warm is not None:
                 args = self._wrapper_args
@@ -107,7 +106,7 @@ class ElNet(BaseEstimator,
                                                     alpha=self.alpha,
                                                     intercept=self.fit_intercept,
                                                     penalty_factor=self.penalty_factor,
-                                                    exclude=exclude,
+                                                    exclude=self.exclude,
                                                     lower_limits=self.lower_limits,
                                                     upper_limits=self.upper_limits,
                                                     thresh=self.control.thresh,
