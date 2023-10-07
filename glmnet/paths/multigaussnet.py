@@ -28,23 +28,20 @@ class MultiGaussNet(MultiFastNetMixin):
 
     def _extract_fits(self,
                       X_shape,
-                      y_shape):
+                      response_shape):
         # gaussian fit calls it rsq
         # should be `dev` for sumamry
 
         self._fit['dev'] = self._fit['rsq']
-        return super()._extract_fits(X_shape, y_shape)
+        return super()._extract_fits(X_shape, response_shape)
 
     def _check(self, X, y):
-        X, _y = check_X_y(X, y,
-                          accept_sparse=['csc'],
-                          multi_output=True,
-                          estimator=self)
-        return X, np.asfortranarray(y)
+        X, y, response, offset, weight = super()._check(X, y)
+        return X, y, np.asfortranarray(response), offset, weight
 
     def _wrapper_args(self,
                       design,
-                      y,
+                      response,
                       sample_weight,
                       offset,
                       exclude=[]):
@@ -53,11 +50,11 @@ class MultiGaussNet(MultiFastNetMixin):
             is_offset = False
         else:
             offset = np.asarray(offset).astype(float)
-            y = y - offset # makes a copy, does not modify y
+            response = response - offset # makes a copy, does not modify 
             is_offset = True
 
         _args = super()._wrapper_args(design,
-                                      y,
+                                      response,
                                       sample_weight,
                                       offset,
                                       exclude=exclude)

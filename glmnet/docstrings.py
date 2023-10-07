@@ -29,6 +29,30 @@ standardize: bool
 weights: Optional[np.ndarray]
     Observation weights. These are not standardized in the fit.''',
 
+    'offset_col':'''
+offset_col: Union[int,str]
+    Column identifier in `y`. (Optional)''',
+    
+    'weight_col':'''
+weight_col: Union[int,str]
+    Weight identifier in `y`. (Optional)''',
+    
+    'response_col':'''
+response_col: Union[int,str]
+    Response identifier in `y`. (Optional)''',
+    
+    'event_col':'''
+event_col: Union[int,str]
+    Event identifier in `y` for Cox model.''',
+
+    'status_col':'''
+status_col: Union[int,str]
+    Status identifier in `y` for Cox model.''',
+
+    'start_col':'''
+start_col: Union[int,str]
+    Start time identifier in `y` for Cox model.''',
+
     'sample_weight':'''
 sample_weight: Optional[np.ndarray]
     Sample weights.''',

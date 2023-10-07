@@ -67,17 +67,16 @@ class ElNet(BaseEstimator,
 
             nobs, nvars = design.X.shape
 
-            if sample_weight is None:
-                sample_weight = np.ones(nobs) / nobs
-
             # because _get_design ignores `standardize` if X is a `Design`, then if `X`
             # is a `Design` this will ignore `self.standardize
 
-            if check:
-                design.X, y = check_X_y(design.X, y,
-                                        accept_sparse=['csc'],
-                                        multi_output=False,
-                                        estimator=self)
+            design.X, y = check_X_y(design.X, y,
+                                    accept_sparse=['csc'],
+                                    multi_output=False,
+                                    estimator=self)
+
+            if sample_weight is None:
+                sample_weight = np.ones(nobs) / nobs
 
             _check_and_set_limits(self, nvars)
             exclude = _check_and_set_vp(self, nvars, exclude)
@@ -86,19 +85,19 @@ class ElNet(BaseEstimator,
                 args = self._wrapper_args
                 nulldev = self._nulldev
                 
-                coef, intercept, linear_predictor = warm
+                coef, intercept, eta = warm
 
                 # some sanity checks to see if design matches
                 
                 if ((design.shape[1] != coef.shape[0] + 1) or
-                    (design.shape[0] != linear_predictor.shape[0])): 
+                    (design.shape[0] != eta.shape[0])): 
                     raise ValueError('dimension mismatch for warm start and design')
 
                 # set the warm start, copying into their arrays will check that sizes are correct
 
                 args['aint'] = intercept
                 args['a'][:] = coef.reshape((-1,1))
-                args['r'][:] = (sample_weight * (y - linear_predictor)).reshape((-1,1))
+                args['r'][:] = (sample_weight * (y - eta)).reshape((-1,1))
 
             else:
                 args, nulldev = _elnet_wrapper_args(design,

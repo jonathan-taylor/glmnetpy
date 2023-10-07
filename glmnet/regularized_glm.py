@@ -110,7 +110,7 @@ class ElNetRegularizer(Penalty):
         
         warm = (cur_state.coef,
                 cur_state.intercept,
-                cur_state.linear_predictor) # linear_predictor includes offet if any
+                cur_state.eta) # just X\beta -- doesn't include offset
 
         elnet_fit = self.elnet_estimator.fit(design,
                                              z,
@@ -164,10 +164,9 @@ class RegGLM(GLM,
     def fit(self,
             X,
             y,
-            sample_weight=None,
-            regularizer=None,             # last 4 options non sklearn API
+            sample_weight=None,           # ignored
+            regularizer=None,             # last 3 options non sklearn API
             exclude=[],
-            offset=None,
             check=True):
 
         super().fit(X,
@@ -176,7 +175,6 @@ class RegGLM(GLM,
                     regularizer=regularizer,
                     exclude=exclude,
                     dispersion=1,
-                    offset=offset,
                     check=check)
 
         return self
@@ -210,11 +208,10 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
     def fit(self,
             X,
             y,
-            sample_weight=None,
+            sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             dispersion=1,
-            offset=None,
             check=True):
 
         label_encoder = LabelEncoder().fit(y)

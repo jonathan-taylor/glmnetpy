@@ -1,3 +1,4 @@
+from typing import Union
 from dataclasses import (dataclass,
                          asdict,
                          field)
@@ -14,7 +15,6 @@ from scipy.stats import t as t_dbn
 from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
                           RegressorMixin)
-from sklearn.utils import check_X_y
 from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelEncoder
@@ -22,7 +22,8 @@ from sklearn.preprocessing import LabelEncoder
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
-from ._utils import _parent_dataclass_from_child
+from ._utils import (_parent_dataclass_from_child,
+                     _get_data)
 
 from .base import Design, _get_design
 from .docstrings import (make_docstring,
@@ -44,7 +45,10 @@ class GLMFamilySpec(object):
                  y,
                  mu,
                  sample_weight):
-        return self.base.deviance(y, mu, freq_weights=sample_weight)
+        if sample_weight is not None:
+            return self.base.deviance(y, mu, freq_weights=sample_weight)
+        else:
+            return self.base.deviance(y, mu)
 
     def null_fit(self,
                  y,
@@ -92,11 +96,7 @@ class GLMFamilySpec(object):
 
         newton_weights = sample_weight * dmu_deta**2 / varmu
 
-        # compute working response and weights
-        if offset is not None:
-            pseudo_response = (state.eta - offset) + (y - state.mu) / dmu_deta
-        else:
-            pseudo_response = state.eta + (y - state.mu) / dmu_deta
+        pseudo_response = state.eta + (y - state.mu) / dmu_deta
 
         return pseudo_response, newton_weights
         
@@ -115,6 +115,9 @@ class GLMBaseSpec(object):
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     fit_intercept: bool = True
     control: GLMControl = field(default_factory=GLMControl)
+    offset_col: Union[str,int] = None
+    weight_col: Union[str,int] = None
+    response_col: Union[str,int] = None
 
 add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
 
@@ -267,21 +270,21 @@ class GLMBase(BaseEstimator,
         elif isinstance(self.family, GLMFamilySpec):
             return self.family
 
-    def _check(self, X, y):
-        return check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=False,
-                         estimator=self)
-
-
+    def _check(self, X, y, check=True):
+        return _get_data(self,
+                         X,
+                         y,
+                         offset_col=self.offset_col,
+                         response_col=self.response_col,
+                         weight_col=self.weight_col,
+                         check=check)
     def fit(self,
             X,
             y,
-            sample_weight=None,
+            sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             dispersion=1,
-            offset=None,
             check=True):
 
         nobs, nvar = X.shape
@@ -294,21 +297,18 @@ class GLMBase(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
 
-        if check:
-            X, y = self._check(X, y)
+        X, y, response, offset, weight = self._check(X, y, check=check)
 
-        y = np.asarray(y)
+        sample_weight = weight
+        self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
+        
+        response = np.asarray(response)
 
         if self.control is None:
             self.control = GLMControl()
         elif type(self.control) == dict:
             self.control = _parent_dataclass_from_child(GLMControl,
                                                         self.control)
-        nobs, nvars = n, p = X.shape
-        
-        if sample_weight is None:
-            sample_weight = np.ones(nobs) 
-        self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
         if not hasattr(self, "design_"):
             self.design_ = design = self._get_design(X, normed_sample_weight)
@@ -316,7 +316,7 @@ class GLMBase(BaseEstimator,
             design = self.design_
             
         (null_fit,
-         self.null_deviance_) = self._family.get_null_deviance(y,
+         self.null_deviance_) = self._family.get_null_deviance(response,
                                                                sample_weight,
                                                                self.fit_intercept)
         # for GLM there is no regularization, but this pattern
@@ -333,17 +333,23 @@ class GLMBase(BaseEstimator,
             state = self.regularizer_.warm_state
         else:
             state = self._family.get_null_state(null_fit,
-                                                nvars)
+                                                nvar)
 
         # for Cox, the state could have mu==eta so that this need not change
-        def obj_function(y, normed_sample_weight, family, regularizer, state):
-            val1 = family.deviance(y, state.mu, normed_sample_weight) / 2
+        def obj_function(response,
+                         normed_sample_weight,
+                         family,
+                         regularizer,
+                         state):
+            val1 = family.deviance(response,
+                                   state.mu,
+                                   normed_sample_weight) / 2
             val2 = regularizer.objective(state)
             val = val1 + val2
             if self.control.logging: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
         obj_function = partial(obj_function,
-                               y.copy(),
+                               response.copy(),
                                normed_sample_weight.copy(),
                                self._family,
                                regularizer)
@@ -359,7 +365,7 @@ class GLMBase(BaseEstimator,
          self._final_weights) = IRLS(regularizer,
                                      self._family,
                                      design,
-                                     y,
+                                     response,
                                      offset,
                                      normed_sample_weight,
                                      state,
@@ -372,7 +378,7 @@ class GLMBase(BaseEstimator,
         if boundary:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
-        self.deviance_ = self._family.deviance(y,
+        self.deviance_ = self._family.deviance(response,
                                                state.mu,
                                                sample_weight) # not the normalized weights!
 
@@ -380,7 +386,8 @@ class GLMBase(BaseEstimator,
 
         if (hasattr(self._family, "base") and 
             isinstance(self._family.base, sm_family.Gaussian)): # GLM specific
-            self.dispersion_ = self.deviance_ / (n-p-self.fit_intercept) # usual estimate of sigma^2
+            # usual estimate of sigma^2
+            self.dispersion_ = self.deviance_ / (nobs-nvar-self.fit_intercept) 
         else:
             self.dispersion_ = dispersion
 
@@ -396,7 +403,6 @@ Parameters
 {weights}
 {exclude}
 {summarize}
-{offset}
     
 Returns
 -------
@@ -493,7 +499,6 @@ class GLM(GLMBase):
             regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             dispersion=1,
-            offset=None,
             check=True):
 
         super().fit(X,
@@ -502,7 +507,6 @@ class GLM(GLMBase):
                     regularizer=regularizer,
                     exclude=exclude,
                     dispersion=dispersion,
-                    offset=offset,
                     check=check)
 
         if sample_weight is None:
@@ -596,7 +600,6 @@ class BinomialGLM(ClassifierMixin, GLM):
             regularizer=None,             # last 4 options non sklearn API
             exclude=[],
             dispersion=1,
-            offset=None,
             check=True):
 
         label_encoder = LabelEncoder().fit(y)
@@ -612,7 +615,6 @@ class BinomialGLM(ClassifierMixin, GLM):
                            regularizer=regularizer,             # last 4 options non sklearn API
                            exclude=exclude,
                            dispersion=dispersion,
-                           offset=offset,
                            check=check)
 
     def predict(self, X, prediction_type='class'):

@@ -31,38 +31,38 @@ class MultiClassNet(MultiFastNetMixin):
 
     def _check(self, X, y):
 
-        X, y = super()._check(X, y)
+        X, y, response, offset, weight = super()._check(X, y)
         encoder = OneHotEncoder(sparse_output=False)
         y_onehot = np.asfortranarray(encoder.fit_transform(y.reshape((-1,1))))
         self.categories_ = encoder.categories_[0]
-        return X, y_onehot
+        return X, y, y_onehot, offset, weight
 
     def _extract_fits(self,
                       X_shape,
-                      y_shape):
+                      response_shape):
         # center the intercepts -- any constant
         # added does not affect class probabilities
         
         self._fit['a0'] = self._fit['a0'] - self._fit['a0'].mean(0)[None,:]
-        return super()._extract_fits(X_shape, y_shape)
+        return super()._extract_fits(X_shape, response_shape)
 
     def _wrapper_args(self,
                       design,
-                      y,
+                      response,
                       sample_weight,
                       offset,
                       exclude=[]):
 
         _args = super()._wrapper_args(design,
-                                      y,
+                                      response,
                                       sample_weight,
                                       offset,
                                       exclude=exclude)
 
         if offset is None:
-            offset = y * 0.
-        if offset.shape != y.shape:
-            raise ValueError('offset shape should match one-hot y shape')
+            offset = response * 0.
+        if offset.shape != response.shape:
+            raise ValueError('offset shape should match one-hot response shape')
         offset = np.asfortranarray(offset)
 
         # add 'kopt' 

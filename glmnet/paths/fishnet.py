@@ -29,22 +29,22 @@ class FishNet(FastNetMixin):
 
         if np.any(y < 0):
             raise ValueError("negative responses encountered;  not permitted for Poisson family")
-        X, y = super()._check(X, y)
-        y = np.asarray(y, float)
-        return X, y
+        X, y, response, offset, weight = super()._check(X, y)
+        response = np.asarray(response, float)
+        return X, y, response, offset, weight
     
     def _wrapper_args(self,
                       design,
-                      y,
+                      response,
                       sample_weight,
                       offset,
                       exclude=[]):
         
         if offset is None:
-            offset = 0. * y
+            offset = 0. * response
 
         _args = super()._wrapper_args(design,
-                                      y,
+                                      response,
                                       sample_weight,
                                       offset,
                                       exclude=exclude)

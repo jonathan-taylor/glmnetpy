@@ -49,8 +49,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     def fit(self,
             X,
             y,
-            sample_weight=None,
-            offset=None,
+            sample_weight=None, # ignored
             exclude=[],
             interpolation_grid=None):
     
@@ -62,7 +61,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        X, y = self._check(X, y)
+        X, y, response, offset, weight = self._check(X, y)
+
         if not scipy.sparse.issparse(X):
             X = np.asfortranarray(X)
         
@@ -70,7 +70,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # themselves so we shouldn't handle it at this level
         if not hasattr(self, "design_"):
             self.design_ = design = _get_design(X,
-                                                sample_weight,
+                                                weight,
                                                 standardize=False,
                                                 intercept=False)
         else:
@@ -86,14 +86,15 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         nobs, nvars = design.X.shape
 
-        if sample_weight is None:
-            sample_weight = np.ones(nobs) / nobs
-
+        # if sample_weight is None:
+        #     sample_weight = np.ones(nobs) / nobs
+        sample_weight = weight
+        
         _check_and_set_limits(self, nvars)
         exclude = _check_and_set_vp(self, nvars, exclude)
 
         self._args = self._wrapper_args(design,
-                                        y,
+                                        response,
                                         sample_weight,
                                         offset=offset,
                                         exclude=exclude)
@@ -121,7 +122,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # extract the coefficients
         
-        result = self._extract_fits(X.shape, y.shape)
+        result = self._extract_fits(X.shape, response.shape)
         nvars = design.X.shape[1]
 
         self.coefs_ = result['coefs']
@@ -156,7 +157,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
     def _extract_fits(self,
                       X_shape,
-                      y_shape): # getcoef.R
+                      response_shape): # getcoef.R
         _fit, _args = self._fit, self._args
         nvars = X_shape[1]
         nfits = _fit['lmu']
@@ -191,7 +192,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
  
     def _wrapper_args(self,
                       design,
-                      y,
+                      response,
                       sample_weight,
                       offset, # ignored, but subclasses use it
                       exclude=[]):
@@ -217,8 +218,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             ulam = np.asfortranarray(np.sort(self.lambda_values)[::-1].reshape((-1, 1)))
             self.nlambda = self.lambda_values.shape[0]
 
-        if y.ndim == 1:
-            y = y.reshape((-1,1))
+        if response.ndim == 1:
+            response = response.reshape((-1,1))
 
         # compute jd
         # assume that there are no constant variables
@@ -251,7 +252,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         _args = {'parm':float(self.alpha),
                  'ni':nvars,
                  'no':nobs,
-                 'y':y,
+                 'y':response,
                  'w':sample_weight.reshape((-1,1)),
                  'jd':jd,
                  'vp':self.penalty_factor.reshape((-1,1)),
@@ -286,10 +287,10 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
     def _extract_fits(self,
                       X_shape,
-                      y_shape):
+                      response_shape):
         _fit, _args = self._fit, self._args
         nvars = X_shape[1]
-        nresp = y_shape[1]
+        nresp = response_shape[1]
         nfits = _fit['lmu']
         if nfits < 1:
             warnings.warn("an empty model has been returned; probably a convergence issue")
@@ -322,20 +323,20 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
     def _wrapper_args(self,
                       design,
-                      y,
+                      response,
                       sample_weight,
                       offset,
                       exclude=[]):
            
         _args = super()._wrapper_args(design,
-                                      y,
+                                      response,
                                       sample_weight,
                                       offset,
                                       exclude=exclude)
 
         # ensure shapes are correct
 
-        (nobs, nvars), nr = design.X.shape, y.shape[1]
+        (nobs, nvars), nr = design.X.shape, response.shape[1]
         _args['a0'] = np.asfortranarray(np.zeros((nr, self.nlambda), float))
         _args['ca'] = np.zeros((self.nlambda * nr * nvars, 1))
         _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, nr)))
