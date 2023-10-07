@@ -25,6 +25,9 @@ class FishNet(FastNetMixin):
 
     # private methods
 
+    def __post_init__(self):
+        self._family = GLMFamilySpec(base=sm_family.Poisson())
+
     def _check(self, X, y):
 
         if np.any(y < 0):

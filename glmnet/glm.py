@@ -91,7 +91,7 @@ class GLMFamilySpec(object):
 
         if np.any(varmu == 0): raise ValueError("0s in V(mu)")
 
-        dmu_deta = family.link.inverse_deriv(state.eta)
+        dmu_deta = family.link.inverse_deriv(state.linear_predictor)
         if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
 
         newton_weights = sample_weight * dmu_deta**2 / varmu
@@ -567,27 +567,22 @@ class GLM(GLMBase):
     
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
-
-    def __post_init__(self):
-
-        if (not hasattr(self._family, 'base')
-            or not isinstance(self._family.base, sm_family.Gaussian)):
-            msg = f'{self.__class__.__name__} expects a Gaussian family.'
-            warnings.warn(msg)
-            if self.control.logging: logging.warn(msg)
+    pass
 
 @dataclass
 class BinomialGLM(ClassifierMixin, GLM):
 
     family: sm_family.Family = field(default_factory=sm_family.Binomial)
 
-    def __post_init__(self):
+    def _check(self, X, y, check=True):
 
-        if (not hasattr(self._family, 'base')
-            or not isinstance(self.family.base, sm_family.Binomial)):
-            msg = f'{self.__class__.__name__} expects a Binomial family.'
-            warnings.warn(msg)
-            if self.control.logging: logging.warn(msg)
+        X, y, response, offset, weight = super()._check(X, y, check=check)
+        encoder = LabelEncoder()
+        labels = np.asfortranarray(encoder.fit_transform(response))
+        self.classes_ = encoder.classes_
+        if len(encoder.classes_) > 2:
+            raise ValueError("BinomialGLM expecting a binary classification problem.")
+        return X, y, labels, offset, weight
 
     def fit(self,
             X,
@@ -597,15 +592,15 @@ class BinomialGLM(ClassifierMixin, GLM):
             dispersion=1,
             check=True):
 
-        label_encoder = LabelEncoder().fit(y)
-        if len(label_encoder.classes_) > 2:
-            raise ValueError("BinomialGLM expecting a binary classification problem.")
-        self.classes_ = label_encoder.classes_
-
-        y_binary = label_encoder.transform(y)
+        if not hasattr(self, "_family"):
+            self._family = self._get_family_spec(y)
+            if not isinstance(self._family.base, sm_family.Binomial):
+                msg = f'{self.__class__.__name__} expects a Binomial family.'
+                warnings.warn(msg)
+                if self.control.logging: logging.warn(msg)
 
         return super().fit(X,
-                           y_binary,
+                           y,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
                            dispersion=dispersion,

@@ -1,4 +1,5 @@
 import logging
+import warnings
 from itertools import product
 
 from dataclasses import dataclass, asdict, field, InitVar
@@ -65,16 +66,19 @@ add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 class GLMNet(BaseEstimator,
              GLMNetSpec):
 
-    def _check(self, X, y):
+    def _check(self,
+               X,
+               y,
+               check=True):
         return _get_data(self,
                          X,
                          y,
                          offset_col=self.offset_col,
                          response_col=self.response_col,
-                         weight_col=self.weight_col)
+                         weight_col=self.weight_col,
+                         check=check)
 
-    def _get_family_spec(self,
-                         y):
+    def _get_family_spec(self, y):
         if isinstance(self.family, sm_family.Family):
             return GLMFamilySpec(self.family)
         elif isinstance(self.family, GLMFamilySpec):
@@ -344,6 +348,7 @@ class GLMNet(BaseEstimator,
                                              weight,
                                              test_splits,
                                              scorers=scorers)
+
         wsum = np.array([weight[test].sum() for test in test_splits])
         wsum = wsum[:, None, None]
         mask = ~np.isnan(scores_)
@@ -581,7 +586,8 @@ class GLMNet(BaseEstimator,
                 _, cur_scorer, _ = scorers_[j]
                 try:
                     score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
-                except ValueError:
+                except ValueError as e:
+                    warnings.warn(f'{cur_scorer} failed on fold {i}: {e}')
                     pass
                     
             scores_.append(score_array)

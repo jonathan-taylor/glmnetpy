@@ -125,7 +125,7 @@ def sample1(n):
 
 def sample2(n):
     V = sample1(n)
-    V[:n//2] = 0
+    V[:n//5] = 0
     return V
 
 @pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
@@ -138,7 +138,7 @@ def sample2(n):
 @pytest.mark.parametrize('fit_intercept', [True, False])
 @pytest.mark.parametrize('nlambda', [None, 20])
 @pytest.mark.parametrize('lambda_min_ratio', [None,0.02])
-@pytest.mark.parametrize('n', [1000,50])
+@pytest.mark.parametrize('n', [1000,50,500])
 @pytest.mark.parametrize('p', [10,100])
 def test_gaussnet(covariance,
                   standardize,
@@ -190,7 +190,6 @@ def test_gaussnet(covariance,
                         nlambda=nlambda,
                         lambda_min_ratio=lambda_min_ratio,
                         df_max=df_max)
-
 
     assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < 1e-10
     if fit_intercept:
@@ -265,11 +264,11 @@ def test_limits(limits,
                         df_max=df_max,
                         lambda_min_ratio=lambda_min_ratio)
 
-    if np.any(lower_limits == 0) or np.any(upper_limits == 0):
-        tol = 1e-3
-    else:
-        tol = 1e-10
-    print(tol, 'tol')
+    # if np.any(lower_limits == 0) or np.any(upper_limits == 0):
+    #     tol = 1e-3
+    # else:
+    #     tol = 1e-10
+    tol = 1e-10
     assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < tol
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
@@ -339,7 +338,7 @@ def test_offset(offset,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@pytest.mark.parametrize('offset', [None, np.zeros(103), 20*sample1(103)]) # should match n=103 below
+@pytest.mark.parametrize('offset', [None, np.zeros(103), 0.2*sample1(103)]) # should match n=103 below
 @pytest.mark.parametrize('penalty_factor', [None,
                                             sample1(50), # should match p=50 below
                                             sample2(50)])

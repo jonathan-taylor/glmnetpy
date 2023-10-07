@@ -7,9 +7,12 @@ from dataclasses import (dataclass,
    
 import numpy as np
 
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import (OneHotEncoder,
+                                   LabelEncoder)
+from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
+from ..glm import GLMFamilySpec
 from ..docstrings import (make_docstring,
                           add_dataclass_docstring)
 
@@ -23,7 +26,8 @@ class LogNet(FastNetMixin):
     _dense = _dense
     _sparse = _sparse
 
-    univariate_beta = True # not tested as False
+    def __post_init__(self):
+        self._family = GLMFamilySpec(base=sm_family.Binomial())
 
     # private methods
 
@@ -37,15 +41,15 @@ class LogNet(FastNetMixin):
         V = super()._extract_fits(X_shape, response_shape)
         return V
 
-    def _check(self, X, y):
+    def _check(self, X, y, check=True):
 
-        X, y, response, offset, weight = super()._check(X, y)
-        encoder = OneHotEncoder(sparse_output=False)
-        y_onehot = np.asfortranarray(encoder.fit_transform(y.reshape((-1,1))))
-        self.categories_ = encoder.categories_[0]
-        if self.categories_.shape[0] > 2:
-            raise ValueError('use MultiClassNet for multinomial')
-        return X, y, y_onehot, offset, weight
+        X, y, response, offset, weight = super()._check(X, y, check=check)
+        encoder = LabelEncoder()
+        labels = np.asfortranarray(encoder.fit_transform(response))
+        self.classes_ = encoder.classes_
+        if len(encoder.classes_) > 2:
+            raise ValueError("BinomialGLM expecting a binary classification problem.")
+        return X, y, labels, offset, weight
 
     def _wrapper_args(self,
                       design,
@@ -64,12 +68,10 @@ class LogNet(FastNetMixin):
 
         if offset is None:
             offset = response * 0.
-            if self.univariate_beta:
-                offset = offset[:,:1]
-
-        if self.univariate_beta:
-            if offset.ndim == 2 and offset.shape[1] != 1:
-                raise ValueError('for binary classification as univariate, offset should be 1d')
+        else:
+            # from https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/lognet.R#L57
+            offset = np.column_stack([offset,-offset])
+            
         offset = np.asfortranarray(offset)
 
         nobs, nvars = design.X.shape
@@ -77,22 +79,26 @@ class LogNet(FastNetMixin):
         # add 'kopt' 
         _args['kopt'] = int(self.modified_newton)
 
+        # from https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/lognet.R#L42
+        nc = 1
+
         # add 'g'
-        _args['g'] = offset
-        
+        # from https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/lognet.R#L65
+        _args['g'] = offset[:,0]
+
         # fix intercept and coefs
 
-        if self.univariate_beta:
-            nc = 1
-        else:
-            nc = len(self.categories_)
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
         _args['ca'] = np.zeros((nvars*self.nlambda*nc, 1))
 
         # reshape y
-        _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, len(self.categories_))))
+        encoder = OneHotEncoder(sparse_output=False)
+        y_onehot = np.asfortranarray(encoder.fit_transform(_args['y']))
+        _args['y'] = y_onehot
 
         _args['y'] *= sample_weight[:,None]
+        # from https://github.com/trevorhastie/glmnet/blob/master/R/lognet.R#L43
+        _args['y'] = np.asfortranarray(_args['y'][:,::-1])
 
         # remove w
         del(_args['w'])
