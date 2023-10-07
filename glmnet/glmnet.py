@@ -582,7 +582,7 @@ class GLMNet(BaseEstimator,
         else:
             scorers_ = scorers
             
-        for split in test_splits:
+        for f, split in enumerate(test_splits):
             preds_ = predictions[split]
             y_ = y[split]
             w_ = sample_weight[split]
@@ -594,7 +594,7 @@ class GLMNet(BaseEstimator,
                 try:
                     score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
                 except ValueError as e:
-                    warnings.warn(f'{cur_scorer} failed on fold {i}: {e}')
+                    warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')                    
                     pass
                     
             scores_.append(score_array)

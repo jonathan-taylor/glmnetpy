@@ -94,7 +94,7 @@ class MultiGaussNet(MultiFastNetMixin):
         else:
             scorers_ = scorers
             
-        for split in test_splits:
+        for f, split in enumerate(test_splits):
             preds_ = predictions[split]
             y_ = y[split]
             w_ = sample_weight[split]
@@ -103,11 +103,11 @@ class MultiGaussNet(MultiFastNetMixin):
             for i, j in product(np.arange(preds_.shape[1]),
                                 np.arange(len(scorers_))):
                 _, cur_scorer, _ = scorers_[j]
-                if True: #try:
+                try:
                     score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
-                # except ValueError as e:
-                #     warnings.warn(f'{cur_scorer} failed on fold {i}: {e}')
-                #     pass
+                except ValueError as e:
+                    warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')                    
+                    pass
                     
             scores_.append(score_array)
 

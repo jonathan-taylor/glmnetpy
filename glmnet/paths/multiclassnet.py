@@ -1,3 +1,4 @@
+from itertools import product
 import logging
 import warnings
 
@@ -9,6 +10,9 @@ import numpy as np
 
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils import check_X_y
+from sklearn.metrics import (accuracy_score,
+                             zero_one_loss,
+                             log_loss)
 
 from .fastnet import MultiFastNetMixin
 from ..docstrings import (make_docstring,
@@ -27,13 +31,36 @@ class MultiClassNet(MultiFastNetMixin):
     _dense = _dense
     _sparse = _sparse
 
+    def predict(self,
+                X,
+                prediction_type='response' # ignored except checking valid
+                ):
+
+        value = super().predict(X, prediction_type='link')
+        if prediction_type == 'response':
+            _max = value.max(-1)
+            value = value - _max[:,:,None]
+            exp_value = np.exp(value)
+            value = exp_value / exp_value.sum(-1)[:,:,None]
+        return value
+        
     # private methods
 
-    def _check(self, X, y):
+    def _offset_predictions(self,
+                            predictions,
+                            offset):
+        value = np.log(predictions) + offset[:,None,:]
+        _max = value.max(-1)
+        value = value - _max[:,:,None]
+        exp_value = np.exp(value)
+        value = exp_value / exp_value.sum(-1)[:,:,None]
+        return value
 
-        X, y, response, offset, weight = super()._check(X, y)
+    def _check(self, X, y, check=True):
+
+        X, y, response, offset, weight = super()._check(X, y, check=check)
         encoder = OneHotEncoder(sparse_output=False)
-        y_onehot = np.asfortranarray(encoder.fit_transform(y.reshape((-1,1))))
+        y_onehot = np.asfortranarray(encoder.fit_transform(response.reshape((-1,1))))
         self.categories_ = encoder.categories_[0]
         return X, y, y_onehot, offset, weight
 
@@ -76,10 +103,64 @@ class MultiClassNet(MultiFastNetMixin):
         _args['g'] = offset
 
         # take care of weights
-        _args['y'] *= sample_weight[:,None]
+        _args['y'] = np.asfortranarray(_args['y'] * sample_weight[:,None])
 
         # remove w
         del(_args['w'])
 
         return _args
 
+    def _get_scores(self,
+                    response,
+                    full_y, # ignored by default, used in Cox
+                    predictions,
+                    sample_weight,
+                    test_splits,
+                    scorers=[]):
+
+        y = response # shorthand
+
+        scores_ = []
+
+        def _misclass(y, p_hat, sample_weight): # for binary data classifying at p=0.5, eta=0
+            return zero_one_loss(np.argmax(y, -1),
+                                 np.argmax(p_hat, -1),
+                                 sample_weight=sample_weight,
+                                 normalize=True)
+
+        def _accuracy_score(y, p_hat, sample_weight): # for binary data classifying at p=0.5, eta=0
+            return accuracy_score(np.argmax(y, -1),
+                                  np.argmax(p_hat, -1),
+                                  sample_weight=sample_weight,
+                                  normalize=True)
+
+        def _deviance(y, p_hat, sample_weight): # for binary data classifying at p=0.5, eta=0
+            return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
+
+        if scorers is None:
+            # create default scorers
+            scorers_ = [('Accuracy', _accuracy_score, 'max'),
+                        ('Misclassification Error', _misclass, 'min'),
+                        ('Multinomial Deviance', _deviance, 'min')]
+        else:
+            scorers_ = scorers
+            
+        for f, split in enumerate(test_splits):
+            preds_ = predictions[split]
+            y_ = y[split]
+            w_ = sample_weight[split]
+            w_ = w_ / w_.mean()
+            score_array = np.empty((preds_.shape[1], len(scorers_)), float) * np.nan
+            for i, j in product(np.arange(preds_.shape[1]),
+                                np.arange(len(scorers_))):
+                _, cur_scorer, _ = scorers_[j]
+                if True:
+#                try:
+                    score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
+                # except ValueError as e:
+                #     warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')
+                #     pass
+                    
+            scores_.append(score_array)
+
+        return scorers_, np.array(scores_)

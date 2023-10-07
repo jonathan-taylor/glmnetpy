@@ -44,9 +44,9 @@ Df
 # Check a GLM
 
 ```{python}
-G1 = GLM(response_col=0,
-         offset_col=1,
-         weight_col=2,
+G1 = GLM(response_id=0,
+         offset_id=1,
+         weight_id=2,
         family=sm.families.Poisson())
 G1.fit(X, D)
 ```
@@ -54,9 +54,9 @@ G1.fit(X, D)
 ## Also using `pd.DataFrame`
 
 ```{python}
-G2 = GLM(response_col='response',
-         offset_col='offset',
-         weight_col='weight',
+G2 = GLM(response_id='response',
+         offset_id='offset',
+         weight_id='weight',
          family=sm.families.Poisson()
                 )
 G2.fit(X, Df)
@@ -84,7 +84,7 @@ assert np.allclose(G2.intercept_, C[0])
 ## Try out dropping weights or offset
 
 ```{python}
-G4 = GLM(response_col='response',
+G4 = GLM(response_id='response',
          family=sm.families.Poisson())
 G4.fit(X, Df)
 ```
@@ -103,7 +103,7 @@ assert np.allclose(G4.intercept_, C[0], rtol=1e-5, atol=1e-5)
 ```
 
 ```{python}
-G5 = GLM(response_col='response', weight_col='weight', family=sm.families.Poisson())
+G5 = GLM(response_id='response', weight_id='weight', family=sm.families.Poisson())
 G5.fit(X, Df)
 ```
 
@@ -122,7 +122,7 @@ assert np.allclose(G5.intercept_, C[0])
 ```
 
 ```{python}
-G6 = GLM(response_col='response', offset_col='offset', family=sm.families.Poisson())
+G6 = GLM(response_id='response', offset_id='offset', family=sm.families.Poisson())
 G6.fit(X, Df)
 ```
 
@@ -143,9 +143,9 @@ assert np.allclose(G6.intercept_, C[0])
 # Try GLMNet (family version)
 
 ```{python}
-GN = GLMNet(response_col='response',
-            offset_col='offset',
-            weight_col='weight',
+GN = GLMNet(response_id='response',
+            offset_id='offset',
+            weight_id='weight',
            family=sm.families.Poisson())
 GN.fit(X, Df)
 ```
@@ -166,9 +166,9 @@ assert np.allclose(C.T[30][1:], GN.coefs_[30], rtol=1e-4, atol=1e-4)
 ## Without CV
 
 ```{python}
-GN2 = FishNet(response_col='response',
-              offset_col='offset',
-              weight_col='weight',
+GN2 = FishNet(response_id='response',
+              offset_id='offset',
+              weight_id='weight',
              ).fit(X, Df)
 
 ```
@@ -187,8 +187,8 @@ assert np.allclose(C[0], GN2.intercepts_)
 ```
 
 ```{python}
-GN2 = FishNet(response_col='response',
-             weight_col='weight',
+GN2 = FishNet(response_id='response',
+             weight_id='weight',
              ).fit(X, Df)
 
 ```
@@ -206,8 +206,8 @@ assert np.allclose(C[0], GN2.intercepts_)
 ```
 
 ```{python}
-GN2 = FishNet(response_col='response',
-             offset_col='offset',
+GN2 = FishNet(response_id='response',
+             offset_id='offset',
              ).fit(X, Df)
 
 ```
@@ -236,8 +236,8 @@ assert np.allclose(C[0], GN2.intercepts_)
 ## Now with CV, first no weights
 
 ```{python}
-GN3 = FishNet(response_col='response',
-               offset_col='offset',
+GN3 = FishNet(response_id='response',
+               offset_id='offset',
                ).fit(X, Df)
 
 ```
@@ -285,8 +285,8 @@ assert np.allclose(GN3.cv_scores_['SD(Poisson Deviance)'], CVSD)
 ## With an offset using `lambda`
 
 ```{python}
-GN3 = FishNet(response_col='response',
-             offset_col='offset',
+GN3 = FishNet(response_id='response',
+             offset_id='offset',
             ).fit(X, Df)
 GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda');
 ```
@@ -319,9 +319,9 @@ assert np.allclose(GN3.cv_scores_['SD(Poisson Deviance)'], CVSD)
 ## With an offset and weight using `fraction`
 
 ```{python}
-GN4 = FishNet(response_col='response',
-             offset_col='offset',
-	         weight_col='weight',
+GN4 = FishNet(response_id='response',
+             offset_id='offset',
+	         weight_id='weight',
                ).fit(X, Df)
 GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction');
 ```
@@ -359,9 +359,9 @@ assert np.allclose(GN4.cv_scores_['SD(Poisson Deviance)'], CVSD)
 ## With an offset and weight using `lambda`
 
 ```{python}
-GN4 = FishNet(response_col='response',
-               offset_col='offset',
-               weight_col='weight',
+GN4 = FishNet(response_id='response',
+               offset_id='offset',
+               weight_id='weight',
                ).fit(X, Df)
 GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda');
 ```
