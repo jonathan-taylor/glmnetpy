@@ -29,33 +29,33 @@ class LogNet(FastNetMixin):
 
     def _extract_fits(self,
                       X_shape,
-                      y_shape): # getcoef.R
+                      response_shape): # getcoef.R
         # intercepts will be shape (1,nfits),
         # reshape to (nfits,)
         # specific to binary
         self._fit['a0'] = self._fit['a0'].reshape(-1)
-        V = super()._extract_fits(X_shape, y_shape)
+        V = super()._extract_fits(X_shape, response_shape)
         return V
 
     def _check(self, X, y):
 
-        X, y = super()._check(X, y)
+        X, y, response, offset, weight = super()._check(X, y)
         encoder = OneHotEncoder(sparse_output=False)
         y_onehot = np.asfortranarray(encoder.fit_transform(y.reshape((-1,1))))
         self.categories_ = encoder.categories_[0]
         if self.categories_.shape[0] > 2:
             raise ValueError('use MultiClassNet for multinomial')
-        return X, y_onehot
+        return X, y, y_onehot, offset, weight
 
     def _wrapper_args(self,
                       design,
-                      y,
+                      response,
                       sample_weight,
                       offset,
                       exclude=[]):
 
         _args = super()._wrapper_args(design,
-                                      y,
+                                      response,
                                       sample_weight,
                                       offset,
                                       exclude=exclude)
@@ -63,7 +63,7 @@ class LogNet(FastNetMixin):
         # adjust dim of offset -- seems necessary to get 1d?
 
         if offset is None:
-            offset = y * 0.
+            offset = response * 0.
             if self.univariate_beta:
                 offset = offset[:,:1]
 
@@ -91,8 +91,6 @@ class LogNet(FastNetMixin):
 
         # reshape y
         _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, len(self.categories_))))
-
-        # probably should scale these?
 
         _args['y'] *= sample_weight[:,None]
 

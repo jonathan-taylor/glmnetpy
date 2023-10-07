@@ -1,4 +1,5 @@
 import logging
+from itertools import product
 
 from dataclasses import dataclass, asdict, field, InitVar
 from typing import Union, Optional
@@ -31,6 +32,7 @@ from .regularized_glm import (RegGLMControl,
 from .glm import (GLM,
                   GLMState,
                   GLMFamilySpec)
+from ._utils import _get_data
 
 @dataclass
 class GLMNetControl(RegGLMControl):
@@ -52,6 +54,9 @@ class GLMNetSpec(object):
     family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     control: GLMNetControl = field(default_factory=GLMNetControl)
     regularized_estimator: BaseEstimator = RegGLM
+    offset_col: Union[str,int] = None
+    weight_col: Union[str,int] = None
+    response_col: Union[str,int] = None
     
 add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 
@@ -59,14 +64,13 @@ add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 class GLMNet(BaseEstimator,
              GLMNetSpec):
 
-    def _check(self,
-               X,
-               y):
-
-        return check_X_y(X, y,
-                         accept_sparse=['csc'],
-                         multi_output=False,
-                         estimator=self)
+    def _check(self, X, y):
+        return _get_data(self,
+                         X,
+                         y,
+                         offset_col=self.offset_col,
+                         response_col=self.response_col,
+                         weight_col=self.weight_col)
 
     def _get_family_spec(self,
                          y):
@@ -78,16 +82,15 @@ class GLMNet(BaseEstimator,
     def fit(self,
             X,
             y,
-            sample_weight=None,
-            regularizer=None,             # last 4 options non sklearn API
+            sample_weight=None,           # ignored
+            regularizer=None,             # last 3 options non sklearn API
             exclude=[],
-            offset=None,
             interpolation_grid=None):
 
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
 
-        X, y = self._check(X, y)
+        X, y, response, offset, weight = self._check(X, y)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
@@ -103,35 +106,41 @@ class GLMNet(BaseEstimator,
                                                     np.log(lambda_min_ratio),
                                                     100))
 
-        if sample_weight is None:
-            sample_weight = np.ones(X.shape[0])
+        # we use column of y to retrieve optional weight
+
+        sample_weight = weight
         self.normed_sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
         
         
-        self.reg_glm_est_ = self.regularized_estimator(lambda_val=self.control.big,
-                                                       family=self.family,
-                                                       alpha=self.alpha,
-                                                       penalty_factor=self.penalty_factor,
-                                                       lower_limits=self.lower_limits,
-                                                       upper_limits=self.upper_limits,
-                                                       fit_intercept=self.fit_intercept,
-                                                       standardize=self.standardize,
-                                                       control=self.control)
+        self.reg_glm_est_ = self.regularized_estimator(
+                               lambda_val=self.control.big,
+                               family=self.family,
+                               alpha=self.alpha,
+                               penalty_factor=self.penalty_factor,
+                               lower_limits=self.lower_limits,
+                               upper_limits=self.upper_limits,
+                               fit_intercept=self.fit_intercept,
+                               standardize=self.standardize,
+                               control=self.control,
+                               offset_col=self.offset_col,
+                               weight_col=self.weight_col,            
+                               response_col=self.response_col
+                               )
 
-        self.reg_glm_est_.fit(X, y, normed_sample_weight)
+        self.reg_glm_est_.fit(X, y, None) # normed_sample_weight)
         regularizer_ = self.reg_glm_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,
                                                y,
                                                normed_sample_weight,
-                                               exclude,
-                                               offset)
+                                               exclude)
+
         state.update(self.reg_glm_est_.design_,
                      self._family,
                      offset)
 
         logl_score = state.logl_score(self._family,
-                                      y,
+                                      response,
                                       normed_sample_weight)
 
         score_ = (self.reg_glm_est_.design_.T @ logl_score)[1:]
@@ -150,9 +159,10 @@ class GLMNet(BaseEstimator,
         dev_ratios_ = []
         sample_weight_sum = sample_weight.sum()
         
-        null_fit, self.null_deviance_ = self._family.get_null_deviance(y,
-                                                                       sample_weight,
-                                                                       self.fit_intercept)
+        (null_fit,
+         self.null_deviance_) = self._family.get_null_deviance(response,
+                                                               sample_weight,
+                                                               self.fit_intercept)
 
         for l in self.lambda_values_:
 
@@ -160,8 +170,7 @@ class GLMNet(BaseEstimator,
             self.reg_glm_est_.lambda_val = regularizer_.lambda_val = l
             self.reg_glm_est_.fit(X,
                                   y,
-                                  normed_sample_weight,
-                                  offset=offset,
+                                  None, # normed_sample_weight,
                                   regularizer=regularizer_,
                                   check=False)
 
@@ -208,34 +217,48 @@ class GLMNet(BaseEstimator,
         if prediction_type == 'linear':
             return linear_pred_
         family = self._family.base
-        return family.link.inverse(linear_pred_)
+        fits = family.link.inverse(linear_pred_)
+
+        # make return based on original
+        # promised number of lambdas
+        # pad with np.nans
+        if self.lambda_values is not None:
+            nlambda = self.lambda_values.shape[0]
+        else:
+            nlambda = self.nlambda
+        value = np.empty((fits.shape[0], nlambda), float) * np.nan
+        value[:,:fits.shape[1]] = fits
+        value[:,fits.shape[1]:] = fits[:,-1][:,None]
+        return value
         
     def interpolate_coefs(self,
                           interpolation_grid):
 
         L = self.lambda_values_
         interpolation_grid = np.clip(interpolation_grid, L.min(), L.max())
-        idx_ = interp1d(L, np.arange(L.shape[0]))(interpolation_grid)
+        idx_ = interp1d(L, np.arange(L.shape[0]).astype(float))(interpolation_grid)
         coefs_ = []
         intercepts_ = []
 
+        ws = []
         for v_ in idx_:
             v_ceil = int(np.ceil(v_))
             w_ = (v_ceil - v_)
+            ws.append(w_)
             if v_ceil > 0:
-                coefs_.append(self.coefs_[v_ceil] * w_ + (1 - w_) * self.coefs_[v_ceil-1])
-                intercepts_.append(self.intercepts_[v_ceil] * w_ + (1 - w_) * self.intercepts_[v_ceil-1])
+                coefs_.append(self.coefs_[v_ceil] * (1 - w_) + w_ * self.coefs_[v_ceil-1])
+                intercepts_.append(self.intercepts_[v_ceil] * (1 - w_) + w_ * self.intercepts_[v_ceil-1])
             else:
                 coefs_.append(self.coefs_[0])
                 intercepts_.append(self.intercepts_[0])
+
         return np.asarray(coefs_), np.asarray(intercepts_)
 
     def _get_initial_state(self,
                            X,
                            y,
                            sample_weight,
-                           exclude,
-                           offset):
+                           exclude):
 
         n, p = X.shape
         keep = self.reg_glm_est_.regularizer_.penalty_factor == 0
@@ -247,13 +270,23 @@ class GLMNet(BaseEstimator,
             X_keep = X[:,keep]
 
             glm = GLM(fit_intercept=self.fit_intercept,
-                      family=self.family)
-            glm.fit(X_keep, y, sample_weight, offset=offset)
+                      family=self.family,
+                      offset_col=self.offset_col,
+                      weight_col=self.weight_col,
+                      response_col=self.response_col)
+            glm.fit(X_keep, y)
             coef_[keep] = glm.coef_
             intercept_ = glm.intercept_
         else:
             if self.fit_intercept:
-                intercept_ = self.family.link(y.mean())
+                response = _get_data(self,
+                                     X,
+                                     y,
+                                     offset_col=self.offset_col,
+                                     response_col=self.response_col,
+                                     weight_col=self.weight_col,
+                                     check=False)[2]
+                intercept_ = self.family.link(response.mean(0))
             else:
                 intercept_ = 0
         return GLMState(coef_, intercept_), keep.astype(float)
@@ -275,19 +308,17 @@ class GLMNet(BaseEstimator,
 
         # within each fold, lambda is fit fractionally
 
-        fractional_path = clone(self)
-        fractional_path.lambda_values = self.lambda_values_ / self.lambda_max_
-        fractional_path.lambda_fractional = True
+        cloned_path = clone(self)
         if alignment == 'lambda':
             fit_params.update(interpolation_grid=self.lambda_values_)
         else:
             fit_params = None
 
         X, y, groups = indexable(X, y, groups)
-
+        
         cv = check_cv(cv, y, classifier=False)
 
-        predictions = cross_val_predict(fractional_path, 
+        predictions = cross_val_predict(cloned_path,
                                         X,
                                         y,
                                         groups=groups,
@@ -296,17 +327,43 @@ class GLMNet(BaseEstimator,
                                         verbose=verbose,
                                         fit_params=fit_params,
                                         pre_dispatch=pre_dispatch)
+        # truncate to the size we got
+        predictions = predictions[:,:self.lambda_values_.shape[0]]
 
         test_splits = [test for _, test in cv.split(np.arange(X.shape[0]))]
+        # compute score
 
-        scorers_, scores_ = self._get_scores(y,
+        response, offset, weight = _get_data(self,
+                                             X,
+                                             y,
+                                             offset_col=self.offset_col,
+                                             response_col=self.response_col,
+                                             weight_col=self.weight_col)[2:]
+
+        # adjust for offset
+        # because predictions are just X\beta
+
+        if offset is not None:
+            family = self._family.base
+            predictions = family.link.inverse(family.link(predictions) +
+                                              offset[:,None])
+
+        scorers_, scores_ = self._get_scores(response,
                                              predictions,
+                                             weight,
                                              test_splits,
                                              scorers=scorers)
-
-        scores_mean_ = scores_.mean(0)
+        wsum = np.array([weight[test].sum() for test in test_splits])
+        wsum = wsum[:, None, None]
+        mask = ~np.isnan(scores_)
+        scores_mean_ = (np.sum(scores_ * mask * wsum, 0) /
+                        np.sum(mask * wsum, 0))
         if isinstance(cv, KFold):
-            scores_std_ = scores_.std(0, ddof=1) / np.sqrt(scores_.shape[0]) # assumes equal size splits!
+            count = mask.sum(0)
+            resid_ = scores_ - scores_mean_[None,:]
+            scores_std_ = np.sqrt(np.sum(resid_**2 *
+                                         mask * wsum, 0) /
+                                  (np.sum(mask * wsum, 0) * (count - 1)))
 
         self.cv_scores_ = pd.DataFrame(scores_mean_,
                                        columns=[name for name, _, _ in scorers_],
@@ -337,16 +394,19 @@ class GLMNet(BaseEstimator,
         return self.cv_scores_, self.lambda_best_, self.lambda_1se_
     
     def plot_coefficients(self,
-                          xvar='lambda',
+                          xvar='-lambda',
                           ax=None,
                           legend=False,
                           drop=None,
                           keep=None):
 
         check_is_fitted(self, ["coefs_", "feature_names_in_"])
-        if xvar == 'lambda':
+        if xvar == '-lambda':
             index = pd.Index(-np.log(self.lambda_values_))
             index.name = r'$-\log(\lambda)$'
+        if xvar == 'lambda':
+            index = pd.Index(np.log(self.lambda_values_))
+            index.name = r'$\log(\lambda)$'
         elif xvar == 'norm':
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
@@ -377,7 +437,7 @@ class GLMNet(BaseEstimator,
         return ax
 
     def plot_cross_validation(self,
-                              xvar='lambda',
+                              xvar='-lambda',
                               score=None,
                               ax=None,
                               capsize=3,
@@ -400,9 +460,12 @@ class GLMNet(BaseEstimator,
 
         check_is_fitted(self, ["cv_scores_", "lambda_best_"],
                         msg='This %(name)s is not cross-validated yet. Please run `cross_validation_path` before plotting.')
-        if xvar == 'lambda':
+        if xvar == '-lambda':
             index = pd.Index(-np.log(self.lambda_values_))
             index.name = r'$-\log(\lambda)$'
+        if xvar == 'lambda':
+            index = pd.Index(np.log(self.lambda_values_))
+            index.name = r'$\log(\lambda)$'
         elif xvar == 'norm':
             index = pd.Index(np.fabs(self.coefs_).sum(1))
             index.name = r'$\|\beta(\lambda)\|_1$'
@@ -455,10 +518,14 @@ class GLMNet(BaseEstimator,
         if have_std:
             lambda_1se = self.lambda_1se_[score]
             _1se_idx = list(self.lambda_values_).index(lambda_1se)
-        if xvar == 'lambda':
+        if xvar == '-lambda':
             l = ax.axvline(-np.log(self.lambda_values_[best_idx]), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
             if have_std:
                 ax.axvline(-np.log(self.lambda_values_[_1se_idx]), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
+        elif xvar == 'lambda':
+            l = ax.axvline(np.log(self.lambda_values_[best_idx]), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
+            if have_std:
+                ax.axvline(np.log(self.lambda_values_[_1se_idx]), c=col_1se, ls=ls_1se, label=r'$\lambda_{1SE}$')
         elif xvar == 'norm':
             ax.axvline(np.fabs(self.coefs_[best_idx]).sum(), c=col_min, ls=ls_min, label=r'$\lambda_{best}$')
             if have_std:
@@ -473,10 +540,13 @@ class GLMNet(BaseEstimator,
         return ax
 
     def _get_scores(self,
-                    y,
+                    response,
                     predictions,
+                    sample_weight,
                     test_splits,
                     scorers=[]):
+
+        y = response # shorthand
 
         scores_ = []
 
@@ -487,10 +557,11 @@ class GLMNet(BaseEstimator,
 
         if scorers is None:
             # create default scorers
-            scorers_ = [(f'{fam_name} Deviance', (lambda y, yhat, sample_weight:
-                                                     self._family.deviance(y,
-                                                                           yhat,
-                                                                           sample_weight) / y.shape[0]),
+            scorers_ = [(f'{fam_name} Deviance',
+                         (lambda y, yhat, sample_weight:
+                                      self._family.deviance(y,
+                                                            yhat,
+                                                            sample_weight) / y.shape[0]),
                          'min'),
                         ('Mean Squared Error', mean_squared_error, 'min'),
                         ('Mean Absolute Error', mean_absolute_error, 'min')]
@@ -510,8 +581,18 @@ class GLMNet(BaseEstimator,
         for split in test_splits:
             preds_ = predictions[split]
             y_ = y[split]
-            w_ = np.ones_like(y_)
-            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
-                            for i in range(preds_.shape[1])])
+            w_ = sample_weight[split]
+            w_ /= w_.mean()
+            score_array = np.empty((preds_.shape[1], len(scorers_)), float) * np.nan
+            for i, j in product(np.arange(preds_.shape[1]),
+                                np.arange(len(scorers_))):
+                _, cur_scorer, _ = scorers_[j]
+                try:
+                    score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
+                except ValueError:
+                    pass
+                    
+            scores_.append(score_array)
+
         return scorers_, np.array(scores_)
 

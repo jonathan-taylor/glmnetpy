@@ -1,8 +1,80 @@
 import numpy as np
-import scipy.sparse
-import statsmodels.api as sm
+import pandas as pd
+
+from sklearn.utils import check_X_y
 
 from dataclasses import fields
+
+def _get_data(estimator,
+              X,
+              y,
+              offset_col=None,
+              weight_col=None,
+              response_col=None,
+              check=True):
+
+    weight = None
+    if not offset_col and not weight_col:
+        if response_col:
+            if isinstance(y, pd.DataFrame):
+                response = y.loc[:,response_col]
+            else:
+                response = y[:,response_col]
+        else:
+            response = y
+        if check:
+            X, _ = check_X_y(X, response,
+                             accept_sparse=['csc'],
+                             multi_output=False,
+                             estimator=estimator)
+        offset, weight = None, None
+    else:
+        if isinstance(y, pd.DataFrame):
+            response = y
+            if offset_col:
+                offset = np.asarray(y.loc[:,offset_col])
+                response = response.drop(columns=[offset_col])
+            else:
+                offset = None
+            if weight_col:
+                weight = np.asarray(y.loc[:,weight_col])
+                response = response.drop(columns=[weight_col])
+            else:
+                weight = None
+        else:
+            keep = np.ones(y.shape[1], bool)
+            if offset_col:
+                offset = y[:,offset_col]
+                keep[offset_col] = 0
+            else:
+                offset = None
+            if weight_col:
+                weight = y[:,weight_col]
+                keep[weight_col] = 0
+            else:
+                weight = None
+
+        if check:
+            X, _ = check_X_y(X, y,
+                             accept_sparse=['csc'],
+                             multi_output=True,
+                             estimator=estimator)
+
+    if response_col:
+        if isinstance(y, pd.DataFrame):
+            response = y.loc[:,response_col]
+        else:
+            response = y[:,response_col]
+    else:
+        # we already removed columns of the data frame
+        if not isinstance(y, pd.DataFrame):
+            if offset_col or weight_col: 
+                response = y[:,keep]
+            else:
+                response = np.asarray(y)
+    if weight is None:
+        weight = np.ones(y.shape[0])
+    return X, y, np.squeeze(np.asarray(response)), offset, weight
 
 def _jerr_elnetfit(n, maxit, k=None):
     if n == 0:

@@ -27,14 +27,14 @@ class GaussNet(FastNetMixin):
 
     def _extract_fits(self,
                       X_shape,
-                      y_shape):
+                      response_shape):
         self._fit['dev'] = self._fit['rsq'] # gaussian fit calls it rsq
         return super()._extract_fits(X_shape,
-                                     y_shape)
+                                     response_shape)
         
     def _wrapper_args(self,
                       design,
-                      y,
+                      response,
                       sample_weight,
                       offset,
                       exclude=[]):
@@ -43,16 +43,17 @@ class GaussNet(FastNetMixin):
             is_offset = False
         else:
             offset = np.asarray(offset).astype(float)
-            y = y - offset # makes a copy, does not modify y
+            response = response - offset # makes a copy, does not modify y
             is_offset = True
 
         # compute nulldeviance
 
+        y = response # shorthand
         ybar = (y * sample_weight).sum() / sample_weight.sum()
         nulldev = ((y - ybar)**2 * sample_weight).sum() / sample_weight.sum()
 
         if nulldev == 0:
-            raise ValueError("y is constant; GaussNet fails at standardization step")
+            raise ValueError("response is constant; GaussNet fails at standardization step")
 
         _args = super()._wrapper_args(design,
                                       y.copy(), # it will otherwise be scaled
