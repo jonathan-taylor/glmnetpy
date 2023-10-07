@@ -91,7 +91,7 @@ class GLMFamilySpec(object):
 
         if np.any(varmu == 0): raise ValueError("0s in V(mu)")
 
-        dmu_deta = family.link.inverse_deriv(state.linear_predictor)
+        dmu_deta = family.link.inverse_deriv(state.link_parameter)
         if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
 
         newton_weights = sample_weight * dmu_deta**2 / varmu
@@ -152,15 +152,20 @@ class GLMState(object):
         '''pin the mu/eta values to coef/intercept'''
 
         family = family.base
-        self.eta = design @ self._stack
+        self.linear_predictor = design @ self._stack
         if offset is None:
-            self.linear_predictor = self.eta
+            self.link_parameter = self.linear_predictor
         else:
-            self.linear_predictor = self.eta + offset
-        self.mu = family.link.inverse(self.linear_predictor)
+            self.link_parameter = self.linear_predictor + offset
+        self.mean_parameter = family.link.inverse(self.link_parameter)
+
+        # shorthand
+        self.mu = self.mean_parameter 
+        self.eta = self.linear_predictor 
+
         if isinstance(family, sm_family.Binomial):
             self.mu = np.clip(self.mu, self.pmin, 1-self.pmin)
-            self.linear_predictor = family.link(self.mu)
+            self.link_parameter = family.link(self.mu)
 
         if objective is not None:
             self.obj_val = objective(self)
@@ -172,7 +177,7 @@ class GLMState(object):
 
         family = family.base
         varmu = family.variance(self.mu)
-        dmu_deta = family.link.inverse_deriv(self.linear_predictor)
+        dmu_deta = family.link.inverse_deriv(self.link_parameter)
         
         # compute working residual
         r = (y - self.mu) 

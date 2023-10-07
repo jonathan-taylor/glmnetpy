@@ -36,13 +36,16 @@ class CoxState(GLMState):
                objective=None):
         '''pin the mu/eta values to coef/intercept'''
 
-        self.eta = design @ self._stack
+        self.linear_predictor = design @ self._stack
         if offset is None:
-            self.linear_predictor = self.eta
+            self.link_parameter = self.linear_predictor
         else:
-            self.linear_predictor = self.eta + offset
-        self.mu = self.linear_predictor
+            self.link_parameter = self.linear_predictor + offset
 
+        # shorthand
+        self.mu = self.link_parameter
+        self.eta = self.linear_predictor
+        
         if objective is not None:
             self.obj_val = objective(self)
         
@@ -50,8 +53,8 @@ class CoxState(GLMState):
                    family,
                    y,
                    sample_weight):
-        linear_predictor = self.linear_predictor
-        family._result = family._coxdev(linear_predictor,
+        link_parameter = self.link_parameter
+        family._result = family._coxdev(link_parameter,
                                         sample_weight)
         # the gradient is the gradient of the deviance
         # we want deviance of the log-likelihood
@@ -103,8 +106,8 @@ class CoxFamilySpec(object):
                  mu,
                  sample_weight):
 
-        linear_predictor = mu
-        self._result = self._coxdev(linear_predictor,
+        link_parameter = mu
+        self._result = self._coxdev(link_parameter,
                                     sample_weight)
         return self._result.deviance
     
@@ -135,8 +138,9 @@ class CoxFamilySpec(object):
                                  offset,
                                  sample_weight):
 
+        link_parameter = state.link_parameter
         linear_predictor = state.linear_predictor
-        self._result = self._coxdev(linear_predictor,
+        self._result = self._coxdev(link_parameter,
                                     sample_weight)
         # self._coxdev computes value, gradient and hessian of deviance
         # we want the gradient, hessian of deviance / 2
@@ -145,10 +149,7 @@ class CoxFamilySpec(object):
         test = diag_hessian != 0
         newton_weights = diag_hessian
         inv_weights = np.where(test, 1 / (diag_hessian + (1 - test)), 0)
-        if offset is not None:
-            pseudo_response = (linear_predictor - offset) - gradient * inv_weights
-        else:
-            pseudo_response = linear_predictor - gradient * inv_weights
+        pseudo_response = linear_predictor - gradient * inv_weights
 
         return pseudo_response, newton_weights
     
