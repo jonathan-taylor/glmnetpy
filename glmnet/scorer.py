@@ -165,19 +165,19 @@ def plot(cv_scores,
     # add the lines indicating best and 1se choice
 
     if score in index_best.index:
-        _best_idx = list(index_best).index(index_best[score])
+        _best_idx = list(cv_scores.index).index(index_best[score])
         ax.axvline(index[_best_idx],
                    c=col_min,
                    ls=ls_min,
                    label=r'Best')
-
+        
     if score in index_1se.index:
-        _1se_idx = list(index_1se).index(index_1se[score])
+        _1se_idx = list(cv_scores.index).index(index_1se[score])
         ax.axvline(index[_1se_idx],
                    c=col_min,
                    ls=ls_min,
                    label=r'1SE')
-
+        
     if legend:
         ax.legend()
     return ax
