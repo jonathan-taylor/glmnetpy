@@ -21,11 +21,34 @@ from .._multigaussnet import multigaussnet as _dense
 from .._multigaussnet import spmultigaussnet as _sparse
 
 @dataclass
+class MultiClassFamily(object):
+
+    def default_scorers(self):
+
+        def _MSE(y, y_hat, sample_weight): 
+            return (mean_squared_error(y,
+                                       y_hat,
+                                       sample_weight=sample_weight) *
+                    y_hat.shape[1])
+
+        def _MAE(y, y_hat, sample_weight): 
+            return (mean_absolute_error(y,
+                                        y_hat,
+                                        sample_weight=sample_weight) *
+                    y_hat.shape[1])
+
+        scorers_ = [('Mean Squared Error', _MSE, 'min'),
+                    ('Mean Absolute Error', _MAE, 'min')]
+
+        return scorers_
+
+@dataclass
 class MultiGaussNet(MultiFastNetMixin):
 
     response_id: Optional[Union[int,str,list]] = None
     offset_id: Optional[Union[int,str,list]] = None
     standardize_response: bool = False
+    _family: MultiClassFamily = field(default_factory=MultiClassFamily)
     _dense = _dense
     _sparse = _sparse
 
@@ -74,42 +97,9 @@ class MultiGaussNet(MultiFastNetMixin):
 
         return _args
 
-    def _get_scores(self,
-                    response,
-                    full_y, # ignored by default, used in Cox
-                    predictions,
-                    sample_weight,
-                    test_splits,
-                    scorers=[]):
+    def _offset_predictions(self,
+                            predictions,
+                            offset):
 
-        y = response # shorthand
-
-        scores_ = []
-
-        if scorers is None:
-            # create default scorers
-            scorers_ = [('Mean Squared Error', mean_squared_error, 'min'),
-                        ('Mean Absolute Error', mean_absolute_error, 'min')]
-
-        else:
-            scorers_ = scorers
-            
-        for f, split in enumerate(test_splits):
-            preds_ = predictions[split]
-            y_ = y[split]
-            w_ = sample_weight[split]
-            w_ /= w_.mean()
-            score_array = np.empty((preds_.shape[1], len(scorers_)), float) * np.nan
-            for i, j in product(np.arange(preds_.shape[1]),
-                                np.arange(len(scorers_))):
-                _, cur_scorer, _ = scorers_[j]
-                try:
-                    score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
-                except ValueError as e:
-                    warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')                    
-                    pass
-                    
-            scores_.append(score_array)
-
-        return scorers_, np.array(scores_)
+        return predictions - offset[:,None,:]
 

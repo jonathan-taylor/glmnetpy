@@ -22,12 +22,39 @@ from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
 
 @dataclass
+class MultiClassFamily(object):
+
+    def default_scorers(self):
+
+        def _misclass(y, p_hat, sample_weight): 
+            return zero_one_loss(np.argmax(y, -1),
+                                 np.argmax(p_hat, -1),
+                                 sample_weight=sample_weight,
+                                 normalize=True)
+
+        def _accuracy_score(y, p_hat, sample_weight): 
+            return accuracy_score(np.argmax(y, -1),
+                                  np.argmax(p_hat, -1),
+                                  sample_weight=sample_weight,
+                                  normalize=True)
+
+        def _deviance(y, p_hat, sample_weight): 
+            return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
+
+        scorers_ = [('Accuracy', _accuracy_score, 'max'),
+                    ('Misclassification Error', _misclass, 'min'),
+                    ('Multinomial Deviance', _deviance, 'min')]
+
+        return scorers_
+
+@dataclass
 class MultiClassNet(MultiFastNetMixin):
 
     standardize_response: bool = False
     grouped: bool = False
     univariate_beta: bool = True
     type_logistic: Literal['Newton', 'modified_Newton'] = 'Newton'
+    _family: MultiClassFamily = field(default_factory=MultiClassFamily)
     _dense = _dense
     _sparse = _sparse
 
@@ -109,58 +136,3 @@ class MultiClassNet(MultiFastNetMixin):
         del(_args['w'])
 
         return _args
-
-    def _get_scores(self,
-                    response,
-                    full_y, # ignored by default, used in Cox
-                    predictions,
-                    sample_weight,
-                    test_splits,
-                    scorers=[]):
-
-        y = response # shorthand
-
-        scores_ = []
-
-        def _misclass(y, p_hat, sample_weight): # for binary data classifying at p=0.5, eta=0
-            return zero_one_loss(np.argmax(y, -1),
-                                 np.argmax(p_hat, -1),
-                                 sample_weight=sample_weight,
-                                 normalize=True)
-
-        def _accuracy_score(y, p_hat, sample_weight): # for binary data classifying at p=0.5, eta=0
-            return accuracy_score(np.argmax(y, -1),
-                                  np.argmax(p_hat, -1),
-                                  sample_weight=sample_weight,
-                                  normalize=True)
-
-        def _deviance(y, p_hat, sample_weight): # for binary data classifying at p=0.5, eta=0
-            return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
-
-        if scorers is None:
-            # create default scorers
-            scorers_ = [('Accuracy', _accuracy_score, 'max'),
-                        ('Misclassification Error', _misclass, 'min'),
-                        ('Multinomial Deviance', _deviance, 'min')]
-        else:
-            scorers_ = scorers
-            
-        for f, split in enumerate(test_splits):
-            preds_ = predictions[split]
-            y_ = y[split]
-            w_ = sample_weight[split]
-            w_ = w_ / w_.mean()
-            score_array = np.empty((preds_.shape[1], len(scorers_)), float) * np.nan
-            for i, j in product(np.arange(preds_.shape[1]),
-                                np.arange(len(scorers_))):
-                _, cur_scorer, _ = scorers_[j]
-                if True:
-#                try:
-                    score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
-                # except ValueError as e:
-                #     warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')
-                #     pass
-                    
-            scores_.append(score_array)
-
-        return scorers_, np.array(scores_)
