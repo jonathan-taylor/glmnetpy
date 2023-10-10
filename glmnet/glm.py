@@ -18,6 +18,10 @@ from sklearn.base import (BaseEstimator,
 from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import (mean_squared_error,
+                             mean_absolute_error,
+                             accuracy_score,
+                             roc_auc_score)
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -100,6 +104,30 @@ class GLMFamilySpec(object):
 
         return pseudo_response, newton_weights
         
+    def default_scorers(self):
+
+        fam_name = self.base.__class__.__name__
+
+        scorers_ = [(f'{fam_name} Deviance',
+                     (lambda y, yhat, sample_weight:
+                      self.deviance(y,
+                                    yhat,
+                                    sample_weight) / y.shape[0]),
+                     'min'),
+                    ('Mean Squared Error', mean_squared_error, 'min'),
+                    ('Mean Absolute Error', mean_absolute_error, 'min')]
+
+        if isinstance(self.base, sm_family.Binomial):
+            def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
+                return accuracy_score(y,
+                                      yhat>0.5,
+                                      sample_weight=sample_weight,
+                                      normalize=True)
+            scorers_.extend([('Accuracy', _accuracy_score, 'max'),
+                             ('AUC', roc_auc_score, 'max')])
+
+        return scorers_
+
 @add_dataclass_docstring
 @dataclass
 class GLMControl(object):

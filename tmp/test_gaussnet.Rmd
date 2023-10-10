@@ -267,6 +267,10 @@ GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction');
 ```
 
 ```{python}
+GN3.cv_scores_.index
+```
+
+```{python}
 GN3.plot_cross_validation(score='Gaussian Deviance', xvar='lambda')
 ```
 

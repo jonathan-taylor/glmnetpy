@@ -171,8 +171,12 @@ CVSD = GCV$cvsd
 ```
 
 ```{python}
-assert np.allclose(GN3.cv_scores_['Mean Squared Error']*q, CVM)
-assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)']*q, CVSD) 
+assert np.allclose(GN3.cv_scores_['Mean Squared Error'], CVM)
+assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)'], CVSD) 
+```
+
+```{python}
+GN3.cv_scores_['Mean Squared Error']*q, CVM
 ```
 
 ## With an offset using `lambda`
@@ -205,8 +209,8 @@ CVSD = GCV$cvsd
 ```
 
 ```{python}
-assert np.allclose(GN3.cv_scores_['Mean Squared Error']*q, CVM)
-assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)']*q, CVSD) 
+assert np.allclose(GN3.cv_scores_['Mean Squared Error'], CVM)
+assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)'], CVSD) 
 ```
 
 ## With an offset and weight using `fraction`
@@ -241,8 +245,8 @@ CVSD = GCV$cvsd
 ```
 
 ```{python}
-assert np.allclose(GN4.cv_scores_['Mean Squared Error']*q, CVM)
-assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)']*q, CVSD) 
+assert np.allclose(GN4.cv_scores_['Mean Squared Error'], CVM)
+assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)'], CVSD) 
 ```
 
 ## With an offset and weight using `lambda`
@@ -276,8 +280,8 @@ CVSD = GCV$cvsd
 ```
 
 ```{python}
-assert np.allclose(GN4.cv_scores_['Mean Squared Error']*q, CVM)
-assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)']*q, CVSD) 
+assert np.allclose(GN4.cv_scores_['Mean Squared Error'], CVM)
+assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)'], CVSD) 
 ```
 
 
