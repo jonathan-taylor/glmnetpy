@@ -6,7 +6,7 @@ jupyter:
       extension: .Rmd
       format_name: rmarkdown
       format_version: '1.2'
-      jupytext_version: 1.15.2
+      jupytext_version: 1.15.0
   kernelspec:
     display_name: Python 3 (ipykernel)
     language: python
@@ -227,7 +227,7 @@ for i, (train, test) in enumerate(cv.split(np.arange(n))):
 ## With an offset using `fraction`
 
 ```{python}
-GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction');
+predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction');
 ```
 
 ```{python}
@@ -262,7 +262,7 @@ assert np.allclose(GN3.cv_scores_['SD(Binomial Deviance)'], CVSD)
 GN3 = LogNet(response_id='response',
              offset_id='offset',
             ).fit(X, Df)
-GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda');
+predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda');
 ```
 
 ```{python}
@@ -298,7 +298,7 @@ GN4 = LogNet(response_id='response',
              offset_id='offset',
 	         weight_id='weight',
                ).fit(X, Df)
-GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction');
+predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction');
 ```
 
 ```{python}
@@ -335,7 +335,7 @@ GN4 = LogNet(response_id='response',
                offset_id='offset',
                weight_id='weight',
                ).fit(X, Df)
-GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda');
+predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda');
 ```
 
 ```{python}
