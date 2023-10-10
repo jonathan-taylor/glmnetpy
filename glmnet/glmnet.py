@@ -321,6 +321,8 @@ class GLMNet(BaseEstimator,
          self.index_best_,
          self.index_1se_) = scorer.compute_scores()
 
+        return predictions, self.cv_scores_
+
     def plot_cross_validation(self,
                               xvar=None,
                               score=None,
