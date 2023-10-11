@@ -16,7 +16,7 @@ class Design(LinearOperator):
     Linear map representing multiply with [1,X] and its transpose.
     """
 
-    X: Union[np.ndarray, scipy.sparse._csc.csc_array]
+    X: Union[np.ndarray, scipy.sparse.csc_array]
     weights: Optional[np.ndarray] = None
     dtype: np.dtype = float
     standardize: InitVar[bool] = False
@@ -197,7 +197,7 @@ def _get_design(X,
 @dataclass
 class Base(object):
     
-    X: Union[np.ndarray, scipy.sparse._csc.csc_array, Design]
+    X: Union[np.ndarray, scipy.sparse.csc_array, Design]
     y : np.ndarray
 
 @add_dataclass_docstring

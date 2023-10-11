@@ -156,7 +156,7 @@ class ElNet(BaseEstimator,
 
             lm = LinearRegression(fit_intercept=self.fit_intercept)
             if scipy.sparse.issparse(design.X):
-                X_s = scipy.sparse.csc_matrix(design.X)
+                X_s = scipy.sparse.csc_array(design.X)
             else:
                 X_s = design.X
             lm.fit(X_s, y, sample_weight)
