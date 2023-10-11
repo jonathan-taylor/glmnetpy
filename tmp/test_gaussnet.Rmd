@@ -6,7 +6,7 @@ jupyter:
       extension: .Rmd
       format_name: rmarkdown
       format_version: '1.2'
-      jupytext_version: 1.15.0
+      jupytext_version: 1.15.2
   kernelspec:
     display_name: Python 3 (ipykernel)
     language: python
@@ -45,8 +45,10 @@ Df
 G1 = GLM(response_id=0,
          offset_id=1,
          weight_id=2,
-        family=sm.families.Gaussian())
+        family=sm.families.Gaussian(), summarize=True)
 G1.fit(X, D)
+G1.summary_
+G1.dispersion_
 ```
 
 ## Also using `pd.DataFrame`
@@ -55,11 +57,13 @@ G1.fit(X, D)
 G2 = GLM(response_id='response',
          offset_id='offset',
          weight_id='weight',
-         family=sm.families.Gaussian()
+         family=sm.families.Gaussian(),
+         summarize=True
                 )
 G2.fit(X, Df)
 assert np.allclose(G2.coef_, G1.coef_)
 assert np.allclose(G2.intercept_, G1.intercept_)
+print(G2.summary_)
 ```
 
 
@@ -70,6 +74,7 @@ M = glm(Y ~ X,
         weight=W, 
         offset=O)
 C = coef(M)
+summary(M)
 ```
 
 ```{python}
@@ -150,6 +155,10 @@ GN = GLMNet(response_id='response',
 GN.fit(X, Df)
 ```
 
+```{python}
+GN.null_deviance_
+```
+
 ```{r magic_args="-o C,L"}
 library(glmnet)
 GN = glmnet(X, Y, offset=O, weights=W, family='gaussian')
@@ -180,6 +189,25 @@ GN2 = GaussNet(response_id='response',
               weight_id='weight',
              ).fit(X, Df)
 
+```
+
+```{python}
+GN = GLMNet(response_id='response',
+              family=sm.families.Gaussian()
+             ).fit(X, Df)
+GN.summary_
+```
+
+```{python}
+rescaled_dev = (1 - GN.summary_) / n
+right_dev = 1 - rescaled_dev
+right_dev
+```
+
+```{r magic_args="-o C,L"}
+GN = glmnet(X, Y,
+             family='gaussian')
+print(GN)
 ```
 
 ```{r magic_args="-o C,L"}
@@ -267,11 +295,11 @@ predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fractio
 ```
 
 ```{python}
-GN3.cv_scores_.index
+GN3.plot_cross_validation(score='Gaussian Deviance', xvar='dev')
 ```
 
 ```{python}
-GN3.plot_cross_validation(score='Gaussian Deviance', xvar='lambda')
+GN3.summary_
 ```
 
 ```{r magic_args="-i foldid -o CVM,CVSD"}

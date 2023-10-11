@@ -1,6 +1,23 @@
 from dataclasses import fields, dataclass
 
 _docstrings = {
+    'lambda_min_ratio':'''
+lambda_min_ratio: float
+    Ratio of lambda_max to smallest lambda.
+    Used to set sequence of lamdba values.
+    Values are equally spaced on a log-scale from lambda_max to
+    lambda_max * lambda_min_ratio.''',
+#     'glmnet_control':'''
+# glmnet_control: GLMNetControl
+#     Data class containing GLMNet control parameters.
+#     ''',
+
+    'nlambda':'''
+nlambda: int
+    Number of values on data-dependent grid of lambda values.
+    Values are equally spaced on a log-scale from lambda_max to
+    lambda_max * lambda_min_ratio.''',
+
     'X':'''
 X: Union[np.ndarray, scipy.sparse, DesignSpec]
     Input matrix, of shape `(nobs, nvars)`; each row is an observation

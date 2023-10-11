@@ -8,6 +8,7 @@ import logging
 import numpy as np
 from numpy.linalg import LinAlgError
 import pandas as pd
+
 import scipy.sparse
 from scipy.stats import norm as normal_dbn
 from scipy.stats import t as t_dbn
@@ -57,30 +58,75 @@ class GLMFamilySpec(object):
     def null_fit(self,
                  y,
                  sample_weight,
+                 offset,
                  fit_intercept):
+
         sample_weight = np.asarray(sample_weight)
         y = np.asarray(y)
+
+        if offset is None:
+            offset = np.zeros(y.shape[0])
+        if sample_weight is None:
+            sample_weight = np.ones(y.shape[0])
+
         if fit_intercept:
-            mu0 = (y * sample_weight).sum() * np.ones_like(y) / sample_weight.sum()
+
+            # solve a one parameter problem
+
+            X1 = np.ones((y.shape[0], 1))
+            D = _get_design(X1,
+                            sample_weight,
+                            standardize=False,
+                            intercept=False)
+            
+            state = GLMState(np.zeros(1),
+                             0)
+            state.update(D,
+                         self,
+                         offset,
+                         None)
+
+            for i in range(10):
+
+                z, w = self.get_response_and_weights(state,
+                                                     y,
+                                                     offset,
+                                                     sample_weight)
+                newcoef = (z*w).sum() / w.sum()
+                state = GLMState(np.array([newcoef]),
+                                 0)
+                state.update(D,
+                             self,
+                             offset,
+                             None)
         else:
-            mu0 = self.base.link.inverse(np.zeros(y.shape, float))
-        return mu0
+            state = GLMState(np.zeros(1), 0)
+            state.link_parameter = offset
+            state.mean_parameter = self.base.link.inverse(state.link_parameter)
+        return state
 
     def get_null_deviance(self,
                           y,
                           sample_weight,
+                          offset,
                           fit_intercept):
-        mu0 = self.null_fit(y, sample_weight, fit_intercept)
-        return mu0, self.deviance(y, mu0, sample_weight)
+        state0 = self.null_fit(y,
+                               sample_weight,
+                               offset,
+                               fit_intercept)
+        D = self.deviance(y, state0.mean_parameter, sample_weight)
+        return state0, D
 
     def get_null_state(self,
                        null_fit,
                        nvars):
         coefold = np.zeros(nvars)   # initial coefs = 0
-        intold = self.base.link(null_fit[0]) # a GLM family specific
-        return GLMState(coef=coefold,
-                        intercept=intold)
-
+        state = GLMState(coef=coefold,
+                         intercept=null_fit.intercept)
+        state.mean_parameter = null_fit.mean_parameter
+        state.link_parameter = null_fit.link_parameter
+        return state
+    
     def get_response_and_weights(self,
                                  state,
                                  y,
@@ -146,6 +192,7 @@ class GLMBaseSpec(object):
     offset_id: Union[str,int] = None
     weight_id: Union[str,int] = None
     response_id: Union[str,int] = None
+    exclude: list = field(default_factory=list)
 
 add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
 
@@ -294,7 +341,10 @@ class GLMBase(BaseEstimator,
     def _get_design(self,
                     X,
                     sample_weight):
-        return _get_design(X, sample_weight)
+        return _get_design(X,
+                           sample_weight,
+                           standardize=False,
+                           intercept=self.fit_intercept)
 
     def _get_family_spec(self,
                          y):
@@ -317,7 +367,8 @@ class GLMBase(BaseEstimator,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
             dispersion=1,
-            check=True):
+            check=True,
+            fit_null=True):
 
         nobs, nvar = X.shape
         
@@ -343,14 +394,11 @@ class GLMBase(BaseEstimator,
                                                         self.control)
         
         if not hasattr(self, "design_"):
-            self.design_ = design = self._get_design(X, normed_sample_weight)
+            self.design_ = design = self._get_design(X,
+                                                     normed_sample_weight)
         else:
             design = self.design_
             
-        (null_fit,
-         self.null_deviance_) = self._family.get_null_deviance(response,
-                                                               sample_weight,
-                                                               self.fit_intercept)
         # for GLM there is no regularization, but this pattern
         # is repeated for GLMNet
         
@@ -360,11 +408,20 @@ class GLMBase(BaseEstimator,
             regularizer = self._get_regularizer(X)
         self.regularizer_ = regularizer
 
+        if fit_null or not hasattr(self.regularizer_, 'warm_state'):
+            (null_state,
+             self.null_deviance_) = self._family.get_null_deviance(
+                                        response,
+                                        sample_weight,
+                                        offset,
+                                        self.fit_intercept)
+
+
         if (hasattr(self.regularizer_, 'warm_state') and
             self.regularizer_.warm_state):
             state = self.regularizer_.warm_state
         else:
-            state = self._family.get_null_state(null_fit,
+            state = self._family.get_null_state(null_state,
                                                 nvar)
 
         # for Cox, the state could have mu==eta so that this need not change
@@ -380,6 +437,7 @@ class GLMBase(BaseEstimator,
             val = val1 + val2
             if self.control.logging: logging.debug(f'Computing objective, lambda: {regularizer.lambda_val}, alpha: {regularizer.alpha}, coef: {state.coef}, intercept: {state.intercept}, deviance: {val1}, penalty: {val2}')
             return val
+
         obj_function = partial(obj_function,
                                response.copy(),
                                normed_sample_weight.copy(),
@@ -404,6 +462,7 @@ class GLMBase(BaseEstimator,
                                      obj_function,
                                      self.control)
 
+
         # checks on convergence and fitted values
         if not converged:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
@@ -411,8 +470,11 @@ class GLMBase(BaseEstimator,
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
         self.deviance_ = self._family.deviance(response,
-                                               state.mu,
+                                               state.mean_parameter,
                                                sample_weight) # not the normalized weights!
+
+        if offset is None:
+            offset = np.zeros(y.shape[0])
 
         self._set_coef_intercept(state)
 
@@ -538,13 +600,12 @@ class GLM(GLMBase):
                     dispersion=dispersion,
                     check=check)
 
-        if sample_weight is None:
-            sample_weight = np.ones(y.shape[0])
+        weight = self._check(X, y, check=False)[-1]
             
         if self.summarize:
             self.covariance_, self.summary_ = self._summarize(self.exclude,
                                                               self.dispersion_,
-                                                              sample_weight, # not normalized!
+                                                              weight,
                                                               X.shape)
 
 
@@ -562,7 +623,7 @@ class GLM(GLMBase):
         # IRLS used normalized weights,
         # this unnormalizes them...
         unscaled_precision_ = self.design_.quadratic_form(self._final_weights * sample_weight.sum()) 
-
+        
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
             keep[exclude] = 0
