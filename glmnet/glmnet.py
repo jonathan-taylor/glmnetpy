@@ -43,7 +43,8 @@ class GLMNetControl(RegGLMControl):
 class GLMNetSpec(object):
 
     lambda_values: Optional[np.ndarray] = None
-    lambda_fractional: bool = True
+    lambda_min_ratio: float = None
+    nlambda: int = 100
     alpha: float = 1.0
     lower_limits: float = -np.inf
     upper_limits: float = np.inf
@@ -101,13 +102,6 @@ class GLMNet(BaseEstimator,
 
         nobs, nvar = X.shape
 
-        if self.lambda_values is None:
-            self.lambda_fractional = True
-            lambda_min_ratio = 1e-2 if nobs < nvar else 1e-4
-            self.lambda_values = np.exp(np.linspace(np.log(1),
-                                                    np.log(lambda_min_ratio),
-                                                    100))
-
         # we use column of y to retrieve optional weight
 
         sample_weight = weight
@@ -130,12 +124,11 @@ class GLMNet(BaseEstimator,
                                exclude=self.exclude
                                )
 
-        self.reg_glm_est_.fit(X, y, None) # normed_sample_weight)
+        self.reg_glm_est_.fit(X, y, None, fit_null=False) 
         regularizer_ = self.reg_glm_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,
                                                y,
-                                               normed_sample_weight,
                                                self.exclude)
 
         state.update(self.reg_glm_est_.design_,
@@ -152,10 +145,22 @@ class GLMNet(BaseEstimator,
         score_[self.exclude] = 0
         self.lambda_max_ = np.fabs(score_).max() / max(self.alpha, 1e-3)
 
-        if self.lambda_fractional:
-            self.lambda_values_ = np.sort(self.lambda_max_ * self.lambda_values)[::-1]
+        if self.lambda_values is None:
+            if self.lambda_min_ratio is None:
+                lambda_min_ratio = 1e-2 if nobs < nvar else 1e-4
+            else:
+                lambda_min_ratio = self.lambda_min_ratio
+            self.lambda_values_ = np.exp(np.linspace(
+                                          np.log(1),
+                                          np.log(lambda_min_ratio),
+                                          self.nlambda)
+                                         )
+            self.lambda_values_ *= self.lambda_max_
         else:
             self.lambda_values_ = np.sort(self.lambda_values)[::-1]
+            self.nlambda = self.lambda_values.shape[0]
+            self.lambda_min_ratio = (self.lambda_values.min() /
+                                     self.lambda_values.max())
 
         coefs_ = []
         intercepts_ = []
@@ -165,6 +170,7 @@ class GLMNet(BaseEstimator,
         (null_fit,
          self.null_deviance_) = self._family.get_null_deviance(response,
                                                                sample_weight,
+                                                               offset,
                                                                self.fit_intercept)
 
         for l in self.lambda_values_:
@@ -175,11 +181,12 @@ class GLMNet(BaseEstimator,
                                   y,
                                   None, # normed_sample_weight,
                                   regularizer=regularizer_,
-                                  check=False)
+                                  check=False,
+                                  fit_null=False)
 
             coefs_.append(self.reg_glm_est_.coef_.copy())
             intercepts_.append(self.reg_glm_est_.intercept_)
-            dev_ratios_.append(1 - self.reg_glm_est_.deviance_ * sample_weight_sum / self.null_deviance_)
+            dev_ratios_.append(1 - self.reg_glm_est_.deviance_ / self.null_deviance_)
             if len(dev_ratios_) > 1:
                 if isinstance(self.family, sm_family.Gaussian): 
                     if dev_ratios_[-1] - dev_ratios_[-2] < self.control.fdev * dev_ratios_[-1]:
@@ -230,7 +237,7 @@ class GLMNet(BaseEstimator,
             nlambda = self.lambda_values.shape[0]
         else:
             nlambda = self.nlambda
-        value = np.empty((fits.shape[0], nlambda), float) * np.nan
+        value = np.zeros((fits.shape[0], nlambda), float) * np.nan
         value[:,:fits.shape[1]] = fits
         value[:,fits.shape[1]:] = fits[:,-1][:,None]
         return value
@@ -273,12 +280,12 @@ class GLMNet(BaseEstimator,
         if alignment not in ['lambda', 'fraction']:
             raise ValueError("alignment must be one of 'lambda' or 'fraction'")
 
-        # within each fold, lambda is fit fractionally
-
         cloned_path = clone(self)
         if alignment == 'lambda':
             fit_params.update(interpolation_grid=self.lambda_values_)
         else:
+            if self.lambda_values is not None:
+                warnings.warn('Using pre-specified lambda values, not proportional to lambda_max')
             fit_params = None
 
         X, y, groups = indexable(X, y, groups)
@@ -423,7 +430,6 @@ class GLMNet(BaseEstimator,
     def _get_initial_state(self,
                            X,
                            y,
-                           sample_weight,
                            exclude):
 
         n, p = X.shape
@@ -439,14 +445,20 @@ class GLMNet(BaseEstimator,
                       family=self.family,
                       offset_id=self.offset_id,
                       weight_id=self.weight_id,
-                      response_id=self.response_id)
+                      response_id=self.response_id,
+                      control=self.control)
             glm.fit(X_keep, y)
             coef_[keep] = glm.coef_
             intercept_ = glm.intercept_
         else:
             if self.fit_intercept:
-                response = self._check(X, y, check=False)[2]
-                intercept_ = self.family.link(response.mean(0))
+                response, offset, weight = self._check(X, y, check=False)[2:]
+                state0 = self._family.null_fit(response,
+                                               weight,
+                                               offset,
+                                               self.fit_intercept)
+                intercept_ = state0.coef[0] # null state has no intercept
+                                            # X a column of 1s
             else:
                 intercept_ = 0
         return GLMState(coef_, intercept_), keep.astype(float)

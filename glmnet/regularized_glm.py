@@ -25,6 +25,7 @@ from .glm import (GLMState,
 @dataclass
 class RegGLMControl(ElNetControl):
 
+    thresh: float = 1e-10
     mxitnr: int = 25
     epsnr: float = 1e-6
     big: float = 9.9e35
@@ -169,7 +170,8 @@ class RegGLM(GLM,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 3 options non sklearn API
-            check=True):
+            check=True,
+            fit_null=True):
 
         super().fit(X,
                     y,
