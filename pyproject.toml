@@ -11,3 +11,14 @@ requires = ["setuptools>=42",
 	    "coxdev"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "glmnet"
+version = "0.0.1"
+dependencies = ["numpy>=1.7.1", # max version for numba
+               "scipy>=0.9",
+               "pandas>=0.20",
+               "scikit-learn>=1.2",
+               "joblib",
+               "statsmodels>=0.13",
+	       "coxdev"]
+
