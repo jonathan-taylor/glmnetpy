@@ -3,7 +3,7 @@ requires = ["setuptools>=42",
             "wheel",
             "pybind11~=2.6.1",
             "numpy>=1.7.1",
-            "scipy>=0.9",
+            "scipy>=1.8",
             "pandas>=1.1",
             "matplotlib>=3.3.3",
             "versioneer",
@@ -15,7 +15,7 @@ build-backend = "setuptools.build_meta"
 name = "glmnet"
 version = "0.0.1"
 dependencies = ["numpy>=1.7.1", # max version for numba
-               "scipy>=0.9",
+               "scipy>=1.8",
                "pandas>=0.20",
                "scikit-learn>=1.2",
                "joblib",
