@@ -198,12 +198,6 @@ GN = GLMNet(response_id='response',
 GN.summary_
 ```
 
-```{python}
-rescaled_dev = (1 - GN.summary_) / n
-right_dev = 1 - rescaled_dev
-right_dev
-```
-
 ```{r magic_args="-o C,L"}
 GN = glmnet(X, Y,
              family='gaussian')
