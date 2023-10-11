@@ -101,5 +101,5 @@ class MultiGaussNet(MultiFastNetMixin):
                             predictions,
                             offset):
 
-        return predictions - offset[:,None,:]
+        return predictions + offset[:,None,:]
 
