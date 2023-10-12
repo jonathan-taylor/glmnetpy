@@ -60,6 +60,7 @@ EXTS = [Extension(
     f'glmnet._{mod}',
     sources=[f'src/{mod}.cpp',
              f'src/internal.cpp',
+             f'src/update_pb.cpp',
              ],
     include_dirs=[pybind11.get_include(),
                   eigendir,
