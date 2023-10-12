@@ -92,6 +92,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         _check_and_set_limits(self, nvars)
         self.exclude = _check_and_set_vp(self, nvars, self.exclude)
 
+        self.pb = tqdm(total=self.nlambda)
         self._args = self._wrapper_args(design,
                                         response,
                                         sample_weight,
@@ -268,7 +269,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'isd':int(self.standardize),
                  'intr':int(self.fit_intercept),
                  'maxit':int(self.control.maxit),
-                 'pb':tqdm(total=self.nlambda),
+                 'pb':self.pb,
                  'lmu':0, # these asfortran calls not necessary -- nullop
                  'a0':np.asfortranarray(np.zeros((self.nlambda, 1), float)),
                  'ca':np.asfortranarray(np.zeros((nx, self.nlambda))),
