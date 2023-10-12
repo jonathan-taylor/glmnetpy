@@ -168,9 +168,6 @@ py::dict spelnet_point_exp(
     return result;
 }
 
-void update_pb(py::object pb, int step_inc) {
-    pb.attr("update")(step_inc);
-}
 
 PYBIND11_MODULE(_elnet_point, m) {
     m.def("elnet_point", &elnet_point_exp,
@@ -237,9 +234,6 @@ PYBIND11_MODULE(_elnet_point, m) {
 	  py::arg("nlp"),
 	  py::arg("jerr"));
 
-    m.def("update_pb", &update_pb,
-	  py::arg("pb"),
-	  py::arg("step_inc"));
 }
 
 

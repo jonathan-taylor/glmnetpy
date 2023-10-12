@@ -4,11 +4,10 @@
 #include <glmnetpp>
 #include "driver.h"
 #include "internal.h"
+#include "update_pb.h"
 
 using namespace glmnetpp;
 namespace py = pybind11;
-
-void update_pb(py::object, int);
 
 // Binomial/Multinomial for dense X.
 py::dict lognet(
@@ -297,7 +296,4 @@ PYBIND11_MODULE(_lognet, m) {
 	  py::arg("epsnr"),
 	  py::arg("mxitnr"));
 
-    m.def("update_pb", &update_pb,
-	  py::arg("pb"),
-	  py::arg("step_inc"));
 }

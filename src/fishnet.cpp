@@ -4,11 +4,10 @@
 #include <glmnetpp>
 #include "driver.h"
 #include "internal.h"
+#include "update_pb.h"
 
 using namespace glmnetpp;
 namespace py = pybind11;
-
-void update_pb(py::object, int);
 
 // Poisson for dense X.
 py::dict fishnet_exp(

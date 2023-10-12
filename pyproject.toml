@@ -21,5 +21,6 @@ dependencies = ["numpy>=1.7.1", # max version for numba
                "joblib",
                "statsmodels>=0.13",
 	       "coxdev",
-	       "pybind11"]
+	       "pybind11",
+	       "tqdm"]
 
