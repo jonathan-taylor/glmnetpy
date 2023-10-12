@@ -291,4 +291,7 @@ PYBIND11_MODULE(_multigaussnet, m) {
 	  py::arg("epsnr"),
 	  py::arg("mxitnr"));
 
+    m.def("update_pb", &update_pb,
+	  py::arg("pb"),
+	  py::arg("step_inc"));
 }

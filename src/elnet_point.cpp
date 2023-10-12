@@ -237,7 +237,9 @@ PYBIND11_MODULE(_elnet_point, m) {
 	  py::arg("nlp"),
 	  py::arg("jerr"));
 
-    m.def("update_pb", &update_pb);
+    m.def("update_pb", &update_pb,
+	  py::arg("pb"),
+	  py::arg("step_inc"));
 }
 
 
