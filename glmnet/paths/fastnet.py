@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, asdict
 import numpy as np
 import pandas as pd
 import scipy.sparse
+from tqdm import tqdm
 
 from ..base import _get_design
 from ..glmnet import GLMNet
@@ -267,7 +268,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'isd':int(self.standardize),
                  'intr':int(self.fit_intercept),
                  'maxit':int(self.control.maxit),
-                 'pb':None,
+                 'pb':tqdm(total=self.nlambda),
                  'lmu':0, # these asfortran calls not necessary -- nullop
                  'a0':np.asfortranarray(np.zeros((self.nlambda, 1), float)),
                  'ca':np.asfortranarray(np.zeros((nx, self.nlambda))),
