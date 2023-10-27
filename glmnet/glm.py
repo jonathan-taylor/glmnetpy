@@ -10,6 +10,7 @@ from numpy.linalg import LinAlgError
 import pandas as pd
 
 import scipy.sparse
+from scipy.sparse.linalg import LinearOperator
 from scipy.stats import norm as normal_dbn
 from scipy.stats import t as t_dbn
 
@@ -173,6 +174,46 @@ class GLMFamilySpec(object):
                              ('AUC', roc_auc_score, 'max')])
 
         return scorers_
+
+    def information(self,
+                    state,
+                    sample_weight=None):
+
+        family = self.base
+
+        # some checks for NAs/zeros
+        varmu = family.variance(state.mu)
+        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+
+        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+
+        dmu_deta = family.link.inverse_deriv(state.link_parameter)
+        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
+
+        W = dmu_deta**2 / varmu
+        if sample_weight is not None:
+            W *= sample_weight
+            
+        n = W.shape[0]
+        W = W.reshape(-1)
+        return DiagonalOperator(W)
+
+@dataclass
+class DiagonalOperator(LinearOperator):
+
+    weights: np.ndarray
+
+    def __post_init__(self):
+        self.weights = np.asarray(self.weights).reshape(-1)
+        n = self.weights.shape[0]
+        self.shape = (n, n)
+
+    def _matvec(self, arg):
+        return self.weights * arg.reshape(-1)
+
+    def _adjoint(self, arg):
+        return self._matvec(arg)
+    
 
 @add_dataclass_docstring
 @dataclass
@@ -452,17 +493,20 @@ class GLMBase(BaseEstimator,
         (converged,
          boundary,
          state,
-         self._final_weights) = IRLS(regularizer,
-                                     self._family,
-                                     design,
-                                     response,
-                                     offset,
-                                     normed_sample_weight,
-                                     state,
-                                     obj_function,
-                                     self.control)
+         _) = IRLS(regularizer,
+                   self._family,
+                   design,
+                   response,
+                   offset,
+                   normed_sample_weight,
+                   state,
+                   obj_function,
+                   self.control)
 
-
+        if self.summarize:
+            self._information = self._family.information(state,
+                                                         sample_weight)
+            
         # checks on convergence and fitted values
         if not converged:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
@@ -620,7 +664,8 @@ class GLM(GLMBase):
 
         # IRLS used normalized weights,
         # this unnormalizes them...
-        unscaled_precision_ = self.design_.quadratic_form(self._final_weights * sample_weight.sum()) 
+
+        unscaled_precision_ = self.design_.quadratic_form(self._information)
         
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
