@@ -113,7 +113,7 @@ class ElNetRegularizer(Penalty):
         
         warm = (cur_state.coef,
                 cur_state.intercept,
-                cur_state.linear_parameter) # just X\beta -- doesn't include offset
+                cur_state.linear_predictor) # just X\beta -- doesn't include offset
 
         elnet_fit = self.elnet_estimator.fit(design,
                                              z,
@@ -140,6 +140,13 @@ class RegGLM(GLM,
              RegGLMSpec):
 
     control: RegGLMControl = field(default_factory=RegGLMControl)
+
+    def get_LM(self):
+        return GLM(family=self.family,
+                   fit_intercept=self.fit_intercept,
+                   offset_id=self.offset_id,
+                   weight_id=self.weight_id,
+                   response_id=self.response_id)
 
     def _get_regularizer(self,
                          X):

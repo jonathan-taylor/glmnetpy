@@ -277,6 +277,12 @@ class CoxNet(GLMNet):
                              status_id=self.family.status_id,
                              start_id=self.family.start_id)
     
+    def get_LM(self):
+        return CoxLM(family=self.family,
+                     offset_id=self.offset_id,
+                     weight_id=self.weight_id,
+                     response_id=self.response_id)
+
     def _get_initial_state(self,
                            X,
                            y,
@@ -292,10 +298,7 @@ class CoxNet(GLMNet):
         if keep.sum() > 0:
             X_keep = X[:,keep]
 
-            coxlm = CoxLM(family=self.family,
-                          offset_id=self.offset_id,
-                          weight_id=self.weight_id,
-                          response_id=self.response_id)
+            coxlm = self.get_LM()
             coxlm.fit(X_keep, y)
             coef_[keep] = coxlm.coef_
 

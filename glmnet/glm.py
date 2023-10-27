@@ -503,6 +503,8 @@ class GLMBase(BaseEstimator,
                    obj_function,
                    self.control)
 
+        self.state_ = state
+
         if self.summarize:
             self._information = self._family.information(state,
                                                          sample_weight)
@@ -517,7 +519,6 @@ class GLMBase(BaseEstimator,
                                                state.mean_parameter,
                                                sample_weight) # not the normalized weights!
 
-        self.state_ = state
         self._set_coef_intercept(state)
 
         if (hasattr(self._family, "base") and 

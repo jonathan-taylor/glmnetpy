@@ -7,6 +7,10 @@ after LASSO.
 from warnings import warn
 from copy import copy
 import numpy as np
+import pandas as pd
+
+from sklearn.utils.validation import check_is_fitted
+from sklearn.base import clone
 
 def fixed_lambda_estimator(glmnet_obj,
                            lambda_val):
@@ -31,46 +35,59 @@ def lasso_inference(glmnet_obj,
     fixed_lambda.fit(X_sel, Y_sel, sample_weight=weight_sel)
     FL = fixed_lambda # shorthand
     
-    if (not np.all(FL.upper_limits == FL.control.big) or
-        not np.all(FL.lower_limits == -FL.control.big)):
+    if (not np.all(FL.upper_limits == np.inf) or
+        not np.all(FL.lower_limits == -np.inf)):
         raise NotImplementedError('upper/lower limits coming soon')
 
-    active_set = np.nonzero(FL.coef != 0)[0]
+    active_set = np.nonzero(FL.coef_ != 0)[0]
     state = FL.state_
     information = FL._family.information(state,
-                                         sample_weight)
+                                         weight_sel)
 
-    Q_E = FL._design.quadratic_form(information,
+    Q_E = FL.design_.quadratic_form(information,
                                     columns=active_set)
-    
-    C_E = np.linalg.inv(Q_E)
-    keep = np.zeros(Q_E.shape[0])
-    penfac = FL.penalty_factors[active_set]
-    sings = np.sign(FL.coef_[active_set])
+    keep = np.zeros(Q_E.shape[0], bool)
+    if hasattr(FL, 'penalty_factors'):
+        penfac = FL.penalty_factors[active_set]
+    else:
+        penfac = np.ones(active_set.shape[0])
+    signs = np.sign(FL.coef_[active_set])
     if FL.fit_intercept:
         penfac = np.hstack([0, penfac])
         signs = np.hstack([0, signs])
         keep[0] = 1
         keep[1 + active_set] = 1
         Q_E = Q_E[keep]
-        stacked = np.hstack([state.intercept_,
-                             state.coef_[active_set]])
+        stacked = np.hstack([state.intercept,
+                             state.coef[active_set]])
     else:
         keep[active_set] = 1
         Q_E = Q_E[keep]
-        stacked = state.coef_[active_set]
+        stacked = state.coef[active_set]
 
     C_E = np.linalg.inv(Q_E)
     delta = np.zeros(Q_E.shape[0])
-    delta[1:] = lambda_val * penfac * signs
+    delta[1:] = lambda_val * penfac[1:] * signs[1:]
     delta = C_E @ delta
-    noisy_mle = stacked + C_E @ neg_score
+    noisy_mle = stacked + C_E @ delta
 
     penalized = penfac > 0
     sel_P = -signs[penalized][:,None] * np.eye(C_E.shape[0])[penalized]
     con = constraints(sel_P,
                       -signs[penalized] * delta[penalized],
                       covariance=C_E) # adjust 
+
+    # fit full model
+
+    X_full, Y_full, weight_full = full_data
+
+    unreg_LM = glmnet_obj.get_LM()
+    unreg_LM.summarize = True
+    unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
+    C_full = unreg_LM.covariance_
+
+    selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_E).sum(), 0, 1)
+    print(selection_proportion)
     return con
 
 class constraints(object):

@@ -184,6 +184,8 @@ class GLMNet(BaseEstimator,
                                   check=False,
                                   fit_null=False)
 
+            self.state_ = self.reg_glm_est_.state_
+
             coefs_.append(self.reg_glm_est_.coef_.copy())
             intercepts_.append(self.reg_glm_est_.intercept_)
             dev_ratios_.append(1 - self.reg_glm_est_.deviance_ / self.null_deviance_)
@@ -462,4 +464,11 @@ class GLMNet(BaseEstimator,
             else:
                 intercept_ = 0
         return GLMState(coef_, intercept_), keep.astype(float)
+
+    def get_LM(self):
+        return GLM(family=self.family,
+                   fit_intercept=self.fit_intercept,
+                   offset_id=self.offset_id,
+                   weight_id=self.weight_id,
+                   response_id=self.response_id)
 
