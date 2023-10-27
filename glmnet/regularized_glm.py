@@ -113,7 +113,7 @@ class ElNetRegularizer(Penalty):
         
         warm = (cur_state.coef,
                 cur_state.intercept,
-                cur_state.eta) # just X\beta -- doesn't include offset
+                cur_state.linear_parameter) # just X\beta -- doesn't include offset
 
         elnet_fit = self.elnet_estimator.fit(design,
                                              z,

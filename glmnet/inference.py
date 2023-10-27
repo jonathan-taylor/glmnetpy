@@ -14,13 +14,59 @@ and `post selection LASSO`_.
 
 from warnings import warn
 from copy import copy
-
 import numpy as np
 
-from .discrete_family import discrete_family
-from mpmath import mp
+def lasso_inference(glmnet,
+                    lambda_val,
+                    selection_data,
+                    full_data):
 
-WARNINGS = False
+    fixed_lambda = glmnet.fixed_lambda_estimator(lambda_val)
+    X_sel, Y_sel, weight_sel = selection_data
+    fixed_lambda.fit(X_sel, Y_sel, sample_weight=weight_sel)
+    FL = fixed_lambda # shorthand
+    
+    if (not np.all(FL.upper_limits == FL.control.big) or
+        not np.all(FL.lower_limits == -FL.control.big)):
+        raise NotImplementedError('upper/lower limits coming soon')
+
+    active_set = np.nonzero(FL.coef != 0)[0]
+    state = FL.state_
+    information = FL._family.information(state,
+                                         sample_weight)
+
+    Q_E = FL._design.quadratic_form(information,
+                                    columns=active_set)
+    
+    C_E = np.linalg.inv(Q_E)
+    keep = np.zeros(Q_E.shape[0])
+    penfac = FL.penalty_factors[active_set]
+    sings = np.sign(FL.coef_[active_set])
+    if FL.fit_intercept:
+        penfac = np.hstack([0, penfac])
+        signs = np.hstack([0, signs])
+        keep[0] = 1
+        keep[1 + active_set] = 1
+        Q_E = Q_E[keep]
+        stacked = np.hstack([state.intercept_,
+                             state.coef_[active_set]])
+    else:
+        keep[active_set] = 1
+        Q_E = Q_E[keep]
+        stacked = state.coef_[active_set]
+
+    C_E = np.linalg.inv(Q_E)
+    delta = np.zeros(Q_E.shape[0])
+    delta[1:] = lambda_val * penfac * signs
+    delta = C_E @ delta
+    noisy_mle = stacked + C_E @ neg_score
+
+    penalized = penfac > 0
+    sel_P = -signs[penalized][:,None] * np.eye(C_E.shape[0])[penalized]
+    con = constraints(sel_P,
+                      -signs[penalized] * delta[penalized],
+                      covariance=C_E) # adjust 
+    return con
 
 class constraints(object):
 
