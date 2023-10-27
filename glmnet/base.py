@@ -129,6 +129,7 @@ class Design(LinearOperator):
             GX = G @ X_R
             G1 = G @ np.ones(G.shape[0])
             XX_block = self.X.T @ GX
+            X1_block = self.X.T @ (G @ 1)
             G_sum = G1.sum()
             
         if scipy.sparse.issparse(XX_block):
