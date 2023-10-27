@@ -463,5 +463,3 @@ class GLMNet(BaseEstimator,
                 intercept_ = 0
         return GLMState(coef_, intercept_), keep.astype(float)
 
-
-

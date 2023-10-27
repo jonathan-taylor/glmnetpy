@@ -1,14 +1,6 @@
 """
 This module contains the core code needed for post selection
-inference based on affine selection procedures as
-described in the papers `Kac Rice`_, `Spacings`_, `covTest`_
-and `post selection LASSO`_.
-
-.. _covTest: http://arxiv.org/abs/1301.7161
-.. _Kac Rice: http://arxiv.org/abs/1308.3020
-.. _Spacings: http://arxiv.org/abs/1401.3889
-.. _post selection LASSO: http://arxiv.org/abs/1311.6238
-.. _sample carving: http://arxiv.org/abs/1410.2597
+after LASSO.
 
 """
 
@@ -16,12 +8,25 @@ from warnings import warn
 from copy import copy
 import numpy as np
 
-def lasso_inference(glmnet,
+def fixed_lambda_estimator(glmnet_obj,
+                           lambda_val):
+    check_is_fitted(glmnet_obj, ["coefs_", "feature_names_in_"])
+    estimator = clone(glmnet_obj.reg_glm_est_)
+    estimator.lambda_val = lambda_val
+    coefs, intercepts = glmnet_obj.interpolate_coefs([lambda_val])
+    cls = glmnet_obj.state_.__class__
+    state = cls(coefs[0], intercepts[0])
+    estimator.regularizer_ = glmnet_obj.reg_glm_est_.regularizer_
+    estimator.regularizer_.warm_state = state
+
+    return estimator
+
+def lasso_inference(glmnet_obj,
                     lambda_val,
                     selection_data,
                     full_data):
 
-    fixed_lambda = glmnet.fixed_lambda_estimator(lambda_val)
+    fixed_lambda = fixed_lambda_estimator(glmnet_obj, lambda_val)
     X_sel, Y_sel, weight_sel = selection_data
     fixed_lambda.fit(X_sel, Y_sel, sample_weight=weight_sel)
     FL = fixed_lambda # shorthand
