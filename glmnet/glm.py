@@ -473,9 +473,7 @@ class GLMBase(BaseEstimator,
                                                state.mean_parameter,
                                                sample_weight) # not the normalized weights!
 
-        if offset is None:
-            offset = np.zeros(y.shape[0])
-
+        self.state_ = state
         self._set_coef_intercept(state)
 
         if (hasattr(self._family, "base") and 
