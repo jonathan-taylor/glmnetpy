@@ -86,7 +86,11 @@ def lasso_inference(glmnet_obj,
     unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
     C_full = unreg_LM.covariance_
 
-    selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_E).sum(), 0, 1)
+    unreg_sel_LM = glmnet_obj.get_LM()
+    unreg_sel_LM.summarize = True
+    unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
+    C_sel = unreg_sel_LM.covariance_
+    selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_sel).sum(), 0, 1)
     print(selection_proportion)
     return con
 
