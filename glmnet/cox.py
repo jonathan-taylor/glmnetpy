@@ -5,6 +5,8 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
+from scipy.stats import norm as normal_dbn
+
 from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
 
@@ -41,7 +43,8 @@ class CoxState(GLMState):
             self.link_parameter = self.linear_predictor
         else:
             self.link_parameter = self.linear_predictor + offset
-
+        self.mean_parameter = self.link_parameter
+        
         # shorthand
         self.mu = self.link_parameter
         self.eta = self.linear_predictor
@@ -121,6 +124,7 @@ class CoxFamilySpec(object):
     def get_null_deviance(self,
                           y,
                           sample_weight,
+                          offset, # ignored for Cox
                           fit_intercept):
         mu0 = self.null_fit(y, sample_weight, fit_intercept)
         return mu0, self.deviance(y, mu0, sample_weight)
@@ -153,6 +157,11 @@ class CoxFamilySpec(object):
 
         return pseudo_response, newton_weights
     
+    def information(self,
+                    state,
+                    sample_weight):
+        return self._coxdev.information(state.link_parameter,
+                                        sample_weight)
 
 @dataclass
 class CoxLM(GLM):
@@ -180,6 +189,41 @@ class CoxLM(GLM):
                          weight_id=self.weight_id,
                          check=check,
                          multi_output=True)
+
+    def _summarize(self,
+                   exclude,
+                   dispersion,
+                   sample_weight,
+                   X_shape):
+
+        # IRLS used normalized weights,
+        # this unnormalizes them...
+
+        unscaled_precision_ = self.design_.quadratic_form(self._information)
+        
+        keep = np.ones(unscaled_precision_.shape[0]-1, bool)
+        if exclude is not []:
+            keep[exclude] = 0
+        keep = np.hstack([self.fit_intercept, keep]).astype(bool)
+        covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
+
+        SE = np.sqrt(np.diag(covariance_)) 
+        index = self.feature_names_in_
+        if self.fit_intercept:
+            coef = np.hstack([self.intercept_, self.coef_])
+            T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
+            index = ['intercept'] + index
+        else:
+            coef = self.coef_
+            T = self.coef_ / SE
+
+        summary_ = pd.DataFrame({'coef':coef,
+                                 'std err': SE,
+                                 'z': T,
+                                 'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
+                                index=index)
+        return covariance_, summary_
+
 
 @dataclass
 class RegCoxLM(RegGLM):
@@ -236,7 +280,6 @@ class CoxNet(GLMNet):
     def _get_initial_state(self,
                            X,
                            y,
-                           sample_weight,
                            exclude):
 
         n, p = X.shape
