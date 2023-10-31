@@ -5,6 +5,8 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
+from scipy.stats import norm as normal_dbn
+
 from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
 
@@ -41,7 +43,8 @@ class CoxState(GLMState):
             self.link_parameter = self.linear_predictor
         else:
             self.link_parameter = self.linear_predictor + offset
-
+        self.mean_parameter = self.link_parameter
+        
         # shorthand
         self.mu = self.link_parameter
         self.eta = self.linear_predictor
@@ -121,6 +124,7 @@ class CoxFamilySpec(object):
     def get_null_deviance(self,
                           y,
                           sample_weight,
+                          offset, # ignored for Cox
                           fit_intercept):
         mu0 = self.null_fit(y, sample_weight, fit_intercept)
         return mu0, self.deviance(y, mu0, sample_weight)
@@ -153,6 +157,32 @@ class CoxFamilySpec(object):
 
         return pseudo_response, newton_weights
     
+    def default_scorers(self):
+
+        fam_name = 'Cox'
+
+        def cox_dev_split(coxfam, full_y, split, eta, sample_weight):
+            _data = full_y.iloc[split] # presumes dataframe, could be ndarray
+            fam = CoxFamilySpec(tie_breaking=coxfam.tie_breaking,
+                                event_id=coxfam.event_id,
+                                status_id=coxfam.status_id,
+                                start_id=coxfam.start_id,
+                                event_data=_data)
+            return fam._coxdev(eta, sample_weight).deviance / _data.shape[0]
+
+
+        scorers_ = [(f'{fam_name} Deviance',
+                     partial(cox_dev_split, self),
+                     'min',
+                     'True')]
+
+        return scorers_
+
+    def information(self,
+                    state,
+                    sample_weight):
+        return self._coxdev.information(state.link_parameter,
+                                        sample_weight)
 
 @dataclass
 class CoxLM(GLM):
@@ -180,6 +210,41 @@ class CoxLM(GLM):
                          weight_id=self.weight_id,
                          check=check,
                          multi_output=True)
+
+    def _summarize(self,
+                   exclude,
+                   dispersion,
+                   sample_weight,
+                   X_shape):
+
+        # IRLS used normalized weights,
+        # this unnormalizes them...
+
+        unscaled_precision_ = self.design_.quadratic_form(self._information)
+        
+        keep = np.ones(unscaled_precision_.shape[0]-1, bool)
+        if exclude is not []:
+            keep[exclude] = 0
+        keep = np.hstack([self.fit_intercept, keep]).astype(bool)
+        covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
+
+        SE = np.sqrt(np.diag(covariance_)) 
+        index = self.feature_names_in_
+        if self.fit_intercept:
+            coef = np.hstack([self.intercept_, self.coef_])
+            T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
+            index = ['intercept'] + index
+        else:
+            coef = self.coef_
+            T = self.coef_ / SE
+
+        summary_ = pd.DataFrame({'coef':coef,
+                                 'std err': SE,
+                                 'z': T,
+                                 'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
+                                index=index)
+        return covariance_, summary_
+
 
 @dataclass
 class RegCoxLM(RegGLM):
@@ -236,7 +301,6 @@ class CoxNet(GLMNet):
     def _get_initial_state(self,
                            X,
                            y,
-                           sample_weight,
                            exclude):
 
         n, p = X.shape
@@ -263,50 +327,19 @@ class CoxNet(GLMNet):
         
         linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
         linear_pred_ = linear_pred_.T
-        return linear_pred_
-        
-    def _get_scores(self,
-                    response,
-                    full_y, 
-                    predictions,
-                    sample_weight,
-                    test_splits,
-                    scorers=[]):
 
-        event_data = full_y
-
-        scores_ = []
-
-        if hasattr(self._family, 'base'):
-            fam_name = self._family.base.__class__.__name__
+        # make return based on original
+        # promised number of lambdas
+        # pad with last value
+        if self.lambda_values is not None:
+            nlambda = self.lambda_values.shape[0]
         else:
-            fam_name = self._family.__class__.__name__
+            nlambda = self.nlambda
 
-        def _dev(family, event_data, eta, sample_weight):
-            fam = CoxFamilySpec(tie_breaking=family.tie_breaking,
-                                event_id=family.event_id,
-                                status_id=family.status_id,
-                                start_id=family.start_id,
-                                event_data=event_data)
-            return fam._coxdev(eta, sample_weight).deviance / event_data.shape[0]
-        _dev = partial(_dev, self.family)
-
-        if scorers is None:
-            # create default scorers
-            scorers_ = [(f'{self._family.name} Deviance', _dev, 'min')]
-
-        else:
-            scorers_ = scorers
-            
-        for split in test_splits:
-            preds_ = predictions[split]
-            y_ = event_data.iloc[split]
-            w_ = sample_weight[split]
-            w_ /= w_.mean()
-            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
-                            for i in range(preds_.shape[1])])
-
-        return scorers_, np.array(scores_)
+        value = np.zeros((linear_pred_.shape[0], nlambda), float) * np.nan
+        value[:,:linear_pred_.shape[1]] = linear_pred_
+        value[:,linear_pred_.shape[1]:] = linear_pred_[:,-1][:,None]
+        return value
 
     
 

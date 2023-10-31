@@ -126,27 +126,11 @@ class Design(LinearOperator):
             G_sum = n
             
         else:
-            G = np.asarray(G)
-            if G.ndim == 2:
-                if np.linalg.norm(G-G.T)/np.linalg.norm(G) > 1e-3:
-                    warnings.warn('G should be symmetric, using (G+G.T)/2')
-                    G = (G + G.T) / 2
-                GX = G @ X_R
-                X1_block = self.X.T @ G.sum(0)
-            elif G.ndim == 1:
-                if not np.all(G >= 0):
-                    raise ValueError('weights should be non-negative')
-                if not scipy.sparse.issparse(self.X):
-                    GX = G[:,None] * X_R
-                else:
-                    GX = scipy.sparse.diags(G) @ X_R
-                X1_block = self.X.T @ G
-            else:
-                raise ValueError("G should be 1-dim (treated as diagonal) or 2-dim") 
-            if scipy.sparse.issparse(GX):
-                GX = GX.toarray()
+            GX = G @ X_R
+            G1 = G @ np.ones(G.shape[0])
             XX_block = self.X.T @ GX
-            G_sum = G.sum()
+            X1_block = self.X.T @ G1
+            G_sum = G1.sum()
             
         if scipy.sparse.issparse(XX_block):
             XX_block = XX_block.toarray()

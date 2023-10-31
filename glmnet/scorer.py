@@ -60,10 +60,10 @@ class PathScorer(object):
 
         self.cv_scores_ = pd.DataFrame(scores_mean_,
                                        columns=[name for
-                                                name, _, _ in self.scorers],
+                                                name, _, _, _ in self.scorers],
                                        index=self.index)
 
-        for i, (name, _, _) in enumerate(self.scorers):
+        for i, (name, _, _, _) in enumerate(self.scorers):
             self.cv_scores_[f'SD({name})'] = scores_std_[:,i]
         
         index_best_, index_1se_ = _tune(self.index,
@@ -95,9 +95,17 @@ class PathScorer(object):
             score_array = np.empty((preds_.shape[1], len(scorers)), float) * np.nan
             for i, j in product(np.arange(preds_.shape[1]),
                                 np.arange(len(scorers))):
-                _, cur_scorer, _ = scorers[j]
+                _, cur_scorer, _, use_full = scorers[j]
                 try:
-                    score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
+                    if not use_full:
+                        score_array[i, j] = cur_scorer(y_,
+                                                       preds_[:,i],
+                                                       sample_weight=w_)
+                    else:
+                        score_array[i, j] = cur_scorer(full_y,
+                                                       split,
+                                                       preds_[:,i],
+                                                       sample_weight=w_)
                 except ValueError as e:
                     warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')                    
                     pass
@@ -200,7 +208,7 @@ def _tune(index,
 
     npath = cv_scores.shape[0]
     
-    for i, (name, _, pick_best) in enumerate(scorers):
+    for i, (name, _, pick_best, _) in enumerate(scorers):
         picker = {'min':np.argmin, 'max':np.argmax}[pick_best]
 
         if complexity_order == 'increasing':
