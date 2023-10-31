@@ -407,7 +407,7 @@ class GLMBase(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
-            dispersion=1,
+            dispersion=None,
             check=True,
             fit_null=True):
 
@@ -521,12 +521,14 @@ class GLMBase(BaseEstimator,
 
         self._set_coef_intercept(state)
 
-        if (hasattr(self._family, "base") and 
+        if dispersion is not None:
+            self.dispersion_ = dispersion
+        elif (hasattr(self._family, "base") and 
             isinstance(self._family.base, sm_family.Gaussian)): # GLM specific
             # usual estimate of sigma^2
             self.dispersion_ = self.deviance_ / (nobs-nvar-self.fit_intercept) 
         else:
-            self.dispersion_ = dispersion
+            self.dispersion_ = 1
 
         return self
     fit.__doc__ = '''
