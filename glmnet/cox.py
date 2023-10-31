@@ -157,6 +157,27 @@ class CoxFamilySpec(object):
 
         return pseudo_response, newton_weights
     
+    def default_scorers(self):
+
+        fam_name = 'Cox'
+
+        def cox_dev_split(coxfam, full_y, split, eta, sample_weight):
+            _data = full_y.iloc[split] # presumes dataframe, could be ndarray
+            fam = CoxFamilySpec(tie_breaking=coxfam.tie_breaking,
+                                event_id=coxfam.event_id,
+                                status_id=coxfam.status_id,
+                                start_id=coxfam.start_id,
+                                event_data=_data)
+            return fam._coxdev(eta, sample_weight).deviance / _data.shape[0]
+
+
+        scorers_ = [(f'{fam_name} Deviance',
+                     partial(cox_dev_split, self),
+                     'min',
+                     'True')]
+
+        return scorers_
+
     def information(self,
                     state,
                     sample_weight):
@@ -306,50 +327,62 @@ class CoxNet(GLMNet):
         
         linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
         linear_pred_ = linear_pred_.T
-        return linear_pred_
-        
-    def _get_scores(self,
-                    response,
-                    full_y, 
-                    predictions,
-                    sample_weight,
-                    test_splits,
-                    scorers=[]):
 
-        event_data = full_y
-
-        scores_ = []
-
-        if hasattr(self._family, 'base'):
-            fam_name = self._family.base.__class__.__name__
+        # make return based on original
+        # promised number of lambdas
+        # pad with last value
+        if self.lambda_values is not None:
+            nlambda = self.lambda_values.shape[0]
         else:
-            fam_name = self._family.__class__.__name__
+            nlambda = self.nlambda
 
-        def _dev(family, event_data, eta, sample_weight):
-            fam = CoxFamilySpec(tie_breaking=family.tie_breaking,
-                                event_id=family.event_id,
-                                status_id=family.status_id,
-                                start_id=family.start_id,
-                                event_data=event_data)
-            return fam._coxdev(eta, sample_weight).deviance / event_data.shape[0]
-        _dev = partial(_dev, self.family)
+        value = np.zeros((linear_pred_.shape[0], nlambda), float) * np.nan
+        value[:,:linear_pred_.shape[1]] = linear_pred_
+        value[:,linear_pred_.shape[1]:] = linear_pred_[:,-1][:,None]
+        return value
 
-        if scorers is None:
-            # create default scorers
-            scorers_ = [(f'{self._family.name} Deviance', _dev, 'min')]
+    # def _get_scores(self,
+    #                 response,
+    #                 full_y, 
+    #                 predictions,
+    #                 sample_weight,
+    #                 test_splits,
+    #                 scorers=[]):
 
-        else:
-            scorers_ = scorers
+    #     event_data = full_y
+
+    #     scores_ = []
+
+    #     if hasattr(self._family, 'base'):
+    #         fam_name = self._family.base.__class__.__name__
+    #     else:
+    #         fam_name = self._family.__class__.__name__
+
+    #     def _dev(family, event_data, eta, sample_weight):
+    #         fam = CoxFamilySpec(tie_breaking=family.tie_breaking,
+    #                             event_id=family.event_id,
+    #                             status_id=family.status_id,
+    #                             start_id=family.start_id,
+    #                             event_data=event_data)
+    #         return fam._coxdev(eta, sample_weight).deviance / event_data.shape[0]
+    #     _dev = partial(_dev, self.family)
+
+    #     if scorers is None:
+    #         # create default scorers
+    #         scorers_ = [(f'{self._family.name} Deviance', _dev, 'min')]
+
+    #     else:
+    #         scorers_ = scorers
             
-        for split in test_splits:
-            preds_ = predictions[split]
-            y_ = event_data.iloc[split]
-            w_ = sample_weight[split]
-            w_ /= w_.mean()
-            scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
-                            for i in range(preds_.shape[1])])
+    #     for split in test_splits:
+    #         preds_ = predictions[split]
+    #         y_ = event_data.iloc[split]
+    #         w_ = sample_weight[split]
+    #         w_ /= w_.mean()
+    #         scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
+    #                         for i in range(preds_.shape[1])])
 
-        return scorers_, np.array(scores_)
+    #     return scorers_, np.array(scores_)
 
     
 

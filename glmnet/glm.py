@@ -160,9 +160,9 @@ class GLMFamilySpec(object):
                       self.deviance(y,
                                     yhat,
                                     sample_weight) / y.shape[0]),
-                     'min'),
-                    ('Mean Squared Error', mean_squared_error, 'min'),
-                    ('Mean Absolute Error', mean_absolute_error, 'min')]
+                     'min', False),
+                    ('Mean Squared Error', mean_squared_error, 'min', False),
+                    ('Mean Absolute Error', mean_absolute_error, 'min', False)]
 
         if isinstance(self.base, sm_family.Binomial):
             def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
@@ -170,8 +170,8 @@ class GLMFamilySpec(object):
                                       yhat>0.5,
                                       sample_weight=sample_weight,
                                       normalize=True)
-            scorers_.extend([('Accuracy', _accuracy_score, 'max'),
-                             ('AUC', roc_auc_score, 'max')])
+            scorers_.extend([('Accuracy', _accuracy_score, 'max', False),
+                             ('AUC', roc_auc_score, 'max', False)])
 
         return scorers_
 

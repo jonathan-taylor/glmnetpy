@@ -237,6 +237,7 @@ class GLMNet(BaseEstimator,
             nlambda = self.lambda_values.shape[0]
         else:
             nlambda = self.nlambda
+
         value = np.zeros((fits.shape[0], nlambda), float) * np.nan
         value[:,:fits.shape[1]] = fits
         value[:,fits.shape[1]:] = fits[:,-1][:,None]
@@ -286,7 +287,7 @@ class GLMNet(BaseEstimator,
         else:
             if self.lambda_values is not None:
                 warnings.warn('Using pre-specified lambda values, not proportional to lambda_max')
-            fit_params = None
+            fit_params = {}
 
         X, y, groups = indexable(X, y, groups)
         
