@@ -90,12 +90,12 @@ def lasso_inference(glmnet_obj,
     unreg_LM = glmnet_obj.get_LM()
     unreg_LM.summarize = True
     unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
+    print(unreg_LM.summary_)
     C_full = unreg_LM.covariance_
 
     unreg_sel_LM = glmnet_obj.get_LM()
     unreg_sel_LM.summarize = True
     unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
-    print(unreg_sel_LM.summary_)
     C_sel = unreg_sel_LM.covariance_
     # selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_sel).sum(), 0, 1)
     
@@ -109,12 +109,14 @@ def lasso_inference(glmnet_obj,
     ## iterate over coordinates
     Ls = np.zeros_like(noisy_mle)
     Us = np.zeros_like(noisy_mle)
+    mles = np.zeros_like(noisy_mle)
+    pvals = np.zeros_like(noisy_mle)
     for i in range(len(noisy_mle)):
         e_i = np.zeros_like(noisy_mle)
         e_i[i] = 1.
         ## call selection_interval and return
         # print(selection_proportion)
-        L, U = selection_interval(
+        L, U, mle, p = selection_interval(
             support_directions=con.linear_part,
             support_offsets=con.offset,
             covariance_noisy=C_sel,
@@ -128,7 +130,9 @@ def lasso_inference(glmnet_obj,
         )
         Ls[i] = L
         Us[i] = U
-    return (Ls, Us)
+        mles[i] = mle
+        pvals[i] = p
+    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us})
 
 class constraints(object):
 
@@ -760,8 +764,17 @@ def selection_interval(support_directions,
     weight *= normal_dbn.pdf(grid / sigma)
     estimate = (direction_of_interest * observation).sum()
     # assert(0==1)
-    return discrete_family(grid, weight).equal_tailed_interval(estimate,
-                                                               alpha=1-level)
+    sel_distr = discrete_family(grid, weight)
+    L, U = sel_distr.equal_tailed_interval(estimate,
+                                            alpha=1-level)
+    mle, _, _ = sel_distr.MLE(estimate)
+    mle *= sigma**2
+    pval = sel_distr.cdf(0, estimate)
+    pval = 2 * min(pval, 1-pval)
+    L *= sigma**2
+    U *= sigma**2
+
+    return L, U, mle, pval
 
 def find_root(f, y, lb, ub, tol=1e-6):
     """
