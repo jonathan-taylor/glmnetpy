@@ -4,10 +4,12 @@ after LASSO.
 
 """
 
+import warnings
 from warnings import warn
 from copy import copy
 import numpy as np
 import pandas as pd
+from scipy.stats import norm as normal_dbn
 
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import clone
@@ -28,7 +30,8 @@ def fixed_lambda_estimator(glmnet_obj,
 def lasso_inference(glmnet_obj,
                     lambda_val,
                     selection_data,
-                    full_data):
+                    full_data,
+                    level=.9):
 
     fixed_lambda = fixed_lambda_estimator(glmnet_obj, lambda_val)
     X_sel, Y_sel, weight_sel = selection_data
@@ -43,7 +46,7 @@ def lasso_inference(glmnet_obj,
     state = FL.state_
     information = FL._family.information(state,
                                          weight_sel)
-
+    
     Q_E = FL.design_.quadratic_form(information,
                                     columns=active_set)
     keep = np.zeros(Q_E.shape[0], bool)
@@ -57,16 +60,19 @@ def lasso_inference(glmnet_obj,
         signs = np.hstack([0, signs])
         keep[0] = 1
         keep[1 + active_set] = 1
+        print("fitting intercept")
+        # C_E_active = C_E[keep]
         Q_E = Q_E[keep]
         stacked = np.hstack([state.intercept,
                              state.coef[active_set]])
     else:
         keep[active_set] = 1
-        Q_E = Q_E[keep]
+        # C_E_active = C_E[keep]
+        Q_E = Q_E[keep][:,1:]
         stacked = state.coef[active_set]
 
     C_E = np.linalg.inv(Q_E)
-    delta = np.zeros(Q_E.shape[0])
+    delta = np.zeros(C_E.shape[0])
     delta[1:] = lambda_val * penfac[1:] * signs[1:]
     delta = C_E @ delta
     noisy_mle = stacked + C_E @ delta
@@ -89,10 +95,40 @@ def lasso_inference(glmnet_obj,
     unreg_sel_LM = glmnet_obj.get_LM()
     unreg_sel_LM.summarize = True
     unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
+    print(unreg_sel_LM.summary_)
     C_sel = unreg_sel_LM.covariance_
-    selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_sel).sum(), 0, 1)
-    print(selection_proportion)
-    return con
+    # selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_sel).sum(), 0, 1)
+    
+    ## TODO: will this handle fit_intercept?
+    if FL.fit_intercept:
+        stacked = np.hstack([unreg_LM.intercept_,
+                             unreg_LM.coef_])
+    else:
+        full_mle = unreg_LM.coef_
+
+    ## iterate over coordinates
+    Ls = np.zeros_like(noisy_mle)
+    Us = np.zeros_like(noisy_mle)
+    for i in range(len(noisy_mle)):
+        e_i = np.zeros_like(noisy_mle)
+        e_i[i] = 1.
+        ## call selection_interval and return
+        # print(selection_proportion)
+        L, U = selection_interval(
+            support_directions=con.linear_part,
+            support_offsets=con.offset,
+            covariance_noisy=C_sel,
+            covariance_full=C_full,
+            noisy_observation=noisy_mle,
+            observation=full_mle,
+            direction_of_interest=e_i,
+            # tol=,
+            level=level,
+            # UMAU=,
+        )
+        Ls[i] = L
+        Us[i] = U
+    return (Ls, Us)
 
 class constraints(object):
 
@@ -422,7 +458,7 @@ class constraints(object):
         Returns
         -------
 
-        [U,L] : selection interval
+        [L,U] : selection interval
 
         
         """
@@ -434,7 +470,7 @@ class constraints(object):
             self.covariance,
             Y,
             direction_of_interest,
-            alpha=alpha,
+            level=1. - alpha,
             UMAU=UMAU)
 
     def covariance_factors(self, force=True):
@@ -518,6 +554,10 @@ class constraints(object):
         """
         sqrt_inv = self.covariance_factors()[1]
         return sqrt_inv.T.dot(sqrt_inv.dot(direction))
+
+
+
+
 
 def stack(*cons):
     """
@@ -645,11 +685,12 @@ def interval_constraints(support_directions,
 
 def selection_interval(support_directions, 
                        support_offsets,
-                       covariance,
+                       covariance_noisy,
+                       covariance_full,
                        noisy_observation,
                        observation,
                        direction_of_interest,
-                       percent_smoothing,
+                    #    percent_smoothing, ## sqrt(alpha)
                        tol = 1.e-4,
                        level = 0.90,
                        UMAU=True):
@@ -696,18 +737,29 @@ def selection_interval(support_directions,
     """
 
     (lower_bound,
-     noisy_estimate,
+     _,
      upper_bound,
-     sigma) = interval_constraints(support_directions, 
-                                   support_offsets,
-                                   covariance,
-                                   noisy_observation,
-                                   direction_of_interest,
-                                   tol=tol)
-
+     _) = interval_constraints(support_directions, 
+                                support_offsets,
+                                covariance_noisy,
+                                noisy_observation,
+                                direction_of_interest,
+                                tol=tol)
+    ## lars path lockhart tibs^2 taylor paper
+    sigma = np.sqrt(direction_of_interest.T @ covariance_full @ direction_of_interest)
+    ## sqrt(alpha) is just sigma_noisy - sigma_full
+    smoothing_sigma = np.sqrt(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2)
     grid = np.linspace(lower_bound - 4 * sigma, upper_bound + 4 * sigma, 801)
-    weight = normal_dbn.cdf((upper_bound - grid) / sigma) - normal_dbn.cdf((lower_bound - grid) / sigma)
+    weight = (
+        normal_dbn.cdf(
+            (upper_bound - grid) / (smoothing_sigma)
+        ) - normal_dbn.cdf(
+            (lower_bound - grid) / (smoothing_sigma)
+        )
+    )
+    weight *= normal_dbn.pdf(grid / sigma)
     estimate = (direction_of_interest * observation).sum()
+    # assert(0==1)
     return discrete_family(grid, weight).equal_tailed_interval(estimate,
                                                                alpha=1-level)
 
@@ -781,7 +833,7 @@ class discrete_family(object):
 
         The weights are normalized to sum to 1.
         """
-        xw = np.array(sorted(zip(sufficient_stat, weights)), np.float)
+        xw = np.array(sorted(zip(sufficient_stat, weights)), float)
         self._x = xw[:,0]
         self._w = xw[:,1]
         self._lw = np.log(xw[:,1])
