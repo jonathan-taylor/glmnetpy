@@ -341,49 +341,6 @@ class CoxNet(GLMNet):
         value[:,linear_pred_.shape[1]:] = linear_pred_[:,-1][:,None]
         return value
 
-    # def _get_scores(self,
-    #                 response,
-    #                 full_y, 
-    #                 predictions,
-    #                 sample_weight,
-    #                 test_splits,
-    #                 scorers=[]):
-
-    #     event_data = full_y
-
-    #     scores_ = []
-
-    #     if hasattr(self._family, 'base'):
-    #         fam_name = self._family.base.__class__.__name__
-    #     else:
-    #         fam_name = self._family.__class__.__name__
-
-    #     def _dev(family, event_data, eta, sample_weight):
-    #         fam = CoxFamilySpec(tie_breaking=family.tie_breaking,
-    #                             event_id=family.event_id,
-    #                             status_id=family.status_id,
-    #                             start_id=family.start_id,
-    #                             event_data=event_data)
-    #         return fam._coxdev(eta, sample_weight).deviance / event_data.shape[0]
-    #     _dev = partial(_dev, self.family)
-
-    #     if scorers is None:
-    #         # create default scorers
-    #         scorers_ = [(f'{self._family.name} Deviance', _dev, 'min')]
-
-    #     else:
-    #         scorers_ = scorers
-            
-    #     for split in test_splits:
-    #         preds_ = predictions[split]
-    #         y_ = event_data.iloc[split]
-    #         w_ = sample_weight[split]
-    #         w_ /= w_.mean()
-    #         scores_.append([[score(y_, preds_[:,i], sample_weight=w_) for _, score, _ in scorers_]
-    #                         for i in range(preds_.shape[1])])
-
-    #     return scorers_, np.array(scores_)
-
     
 
 
