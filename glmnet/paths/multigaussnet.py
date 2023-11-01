@@ -20,27 +20,13 @@ from ..docstrings import (make_docstring,
 from .._multigaussnet import multigaussnet as _dense
 from .._multigaussnet import spmultigaussnet as _sparse
 
+from ..glm import GLMScorer
+
 @dataclass
 class MultiClassFamily(object):
 
     def default_scorers(self):
-
-        def _MSE(y, y_hat, sample_weight): 
-            return (mean_squared_error(y,
-                                       y_hat,
-                                       sample_weight=sample_weight) *
-                    y_hat.shape[1])
-
-        def _MAE(y, y_hat, sample_weight): 
-            return (mean_absolute_error(y,
-                                        y_hat,
-                                        sample_weight=sample_weight) *
-                    y_hat.shape[1])
-
-        scorers_ = [('Mean Squared Error', _MSE, 'min'),
-                    ('Mean Absolute Error', _MAE, 'min')]
-
-        return scorers_
+        return [mse_scorer, mae_scorer]
 
 @dataclass
 class MultiGaussNet(MultiFastNetMixin):
@@ -102,4 +88,26 @@ class MultiGaussNet(MultiFastNetMixin):
                             offset):
 
         return predictions + offset[:,None,:]
+
+# for CV scores
+
+def _MSE(y, y_hat, sample_weight): 
+    return (mean_squared_error(y,
+                               y_hat,
+                               sample_weight=sample_weight) *
+            y_hat.shape[1])
+
+def _MAE(y, y_hat, sample_weight): 
+    return (mean_absolute_error(y,
+                                y_hat,
+                                sample_weight=sample_weight) *
+            y_hat.shape[1])
+
+
+mse_scorer = GLMScorer(name='Mean Squared Error',
+                       score=_MSE,
+                       maximize=False)
+mae_scorer = GLMScorer(name='Mean Absolute Error',
+                       score=_MAE,
+                       maximize=False)
 

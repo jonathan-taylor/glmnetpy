@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+import warnings
+
 from sklearn.model_selection import (cross_val_predict,
                                      check_cv,
                                      KFold)
@@ -32,39 +34,37 @@ class PathScorer(object):
                        scorers=[]):
 
         self.scorers = list(set(scorers).union(self.family.default_scorers()))
-
         response, y_arg = self.data
 
-        scores_ = self._get_scores(response,
-                                    y_arg,
-                                    self.predictions,
-                                    self.sample_weight,
-                                    self.splits,
-                                    self.scorers)
+        (scores_,
+         weights_) = self._get_scores(response,
+                                      y_arg,
+                                      self.predictions,
+                                      self.sample_weight,
+                                      self.splits,
+                                      self.scorers)
 
-        weight = self.sample_weight
-        wsum = np.array([weight[split].sum() for split in self.splits])
-        wsum = wsum[:, None, None]
+        W_ = weights_[:, None, None]
         mask = ~np.isnan(scores_)
-        scores_mean_ = (np.sum(scores_ * mask * wsum, 0) /
-                        np.sum(mask * wsum, 0))
+        scores_mean_ = (np.sum(scores_ * mask * W_, 0) /
+                        np.sum(mask * W_, 0))
 
         if self.compute_std_error:
             count = mask.sum(0)
             resid_ = scores_ - scores_mean_[None,:]
             scores_std_ = np.sqrt(np.sum(resid_**2 *
-                                         mask * wsum, 0) /
-                                  (np.sum(mask * wsum, 0) * (count - 1)))
+                                         mask * W_, 0) /
+                                  (np.sum(mask * W_, 0) * (count - 1)))
         else:
             scores_std_ = None
 
         self.cv_scores_ = pd.DataFrame(scores_mean_,
-                                       columns=[name for
-                                                name, _, _, _ in self.scorers],
+                                       columns=[s.name for
+                                                s in self.scorers],
                                        index=self.index)
 
-        for i, (name, _, _, _) in enumerate(self.scorers):
-            self.cv_scores_[f'SD({name})'] = scores_std_[:,i]
+        for i, s in enumerate(self.scorers):
+            self.cv_scores_[f'SD({s.name})'] = scores_std_[:,i]
         
         index_best_, index_1se_ = _tune(self.index,
                                         self.scorers,
@@ -86,33 +86,37 @@ class PathScorer(object):
         y = response # shorthand
 
         scores_ = []
-           
+        grouped_weights_ = [sample_weight[split].sum() for split in test_splits]
+
+        grouped_scorers = [scorer for scorer in scorers if scorer.grouped]
+
         for f, split in enumerate(test_splits):
             preds_ = predictions[split]
             y_ = y[split]
             w_ = sample_weight[split]
             w_ = w_ / w_.mean()
-            score_array = np.empty((preds_.shape[1], len(scorers)), float) * np.nan
+            score_array = np.empty((preds_.shape[1], len(grouped_scorers)), float) * np.nan
             for i, j in product(np.arange(preds_.shape[1]),
-                                np.arange(len(scorers))):
-                _, cur_scorer, _, use_full = scorers[j]
-                try:
-                    if not use_full:
-                        score_array[i, j] = cur_scorer(y_,
-                                                       preds_[:,i],
-                                                       sample_weight=w_)
-                    else:
-                        score_array[i, j] = cur_scorer(full_y,
-                                                       split,
-                                                       preds_[:,i],
-                                                       sample_weight=w_)
-                except ValueError as e:
-                    warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')                    
-                    pass
-                    
-            scores_.append(score_array)
+                                np.arange(len(grouped_scorers))):
+                cur_scorer = scorers[j]
+                if cur_scorer.grouped:
+                    try:
+                        if not cur_scorer.use_full_data:
+                            score_array[i, j] = cur_scorer.score_fn(y_,
+                                                                    preds_[:,i],
+                                                                    sample_weight=w_)
+                        else:
+                            score_array[i, j] = cur_scorer.score_fn(split,
+                                                                    full_y,
+                                                                    predictions[:,i],
+                                                                    sample_weight=sample_weight)
+                    except ValueError as e:
+                        warnings.warn(f'Scorer "{cur_scorer.name}" failed on fold {f}, lambda {i}: {e}')                    
+                        pass
 
-        return np.array(scores_)
+            scores_.append(score_array)
+        
+        return np.array(scores_), np.array(grouped_weights_)
     
 def plot(cv_scores,
          index_best,
@@ -208,8 +212,8 @@ def _tune(index,
 
     npath = cv_scores.shape[0]
     
-    for i, (name, _, pick_best, _) in enumerate(scorers):
-        picker = {'min':np.argmin, 'max':np.argmax}[pick_best]
+    for i, scorer in enumerate(scorers):
+        picker = {False:np.argmin, True:np.argmax}[scorer.maximize]
 
         if complexity_order == 'increasing':
             _mean = scores_mean[:,i]
@@ -219,11 +223,11 @@ def _tune(index,
             _mean = scores_mean[:,i][::-1]
 
         _best_idx = picker(_mean)
-        index_best_.append((name, index[_best_idx]))
+        index_best_.append((scorer.name, index[_best_idx]))
 
         if compute_std_error:
             _std = scores_std[:,i]
-            if pick_best == 'min':
+            if not scorer.maximize:
                 _mean_1se = (_mean + _std)[_best_idx]
 
                 if complexity_order is not None:
@@ -232,7 +236,7 @@ def _tune(index,
                 else:
                     _1se_idx = None
 
-            elif pick_best == 'max':
+            else:
                 _mean_1se = (_mean - _std)[_best_idx]                    
                 if complexity_order is not None:
                     _1se_idx = max(np.nonzero((_mean >=
@@ -241,9 +245,9 @@ def _tune(index,
                     _1se_idx = None
 
             if _1se_idx is not None:
-                index_1se_.append((name, index[_1se_idx]))
+                index_1se_.append((scorer.name, index[_1se_idx]))
             else:
-                index_1se_.append((name, np.nan))
+                index_1se_.append((scorer.name, np.nan))
 
     index_best_ = pd.Series([v for _, v in index_best_],
                             index=[n for n, _ in index_best_],
