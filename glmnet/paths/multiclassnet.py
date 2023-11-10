@@ -21,7 +21,7 @@ from ..docstrings import (make_docstring,
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
 
-from ..glm import GLMScorer
+from ..base import Scorer
 
 @dataclass
 class MultiClassFamily(object):
@@ -139,14 +139,14 @@ def _accuracy_score(y, p_hat, sample_weight):
 def _deviance(y, p_hat, sample_weight): 
     return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
 
-misclass_scorer = GLMScorer(name='Misclassification Error',
-                            score=_misclass,
-                            maximize=False)
+misclass_scorer = Scorer(name='Misclassification Error',
+                         score=_misclass,
+                         maximize=False)
 
-accuracy_scorer = GLMScorer(name='Accuracy',
-                            score=_accuracy_score,
-                            maximize=True)
+accuracy_scorer = Scorer(name='Accuracy',
+                         score=_accuracy_score,
+                         maximize=True)
 
-deviance_scorer = GLMScorer(name="Multinomial Deviance",
-                            score=_deviance,
-                            maximize=False)
+deviance_scorer = Scorer(name="Multinomial Deviance",
+                         score=_deviance,
+                         maximize=False)

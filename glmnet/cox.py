@@ -14,8 +14,8 @@ from coxdev import CoxDeviance
     
 from .glm import (GLMFamilySpec,
                   GLMState,
-                  GLM,
-                  GLMScorer)
+                  GLM)
+from .base import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
 from ._utils import _get_data
@@ -168,7 +168,7 @@ class CoxFamilySpec(object):
     
     def default_scorers(self):
 
-        return [CoxGroupedScorer(coxfam=self), CoxUngroupedScorer(coxfam=self)]
+        return [CoxDiffScorer(coxfam=self), CoxScorer(coxfam=self)]
     
 
     def information(self,
@@ -336,16 +336,14 @@ class CoxNet(GLMNet):
 
     
 @dataclass(frozen=True)
-class CoxScorer(GLMScorer):
+class CoxScorer(Scorer):
 
     coxfam: CoxFamilySpec=None
     use_full_data: bool=True
     maximize: bool=False
 
-@dataclass(frozen=True)
-class CoxGroupedScorer(CoxScorer):
+    name: str = 'Cox Deviance'
 
-    name: str = 'Cox Deviance (Grouped)'
     def score_fn(self,
                  split,
                  event_data,
@@ -354,6 +352,39 @@ class CoxGroupedScorer(CoxScorer):
         
         coxfam = self.coxfam
         sample_weight = np.asarray(sample_weight)
+        normed_sample_weight = sample_weight / sample_weight.mean()
+        status = np.asarray(event_data[coxfam.status_id])
+
+        cls = self.coxfam.__class__
+
+        predictions = np.asarray(predictions)
+        event_split = event_data.iloc[split]
+        fam_split = cls(tie_breaking=coxfam.tie_breaking,
+                        event_id=coxfam.event_id,
+                        status_id=coxfam.status_id,
+                        start_id=coxfam.start_id,
+                        event_data=event_split)
+
+        # using mean-normalized weights based on https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/buildPredmat.coxnetlist.R#L26
+        # with `std.weights` defaulting to TRUE, `coxnet.deviance` will normalize weights to have mean 1...
+        split_w = sample_weight[split]
+        split_w /= split_w.mean()
+        dev_split = fam_split._coxdev(predictions[split], split_w).deviance
+        return dev_split / (status[split] * sample_weight[split]).sum(), (status[split] * sample_weight[split]).sum()
+
+@dataclass(frozen=True)
+class CoxDiffScorer(CoxScorer):
+
+    name: str = 'Cox Deviance (Difference)'
+    def score_fn(self,
+                 split,
+                 event_data,
+                 predictions,
+                 sample_weight):
+        
+        coxfam = self.coxfam
+        sample_weight = np.asarray(sample_weight)
+        status = np.asarray(event_data[coxfam.status_id])
         cls = self.coxfam.__class__
         predictions = np.asarray(predictions)
 
@@ -373,36 +404,18 @@ class CoxGroupedScorer(CoxScorer):
                           start_id=coxfam.start_id,
                           event_data=event_c)
 
-        dev_full = fam_full._coxdev(predictions, sample_weight).deviance
-        dev_c = fam_split_c._coxdev(predictions[split_c], sample_weight[split_c]).deviance
-        return (dev_full - dev_c) / sample_weight[split].sum() #predictions[split].shape[0]
+        # using mean-normalized weights based on https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/buildPredmat.coxnetlist.R#L26
+        # with `std.weights` defaulting to TRUE, `coxnet.deviance` will normalize weights to have mean 1...
+        full_w = sample_weight / sample_weight.mean()
+        split_c_w = sample_weight[split_c]
+        split_c_w /= split_c_w.mean()
 
-@dataclass(frozen=True)
-class CoxUngroupedScorer(CoxScorer):
-
-    name: str = 'Cox Deviance (Ungrouped)'
-
-    def score_fn(self,
-                 split,
-                 event_data,
-                 predictions,
-                 sample_weight):
+        dev_full = fam_full._coxdev(predictions, full_w).deviance
+        dev_c = fam_split_c._coxdev(predictions[split_c], split_c_w).deviance
         
-        coxfam = self.coxfam
-        sample_weight = np.asarray(sample_weight)
+        return (dev_full - dev_c) / (status[split] * sample_weight[split]).sum(), (status[split] * sample_weight[split]).sum()
 
-        cls = self.coxfam.__class__
 
-        predictions = np.asarray(predictions)
-        event_split = event_data.iloc[split]
-        fam_split = cls(tie_breaking=coxfam.tie_breaking,
-                        event_id=coxfam.event_id,
-                        status_id=coxfam.status_id,
-                        start_id=coxfam.start_id,
-                        event_data=event_split)
-
-        dev_split = fam_split._coxdev(predictions[split], sample_weight[split]).deviance
-        return dev_split / sample_weight.sum() # predictions[split].shape[0]
     
 
 

@@ -20,7 +20,7 @@ from ..docstrings import (make_docstring,
 from .._multigaussnet import multigaussnet as _dense
 from .._multigaussnet import spmultigaussnet as _sparse
 
-from ..glm import GLMScorer
+from ..base import Scorer
 
 @dataclass
 class MultiClassFamily(object):
@@ -104,10 +104,10 @@ def _MAE(y, y_hat, sample_weight):
             y_hat.shape[1])
 
 
-mse_scorer = GLMScorer(name='Mean Squared Error',
-                       score=_MSE,
-                       maximize=False)
-mae_scorer = GLMScorer(name='Mean Absolute Error',
-                       score=_MAE,
-                       maximize=False)
+mse_scorer = Scorer(name='Mean Squared Error',
+                    score=_MSE,
+                    maximize=False)
+mae_scorer = Scorer(name='Mean Absolute Error',
+                    score=_MAE,
+                    maximize=False)
 

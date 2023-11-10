@@ -20,10 +20,6 @@ from sklearn.base import (BaseEstimator,
 from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (mean_squared_error,
-                             mean_absolute_error,
-                             accuracy_score,
-                             roc_auc_score)
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -31,7 +27,17 @@ from statsmodels.genmod.families import links as sm_links
 from ._utils import (_parent_dataclass_from_child,
                      _get_data)
 
-from .base import Design, _get_design
+from .base import (Design,
+                   _get_design,
+                   Scorer,
+                   mae_scorer,
+                   mse_scorer,
+                   accuracy_scorer,
+                   auc_scorer,
+                   aucpr_scorer,
+                   ungrouped_mse_scorer,
+                   ungrouped_mae_scorer)
+
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
@@ -159,9 +165,9 @@ class GLMFamilySpec(object):
 
         def _dev(y, yhat, sample_weight):
             return self.deviance(y, yhat, sample_weight) / y.shape[0]
-        dev_scorer = GLMScorer(name=f'{fam_name} Deviance',
-                               score=_dev,
-                               maximize=False)
+        dev_scorer = Scorer(name=f'{fam_name} Deviance',
+                            score=_dev,
+                            maximize=False)
         
         scorers_ = [dev_scorer,
                     mse_scorer,
@@ -171,7 +177,8 @@ class GLMFamilySpec(object):
 
         if isinstance(self.base, sm_family.Binomial):
             scorers_.extend([accuracy_scorer,
-                             auc_scorer])
+                             auc_scorer,
+                             aucpr_scorer])
 
         return scorers_
 
@@ -800,59 +807,3 @@ Returns
 
         return result
 
-@dataclass(frozen=True)
-class GLMScorer(object):
-
-    name: str
-    score: callable=None
-    maximize: bool=True
-    use_full_data: bool=False
-    grouped: bool=True
-    
-    def score_fn(self,
-                 response,
-                 predictions,
-                 sample_weight):
-
-        return self.score(response,
-                          predictions,
-                          sample_weight=sample_weight)
-
-mse_scorer = GLMScorer(name='Mean Squared Error',
-                       score=mean_squared_error,
-                       maximize=False)
-mae_scorer = GLMScorer(name='Mean Absolute Error',
-                       score=mean_absolute_error,
-                       maximize=False)
-
-def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
-    return accuracy_score(y,
-                          yhat>0.5,
-                          sample_weight=sample_weight,
-                          normalize=True)
-
-accuracy_scorer = GLMScorer(name='Accuracy',
-                            score=_accuracy_score,
-                            maximize=True)
-auc_scorer = GLMScorer('AUC',
-                       score=roc_auc_score,
-                       maximize=True)
-
-class UngroupedGLMScorer(GLMScorer):
-
-    grouped: bool=False
-    score: callable=None
-
-    def score_fn(self,
-                 response,
-                 predictions,
-                 sample_weight):
-        return self.score(response, predictions), sample_weight
-
-ungrouped_mse_scorer = UngroupedGLMScorer(name="Mean Squared Error (Ungrouped)",
-                                          score=lambda y, pred: (y-pred)**2,
-                                          maximize=False)
-
-ungrouped_mae_scorer = UngroupedGLMScorer(name="Mean Absolute Error (Ungrouped)",
-                                          score=lambda y, pred: np.fabs(y-pred),
-                                          maximize=False)
