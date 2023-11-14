@@ -55,30 +55,30 @@ def lasso_inference(glmnet_obj,
     else:
         penfac = np.ones(active_set.shape[0])
     signs = np.sign(FL.coef_[active_set])
+
     if FL.fit_intercept:
         penfac = np.hstack([0, penfac])
         signs = np.hstack([0, signs])
         keep[0] = 1
         keep[1 + active_set] = 1
-        print("fitting intercept")
-        # C_E_active = C_E[keep]
         Q_E = Q_E[keep]
         stacked = np.hstack([state.intercept,
                              state.coef[active_set]])
+        delta = np.zeros(Q_E.shape[0])
+        delta[1:] = lambda_val * penfac[1:] * signs[1:]
     else:
         keep[active_set] = 1
         # C_E_active = C_E[keep]
         Q_E = Q_E[keep][:,1:]
         stacked = state.coef[active_set]
+        delta = lambda_val * penfac * signs
 
     C_E = np.linalg.inv(Q_E)
-    delta = np.zeros(C_E.shape[0])
-    delta[1:] = lambda_val * penfac[1:] * signs[1:]
     delta = C_E @ delta
-    noisy_mle = stacked + C_E @ delta
+    noisy_mle = stacked + delta
 
     penalized = penfac > 0
-    sel_P = -signs[penalized][:,None] * np.eye(C_E.shape[0])[penalized]
+    sel_P = -np.diag(signs[penalized]) @ np.eye(C_E.shape[0])[penalized]
     con = constraints(sel_P,
                       -signs[penalized] * delta[penalized],
                       covariance=C_E) # adjust 
@@ -90,7 +90,6 @@ def lasso_inference(glmnet_obj,
     unreg_LM = glmnet_obj.get_LM()
     unreg_LM.summarize = True
     unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
-    print(unreg_LM.summary_)
     C_full = unreg_LM.covariance_
 
     unreg_sel_LM = glmnet_obj.get_LM()
@@ -101,8 +100,8 @@ def lasso_inference(glmnet_obj,
     
     ## TODO: will this handle fit_intercept?
     if FL.fit_intercept:
-        stacked = np.hstack([unreg_LM.intercept_,
-                             unreg_LM.coef_])
+        full_mle = np.hstack([unreg_LM.intercept_,
+                              unreg_LM.coef_])
     else:
         full_mle = unreg_LM.coef_
 
@@ -115,7 +114,6 @@ def lasso_inference(glmnet_obj,
         e_i = np.zeros_like(noisy_mle)
         e_i[i] = 1.
         ## call selection_interval and return
-        # print(selection_proportion)
         L, U, mle, p = selection_interval(
             support_directions=con.linear_part,
             support_offsets=con.offset,
@@ -658,7 +656,7 @@ def interval_constraints(support_directions,
                      direction_of_interest)
 
     U = A.dot(X) - b
-    if not np.all(U  < tol * np.fabs(U).max()) and WARNINGS:
+    if not np.all(U  < tol * np.fabs(U).max()):
         warn('constraints not satisfied: %s' % repr(U))
 
     Sw = S.dot(w)
@@ -753,7 +751,8 @@ def selection_interval(support_directions,
     sigma = np.sqrt(direction_of_interest.T @ covariance_full @ direction_of_interest)
     ## sqrt(alpha) is just sigma_noisy - sigma_full
     smoothing_sigma = np.sqrt(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2)
-    grid = np.linspace(lower_bound - 4 * sigma, upper_bound + 4 * sigma, 801)
+    estimate = (direction_of_interest * observation).sum()
+    grid = np.linspace(estimate - 10 * sigma, estimate + 10 * sigma, 801)
     weight = (
         normal_dbn.cdf(
             (upper_bound - grid) / (smoothing_sigma)
@@ -762,7 +761,7 @@ def selection_interval(support_directions,
         )
     )
     weight *= normal_dbn.pdf(grid / sigma)
-    estimate = (direction_of_interest * observation).sum()
+
     # assert(0==1)
     sel_distr = discrete_family(grid, weight)
     L, U = sel_distr.equal_tailed_interval(estimate,
