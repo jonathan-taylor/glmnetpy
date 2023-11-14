@@ -35,6 +35,9 @@ def lasso_inference(glmnet_obj,
 
     fixed_lambda = fixed_lambda_estimator(glmnet_obj, lambda_val)
     X_sel, Y_sel, weight_sel = selection_data
+    if weight_sel is None:
+        weight_sel = np.ones(X_sel.shape[0])
+        
     fixed_lambda.fit(X_sel, Y_sel, sample_weight=weight_sel)
     FL = fixed_lambda # shorthand
     
@@ -56,6 +59,8 @@ def lasso_inference(glmnet_obj,
         penfac = np.ones(active_set.shape[0])
     signs = np.sign(FL.coef_[active_set])
 
+    # we multiply by weight_sel.sum() due to this factor
+    # appearing in glmnet objective...
     if FL.fit_intercept:
         penfac = np.hstack([0, penfac])
         signs = np.hstack([0, signs])
@@ -65,13 +70,13 @@ def lasso_inference(glmnet_obj,
         stacked = np.hstack([state.intercept,
                              state.coef[active_set]])
         delta = np.zeros(Q_E.shape[0])
-        delta[1:] = lambda_val * penfac[1:] * signs[1:]
+        delta[1:] = weight_sel.sum() * lambda_val * penfac[1:] * signs[1:]
     else:
         keep[active_set] = 1
         # C_E_active = C_E[keep]
         Q_E = Q_E[keep][:,1:]
         stacked = state.coef[active_set]
-        delta = lambda_val * penfac * signs
+        delta = weight_sel.sum() * lambda_val * penfac * signs
 
     C_E = np.linalg.inv(Q_E)
     delta = C_E @ delta
@@ -91,7 +96,6 @@ def lasso_inference(glmnet_obj,
     unreg_LM.summarize = True
     unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
     C_full = unreg_LM.covariance_
-
     unreg_sel_LM = glmnet_obj.get_LM()
     unreg_sel_LM.summarize = True
     unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
@@ -743,16 +747,16 @@ def selection_interval(support_directions,
      upper_bound,
      _) = interval_constraints(support_directions, 
                                 support_offsets,
-                                covariance_noisy,
+                                covariance_full,
                                 noisy_observation,
                                 direction_of_interest,
                                 tol=tol)
     ## lars path lockhart tibs^2 taylor paper
     sigma = np.sqrt(direction_of_interest.T @ covariance_full @ direction_of_interest)
     ## sqrt(alpha) is just sigma_noisy - sigma_full
-    smoothing_sigma = np.sqrt(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2)
+    smoothing_sigma = np.sqrt(max(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2, 1e-12 * sigma**2))
     estimate = (direction_of_interest * observation).sum()
-    grid = np.linspace(estimate - 10 * sigma, estimate + 10 * sigma, 801)
+    grid = np.linspace(estimate - 20 * sigma, estimate + 20 * sigma, 801)
     weight = (
         normal_dbn.cdf(
             (upper_bound - grid) / (smoothing_sigma)
