@@ -11,6 +11,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm as normal_dbn
 
+import mpmath as mp
+mp.dps = 80
+
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import clone
 
@@ -691,7 +694,6 @@ def selection_interval(support_directions,
                        noisy_observation,
                        observation,
                        direction_of_interest,
-                    #    percent_smoothing, ## sqrt(alpha)
                        tol = 1.e-4,
                        level = 0.90,
                        UMAU=True):
@@ -749,30 +751,105 @@ def selection_interval(support_directions,
     ## lars path lockhart tibs^2 taylor paper
     sigma = np.sqrt(direction_of_interest.T @ covariance_full @ direction_of_interest)
     ## sqrt(alpha) is just sigma_noisy - sigma_full
-    smoothing_sigma = np.sqrt(max(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2, 1e-12 * sigma**2))
+    smoothing_sigma = np.sqrt(max(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2, 0))
     estimate = (direction_of_interest * observation).sum()
-    grid = np.linspace(estimate - 20 * sigma, estimate + 20 * sigma, 801)
-    weight = (
-        normal_dbn.cdf(
-            (upper_bound - grid) / (smoothing_sigma)
-        ) - normal_dbn.cdf(
-            (lower_bound - grid) / (smoothing_sigma)
-        )
-    )
-    weight *= normal_dbn.pdf(grid / sigma)
 
-    # assert(0==1)
-    sel_distr = discrete_family(grid, weight)
-    L, U = sel_distr.equal_tailed_interval(estimate,
-                                            alpha=1-level)
-    mle, _, _ = sel_distr.MLE(estimate)
-    mle *= sigma**2
-    pval = sel_distr.cdf(0, estimate)
-    pval = 2 * min(pval, 1-pval)
-    L *= sigma**2
-    U *= sigma**2
+    if smoothing_sigma > 1e-6 * sigma:
+
+        grid = np.linspace(estimate - 20 * sigma, estimate + 20 * sigma, 801)
+        weight = (
+            normal_dbn.cdf(
+                (upper_bound - grid) / (smoothing_sigma)
+            ) - normal_dbn.cdf(
+                (lower_bound - grid) / (smoothing_sigma)
+            )
+        )
+        weight *= normal_dbn.pdf(grid / sigma)
+
+        # assert(0==1)
+        sel_distr = discrete_family(grid, weight)
+        L, U = sel_distr.equal_tailed_interval(estimate,
+                                                alpha=1-level)
+        mle, _, _ = sel_distr.MLE(estimate)
+        mle *= sigma**2
+        pval = sel_distr.cdf(0, estimate)
+        pval = 2 * min(pval, 1-pval)
+        L *= sigma**2
+        U *= sigma**2
+    else:
+
+        lb = estimate - 20 * sigma
+        ub = estimate + 20 * sigma
+
+        if estimate < lower_bound or estimate > upper_bound:
+            warn('Constraints not satisfied: returning [-np.inf, np.inf]')
+            return -np.inf, np.inf, np.nan, np.nan
+        
+        def F(theta):
+            
+            Z = (estimate - theta) / sigma
+            Z_L = (lower_bound - theta) / sigma
+            Z_U = (upper_bound - theta) / sigma
+            num = norm_interval(Z_L, Z)
+            den = norm_interval(Z_L, Z_U)
+            if Z_L > 0 and den < 1e-10:
+                C = np.fabs(Z_L)
+                D = Z-Z_L
+                cdf = 1-np.exp(-C*D)
+            elif Z_U < 0 and den < 1e-10:
+                C = np.fabs(Z_U)
+                D = Z_U-Z
+                if C*D < 0:
+                    raise ValueError
+                cdf = np.exp(-C*D)
+            else:
+                cdf = num / den
+            return cdf
+            
+        
+        pval = F(0)
+        pval = 2 * min(pval, 1-pval)
+
+        lb = lower_bound - 20 * sigma
+        ub = upper_bound + 20 * sigma
+
+        alpha = 0.5 * (1 - level)
+        L = find_root(F, 1.0 - 0.5 * alpha, lb, ub)
+        if np.isnan(L):
+            L = -np.inf
+        U = find_root(F, 0.5 * alpha, lb, ub)
+        if np.isnan(U):
+            U = np.inf
+
+        mle = np.nan
+        
 
     return L, U, mle, pval
+
+def norm_interval(lower, upper):
+    r"""
+    A multiprecision evaluation of
+
+    .. math::
+
+        \Phi(U) - \Phi(L)
+
+    Parameters
+    ----------
+
+    lower : float
+        The lower limit $L$
+
+    upper : float
+        The upper limit $U$
+
+    """
+    #cdf = normal_dbn.cdf
+    cdf = mp.ncdf
+    if lower > 0 and upper > 0:
+        return cdf(-lower) - cdf(-upper)
+    else:
+        return cdf(upper) - cdf(lower)
 
 def find_root(f, y, lb, ub, tol=1e-6):
     """
