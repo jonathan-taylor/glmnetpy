@@ -766,7 +766,6 @@ def selection_interval(support_directions,
         )
         weight *= normal_dbn.pdf(grid / sigma)
 
-        # assert(0==1)
         sel_distr = discrete_family(grid, weight)
         L, U = sel_distr.equal_tailed_interval(estimate,
                                                 alpha=1-level)
