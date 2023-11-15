@@ -134,6 +134,116 @@ def lasso_inference(glmnet_obj,
         pvals[i] = p
     return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us})
 
+def lasso_bootstrap_inference(glmnet_obj,
+                              lambda_val,
+                              selection_data, ## X = \Sigma^{-1/2}, Y = \Sigma^{-1/2}\hat\beta
+                              full_data,
+                            #   C_full, ## bootstrap variance
+                              alpha,
+                              level=.9):
+
+    fixed_lambda = fixed_lambda_estimator(glmnet_obj, lambda_val)
+    X_sel, Y_sel, weight_sel = selection_data
+
+    if weight_sel is None:
+        weight_sel = np.ones(X_sel.shape[0])
+        
+    fixed_lambda.fit(X_sel, Y_sel, sample_weight=weight_sel)
+    FL = fixed_lambda # shorthand
+    
+    if (not np.all(FL.upper_limits == np.inf) or
+        not np.all(FL.lower_limits == -np.inf)):
+        raise NotImplementedError('upper/lower limits coming soon')
+
+    active_set = np.nonzero(FL.coef_ != 0)[0]
+
+    # find selection data covariance
+
+    # unreg_sel_LM = glmnet_obj.get_LM()
+    # unreg_sel_LM.summarize = True
+    # unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
+    # C_sel = unreg_sel_LM.covariance_
+    C_full = np.eye(len(active_set))
+    C_sel = (1 + alpha) * C_full
+
+    state = FL.state_
+    information = FL._family.information(state,
+                                         weight_sel)
+    
+    keep = np.zeros(FL.design_.shape[1], bool)
+    if hasattr(FL, 'penalty_factors'):
+        penfac = FL.penalty_factors[active_set]
+    else:
+        penfac = np.ones(active_set.shape[0])
+    signs = np.sign(FL.coef_[active_set])
+
+    # we multiply by weight_sel.sum() due to this factor
+    # appearing in glmnet objective...
+    if FL.fit_intercept:
+        penfac = np.hstack([0, penfac])
+        signs = np.hstack([0, signs])
+        keep[0] = 1
+        keep[1 + active_set] = 1
+        stacked = np.hstack([state.intercept,
+                             state.coef[active_set]])
+        delta = np.zeros(keep.sum())
+        delta[1:] = weight_sel.sum() * lambda_val * penfac[1:] * signs[1:]
+    else:
+        keep[active_set] = 1
+        stacked = state.coef[active_set]
+        delta = weight_sel.sum() * lambda_val * penfac * signs
+
+    delta = C_sel @ delta
+    noisy_mle = stacked + delta
+
+    penalized = penfac > 0
+    sel_P = -np.diag(signs[penalized]) @ np.eye(C_sel.shape[0])[penalized]
+
+    # fit full model
+
+    X_full, Y_full, weight_full = full_data
+
+    unreg_LM = glmnet_obj.get_LM()
+    unreg_LM.summarize = True
+    unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
+    # C_full = unreg_LM.covariance_
+
+    # selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_sel).sum(), 0, 1)
+    
+    ## TODO: will this handle fit_intercept?
+    if FL.fit_intercept:
+        full_mle = np.hstack([unreg_LM.intercept_,
+                              unreg_LM.coef_])
+    else:
+        full_mle = unreg_LM.coef_
+
+    ## iterate over coordinates
+    Ls = np.zeros_like(noisy_mle)
+    Us = np.zeros_like(noisy_mle)
+    mles = np.zeros_like(noisy_mle)
+    pvals = np.zeros_like(noisy_mle)
+    for i in range(len(noisy_mle)):
+        e_i = np.zeros_like(noisy_mle)
+        e_i[i] = 1.
+        ## call selection_interval and return
+        L, U, mle, p = selection_interval(
+            support_directions=sel_P,
+            support_offsets=-signs[penalized] * delta[penalized], 
+            covariance_noisy=C_sel,
+            covariance_full=C_full,
+            noisy_observation=noisy_mle,
+            observation=full_mle,
+            direction_of_interest=e_i,
+            level=level,
+        )
+        Ls[i] = L
+        Us[i] = U
+        mles[i] = mle
+        pvals[i] = p
+        
+    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us})
+
+
 class constraints(object):
 
     r"""
