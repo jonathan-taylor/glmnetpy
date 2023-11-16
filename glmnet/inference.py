@@ -10,6 +10,7 @@ from copy import copy
 import numpy as np
 import pandas as pd
 from scipy.stats import norm as normal_dbn
+import statsmodels.api as sm
 
 import mpmath as mp
 mp.dps = 80
@@ -81,7 +82,8 @@ def lasso_inference(glmnet_obj,
         delta = np.zeros(keep.sum())
         delta[1:] = weight_sel.sum() * lambda_val * penfac[1:] * signs[1:]
     else:
-        keep[active_set] = 1
+        # keep[active_set] = 1
+        keep[1 + active_set] = 1
         stacked = state.coef[active_set]
         delta = weight_sel.sum() * lambda_val * penfac * signs
 
@@ -132,17 +134,24 @@ def lasso_inference(glmnet_obj,
         Us[i] = U
         mles[i] = mle
         pvals[i] = p
-    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us})
+    
+    idx = (active_set).tolist()
+    if FL.fit_intercept:
+        idx = [-1] + idx
+    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
 
 def lasso_bootstrap_inference(glmnet_obj,
                               lambda_val,
-                              selection_data, ## X = \Sigma^{-1/2}, Y = \Sigma^{-1/2}\hat\beta
+                              selection_data, ## X = \Sigma^{-1/2}, Y = \Sigma^{-1/2}\hat\beta^{(b)}
                               full_data,
-                            #   C_full, ## bootstrap variance
+                              C_full, ## bootstrap variance
                               alpha,
                               level=.9):
 
     fixed_lambda = fixed_lambda_estimator(glmnet_obj, lambda_val)
+    fixed_lambda.fit_intercept = False
+    gaussian = sm.families.Gaussian()
+    fixed_lambda.family = gaussian
     X_sel, Y_sel, weight_sel = selection_data
 
     if weight_sel is None:
@@ -163,8 +172,7 @@ def lasso_bootstrap_inference(glmnet_obj,
     # unreg_sel_LM.summarize = True
     # unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
     # C_sel = unreg_sel_LM.covariance_
-    C_full = np.eye(len(active_set))
-    C_sel = (1 + alpha) * C_full
+    # C_full = np.eye(len(active_set))
 
     state = FL.state_
     information = FL._family.information(state,
@@ -189,9 +197,13 @@ def lasso_bootstrap_inference(glmnet_obj,
         delta = np.zeros(keep.sum())
         delta[1:] = weight_sel.sum() * lambda_val * penfac[1:] * signs[1:]
     else:
-        keep[active_set] = 1
+        keep[1 + active_set] = 1
         stacked = state.coef[active_set]
         delta = weight_sel.sum() * lambda_val * penfac * signs
+
+    C_full_ = C_full.copy()
+    C_full = C_full[keep[1:]][:,keep[1:]]
+    C_sel = (1 + alpha) * C_full
 
     delta = C_sel @ delta
     noisy_mle = stacked + delta
@@ -225,6 +237,7 @@ def lasso_bootstrap_inference(glmnet_obj,
     for i in range(len(noisy_mle)):
         e_i = np.zeros_like(noisy_mle)
         e_i[i] = 1.
+        # e_i = np.linalg.pinv(X_sel) @ e_i
         ## call selection_interval and return
         L, U, mle, p = selection_interval(
             support_directions=sel_P,
@@ -240,9 +253,11 @@ def lasso_bootstrap_inference(glmnet_obj,
         Us[i] = U
         mles[i] = mle
         pvals[i] = p
-        
-    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us})
 
+    idx = (active_set).tolist()
+    if FL.fit_intercept:
+        idx = [-1] + idx
+    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
 
 class constraints(object):
 
