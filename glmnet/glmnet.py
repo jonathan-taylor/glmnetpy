@@ -26,6 +26,7 @@ from .docstrings import add_dataclass_docstring
 
 from .regularized_glm import (RegGLMControl,
                               RegGLM)
+
 from .glm import (GLM,
                   GLMState,
                   GLMFamilySpec)
@@ -106,7 +107,6 @@ class GLMNet(BaseEstimator,
 
         sample_weight = weight
         self.normed_sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
-        
         
         self.reg_glm_est_ = self.regularized_estimator(
                                lambda_val=self.control.big,
@@ -276,7 +276,9 @@ class GLMNet(BaseEstimator,
                               fit_params={},
                               pre_dispatch='2*n_jobs',
                               alignment='lambda',
-                              scorers=None): # functions of (y, yhat) where yhat is prediction on response scale
+                              scorers=[]): # GLMScorer instances
+
+        check_is_fitted(self, ["coefs_"])
 
         if alignment not in ['lambda', 'fraction']:
             raise ValueError("alignment must be one of 'lambda' or 'fraction'")
@@ -287,6 +289,7 @@ class GLMNet(BaseEstimator,
         else:
             if self.lambda_values is not None:
                 warnings.warn('Using pre-specified lambda values, not proportional to lambda_max')
+                cloned_path.lambda_values = cloned_path.lambda_values[:self.lambda_values_.shape[0]]
             fit_params = {}
 
         X, y, groups = indexable(X, y, groups)
@@ -327,7 +330,7 @@ class GLMNet(BaseEstimator,
 
         (self.cv_scores_,
          self.index_best_,
-         self.index_1se_) = scorer.compute_scores()
+         self.index_1se_) = scorer.compute_scores(scorers=scorers)
 
         return predictions, self.cv_scores_
 
@@ -386,6 +389,7 @@ class GLMNet(BaseEstimator,
                           keep=None):
 
         check_is_fitted(self, ["coefs_", "feature_names_in_"])
+
         if xvar == '-lambda':
             index = pd.Index(-np.log(self.lambda_values_))
             index.name = r'$-\log(\lambda)$'

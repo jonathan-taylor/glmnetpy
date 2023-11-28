@@ -201,7 +201,7 @@ predictions, scores = GN3.cross_validation_path(X[:,:8], event_data, cv=cv, alig
 ```
 
 ```{python}
-GN3.plot_cross_validation(score='Cox Deviance', xvar='lambda')
+GN3.plot_cross_validation(score='Cox Deviance (Difference)', xvar='lambda')
 ```
 
 ```{r magic_args="-i foldid,X,event,start,status,W -o CVM,CVSD"}
@@ -224,21 +224,120 @@ CVSD = GCV$cvsd
 ```
 
 ```{python}
-assert np.allclose(GN3.cv_scores_['Cox Deviance'].iloc[:10], CVM[:10]/2, rtol=1e-3, atol=1e-3)
-assert np.allclose(GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10], CVSD[:10]/2, rtol=1e-3, atol=1e-3) 
+assert np.allclose(GN3.cv_scores_['Cox Deviance (Difference)'].iloc[:10], CVM[:10], rtol=1e-3, atol=1e-3)
+assert np.allclose(GN3.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10], CVSD[:10], rtol=1e-3, atol=1e-3) 
+```
+
+```{python}
+fig, ax = plt.subplots()
+ax.scatter(GN3.cv_scores_['Cox Deviance (Difference)'].iloc[:10], CVM[:10])
+ax.axline((GN3.cv_scores_['Cox Deviance (Difference)'].iloc[:10].min(),CVM[:10].min()), slope=1, ls='--', c='k')
+
+```
+
+```{python}
+fig, ax = plt.subplots()
+ax.scatter(GN3.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10], CVSD[:10])
+ax.axline((GN3.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10].min(),CVSD[:10].min()),slope=1, ls='--', c='k')
+
+```
+
+## Using `lambda`
+
+```{python}
+GN4 = CoxNet(family=breslow,
+             weight_id='weight',
+             control=GNcontrol
+             ).fit(X, event_data)
+
+predictions, scores = GN4.cross_validation_path(X[:,:8], event_data, cv=cv, alignment='lambda');
+GN4.plot_cross_validation(score='Cox Deviance (Difference)', xvar='lambda')
+```
+
+```{r magic_args="-i foldid -o CVM,CVSD"}
+foldid = as.integer(foldid)
+event = as.numeric(event)
+start = as.numeric(start)
+status = as.integer(status)
+Y = Surv(start, event, status)
+W = as.numeric(W)
+GCV = cv.glmnet(x=X[,1:8],
+                y=Y,
+                weights=W,
+                family='cox',
+                foldid=foldid,
+                alignment='lambda',
+                grouped=TRUE)
+plot(GCV)
+CVM = GCV$cvm
+CVSD = GCV$cvsd
+
+```
+
+```{python}
+assert np.allclose(GN4.cv_scores_['Cox Deviance (Difference)'].iloc[:10], CVM[:10], rtol=1e-3, atol=1e-3)
+assert np.allclose(GN4.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10], CVSD[:10], rtol=1e-3, atol=1e-3) 
+```
+
+```{python}
+fig, ax = plt.subplots()
+ax.scatter(GN4.cv_scores_['Cox Deviance (Difference)'].iloc[:10], CVM[:10])
+ax.axline((GN4.cv_scores_['Cox Deviance (Difference)'].iloc[:10].min(),CVM[:10].min()),slope=1, ls='--', c='k')
+
+```
+
+```{python}
+fig, ax = plt.subplots()
+ax.scatter(GN3.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10], CVSD[:10])
+ax.axline((GN3.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10].min(),CVSD[:10].min()),slope=1, ls='--', c='k')
+
+```
+
+## Using `fraction`
+
+```{python}
+predictions, scores = GN3.cross_validation_path(X[:,:8], event_data, cv=cv, alignment='fraction');
+```
+
+```{python}
+GN3.plot_cross_validation(score='Cox Deviance', xvar='lambda')
+```
+
+```{r magic_args="-i foldid,X,event,start,status,W -o CVM,CVSD"}
+foldid = as.integer(foldid)
+event = as.numeric(event)
+start = as.numeric(start)
+status = as.integer(status)
+Y = Surv(start, event, status)
+W = as.numeric(W)
+GCV = cv.glmnet(x=X[,1:8],
+                y=Y,
+                weights=W,
+                family='cox',
+                foldid=foldid,
+                alignment='fraction',
+                grouped=FALSE)
+plot(GCV)
+CVM = GCV$cvm
+CVSD = GCV$cvsd
+```
+
+```{python}
+assert np.allclose(GN3.cv_scores_['Cox Deviance'].iloc[:10], CVM[:10], rtol=1e-3, atol=1e-3)
+assert np.allclose(GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10], CVSD[:10], rtol=1e-3, atol=1e-3) 
 ```
 
 ```{python}
 fig, ax = plt.subplots()
 ax.scatter(GN3.cv_scores_['Cox Deviance'].iloc[:10], CVM[:10])
-ax.axline((GN3.cv_scores_['Cox Deviance'].iloc[:10].min(),CVM[:10].min()),slope=0.5, ls='--', c='k')
+ax.axline((GN3.cv_scores_['Cox Deviance'].iloc[:10].min(),CVM[:10].min()), slope=1, ls='--', c='k')
 
 ```
 
 ```{python}
 fig, ax = plt.subplots()
 ax.scatter(GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10], CVSD[:10])
-ax.axline((GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10].min(),CVSD[:10].min()),slope=0.5, ls='--', c='k')
+ax.axline((GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10].min(),CVSD[:10].min()),slope=1, ls='--', c='k')
 
 ```
 
@@ -267,7 +366,7 @@ GCV = cv.glmnet(x=X[,1:8],
                 family='cox',
                 foldid=foldid,
                 alignment='lambda',
-                grouped=TRUE)
+                grouped=FALSE)
 plot(GCV)
 CVM = GCV$cvm
 CVSD = GCV$cvsd
@@ -275,22 +374,56 @@ CVSD = GCV$cvsd
 ```
 
 ```{python}
-assert np.allclose(GN4.cv_scores_['Cox Deviance'].iloc[:10], CVM[:10]/2, rtol=1e-3, atol=1e-3)
-assert np.allclose(GN4.cv_scores_['SD(Cox Deviance)'].iloc[:10], CVSD[:10]/2, rtol=1e-3, atol=1e-3) 
+assert np.allclose(GN4.cv_scores_['Cox Deviance'].iloc[:10], CVM[:10], rtol=1e-3, atol=1e-3)
+assert np.allclose(GN4.cv_scores_['SD(Cox Deviance)'].iloc[:10], CVSD[:10], rtol=1e-3, atol=1e-3) 
 ```
 
 ```{python}
 fig, ax = plt.subplots()
 ax.scatter(GN4.cv_scores_['Cox Deviance'].iloc[:10], CVM[:10])
-ax.axline((GN4.cv_scores_['Cox Deviance'].iloc[:10].min(),CVM[:10].min()),slope=0.5, ls='--', c='k')
+ax.axline((GN4.cv_scores_['Cox Deviance'].iloc[:10].min(),CVM[:10].min()),slope=1, ls='--', c='k')
 
 ```
 
 ```{python}
 fig, ax = plt.subplots()
 ax.scatter(GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10], CVSD[:10])
-ax.axline((GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10].min(),CVSD[:10].min()),slope=0.5, ls='--', c='k')
+ax.axline((GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10].min(),CVSD[:10].min()),slope=1, ls='--', c='k')
 
+```
+
+# When we scale weights, scores stay the same...
+
+```{r magic_args="-i foldid,X,event,start,status,W -o CVM,CVSD"}
+foldid = as.integer(foldid)
+event = as.numeric(event)
+start = as.numeric(start)
+status = as.integer(status)
+Y = Surv(start, event, status)
+W = as.numeric(W)
+GCV = cv.glmnet(x=X[,1:8],
+                y=Y,
+                weights=W*2,
+                family='cox',
+                foldid=foldid,
+                alignment='fraction',
+                grouped=FALSE)
+plot(GCV)
+CVM = GCV$cvm
+CVSD = GCV$cvsd
+```
+
+```{python}
+from copy import deepcopy
+event_data2 = deepcopy(event_data)
+event_data2['weight'] *= 2
+GN5 = CoxNet(family=breslow,
+             weight_id='weight',
+             control=GNcontrol
+             ).fit(X, event_data2)
+
+predictions, scores = GN5.cross_validation_path(X[:,:8], event_data, cv=cv, alignment='lambda');
+GN5.plot_cross_validation(score='Cox Deviance', xvar='lambda')
 ```
 
 ```{python}

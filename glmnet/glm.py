@@ -20,10 +20,6 @@ from sklearn.base import (BaseEstimator,
 from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (mean_squared_error,
-                             mean_absolute_error,
-                             accuracy_score,
-                             roc_auc_score)
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -31,11 +27,23 @@ from statsmodels.genmod.families import links as sm_links
 from ._utils import (_parent_dataclass_from_child,
                      _get_data)
 
-from .base import Design, _get_design
+from .base import (Design,
+                   _get_design,
+                   Scorer,
+                   mae_scorer,
+                   mse_scorer,
+                   accuracy_scorer,
+                   auc_scorer,
+                   aucpr_scorer,
+                   ungrouped_mse_scorer,
+                   ungrouped_mae_scorer)
+
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
 from .irls import IRLS
+
+  
 
 @add_dataclass_docstring
 @dataclass
@@ -155,23 +163,22 @@ class GLMFamilySpec(object):
 
         fam_name = self.base.__class__.__name__
 
-        scorers_ = [(f'{fam_name} Deviance',
-                     (lambda y, yhat, sample_weight:
-                      self.deviance(y,
-                                    yhat,
-                                    sample_weight) / y.shape[0]),
-                     'min', False),
-                    ('Mean Squared Error', mean_squared_error, 'min', False),
-                    ('Mean Absolute Error', mean_absolute_error, 'min', False)]
+        def _dev(y, yhat, sample_weight):
+            return self.deviance(y, yhat, sample_weight) / y.shape[0]
+        dev_scorer = Scorer(name=f'{fam_name} Deviance',
+                            score=_dev,
+                            maximize=False)
+        
+        scorers_ = [dev_scorer,
+                    mse_scorer,
+                    mae_scorer,
+                    ungrouped_mse_scorer,
+                    ungrouped_mae_scorer]
 
         if isinstance(self.base, sm_family.Binomial):
-            def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
-                return accuracy_score(y,
-                                      yhat>0.5,
-                                      sample_weight=sample_weight,
-                                      normalize=True)
-            scorers_.extend([('Accuracy', _accuracy_score, 'max', False),
-                             ('AUC', roc_auc_score, 'max', False)])
+            scorers_.extend([accuracy_scorer,
+                             auc_scorer,
+                             aucpr_scorer])
 
         return scorers_
 
@@ -799,3 +806,4 @@ Returns
         result[:,0] = 1 - prob_1
 
         return result
+

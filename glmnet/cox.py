@@ -15,6 +15,7 @@ from coxdev import CoxDeviance
 from .glm import (GLMFamilySpec,
                   GLMState,
                   GLM)
+from .base import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
 from ._utils import _get_data
@@ -81,6 +82,14 @@ class CoxFamilySpec(object):
     start_id: Optional[str] = None
     name: str = 'Cox'
     
+    def __hash__(self):
+
+        return (self.tie_breaking,
+                self.event_id,
+                self.status_id,
+                self.start_id,
+                self.name).__hash__()
+
     def __post_init__(self, event_data):
 
         if (self.event_id not in event_data.columns or
@@ -159,24 +168,8 @@ class CoxFamilySpec(object):
     
     def default_scorers(self):
 
-        fam_name = 'Cox'
-
-        def cox_dev_split(coxfam, full_y, split, eta, sample_weight):
-            _data = full_y.iloc[split] # presumes dataframe, could be ndarray
-            fam = CoxFamilySpec(tie_breaking=coxfam.tie_breaking,
-                                event_id=coxfam.event_id,
-                                status_id=coxfam.status_id,
-                                start_id=coxfam.start_id,
-                                event_data=_data)
-            return fam._coxdev(eta, sample_weight).deviance / _data.shape[0]
-
-
-        scorers_ = [(f'{fam_name} Deviance',
-                     partial(cox_dev_split, self),
-                     'min',
-                     'True')]
-
-        return scorers_
+        return [CoxDiffScorer(coxfam=self), CoxScorer(coxfam=self)]
+    
 
     def information(self,
                     state,
@@ -342,6 +335,85 @@ class CoxNet(GLMNet):
         return value
 
     
+@dataclass(frozen=True)
+class CoxScorer(Scorer):
+
+    coxfam: CoxFamilySpec=None
+    use_full_data: bool=True
+    maximize: bool=False
+
+    name: str = 'Cox Deviance'
+
+    def score_fn(self,
+                 split,
+                 event_data,
+                 predictions,
+                 sample_weight):
+        
+        coxfam = self.coxfam
+        sample_weight = np.asarray(sample_weight)
+        status = np.asarray(event_data[coxfam.status_id])
+
+        cls = self.coxfam.__class__
+
+        predictions = np.asarray(predictions)
+        event_split = event_data.iloc[split]
+        fam_split = cls(tie_breaking=coxfam.tie_breaking,
+                        event_id=coxfam.event_id,
+                        status_id=coxfam.status_id,
+                        start_id=coxfam.start_id,
+                        event_data=event_split)
+
+        split_w = sample_weight[split]
+        dev_split = fam_split._coxdev(predictions[split], split_w).deviance
+        w_sum = sample_weight[split].sum()
+
+        return dev_split / w_sum, w_sum
+
+@dataclass(frozen=True)
+class CoxDiffScorer(CoxScorer):
+
+    name: str = 'Cox Deviance (Difference)'
+    def score_fn(self,
+                 split,
+                 event_data,
+                 predictions,
+                 sample_weight):
+        
+        coxfam = self.coxfam
+        sample_weight = np.asarray(sample_weight)
+        status = np.asarray(event_data[coxfam.status_id])
+        cls = self.coxfam.__class__
+        predictions = np.asarray(predictions)
+
+        fam_full = cls(tie_breaking=coxfam.tie_breaking,
+                       event_id=coxfam.event_id,
+                       status_id=coxfam.status_id,
+                       start_id=coxfam.start_id,
+                       event_data=event_data)
+        dev_full = fam_full._coxdev(predictions, sample_weight).deviance
+
+        # now compute deviance on complement
+        
+        split_c = np.ones_like(predictions, bool)
+        split_c[split] = 0
+
+        event_c = event_data.iloc[split_c] # XXX presumes dataframe, could be ndarray
+        fam_split_c = cls(tie_breaking=coxfam.tie_breaking,
+                          event_id=coxfam.event_id,
+                          status_id=coxfam.status_id,
+                          start_id=coxfam.start_id,
+                          event_data=event_c)
+        split_c_w = sample_weight[split_c]
+        dev_c = fam_split_c._coxdev(predictions[split_c], split_c_w).deviance
+
+        w_sum = sample_weight.sum() - split_c_w.sum()
+        return (dev_full - dev_c) / w_sum, w_sum
+
+
+    
+
+
 
 
   
