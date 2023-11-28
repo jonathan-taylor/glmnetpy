@@ -352,7 +352,6 @@ class CoxScorer(Scorer):
         
         coxfam = self.coxfam
         sample_weight = np.asarray(sample_weight)
-        normed_sample_weight = sample_weight / sample_weight.mean()
         status = np.asarray(event_data[coxfam.status_id])
 
         cls = self.coxfam.__class__
@@ -365,12 +364,11 @@ class CoxScorer(Scorer):
                         start_id=coxfam.start_id,
                         event_data=event_split)
 
-        # using mean-normalized weights based on https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/buildPredmat.coxnetlist.R#L26
-        # with `std.weights` defaulting to TRUE, `coxnet.deviance` will normalize weights to have mean 1...
         split_w = sample_weight[split]
-        split_w /= split_w.mean()
         dev_split = fam_split._coxdev(predictions[split], split_w).deviance
-        return dev_split / (status[split] * sample_weight[split]).sum(), (status[split] * sample_weight[split]).sum()
+        w_sum = sample_weight[split].sum()
+
+        return dev_split / w_sum, w_sum
 
 @dataclass(frozen=True)
 class CoxDiffScorer(CoxScorer):
@@ -393,7 +391,10 @@ class CoxDiffScorer(CoxScorer):
                        status_id=coxfam.status_id,
                        start_id=coxfam.start_id,
                        event_data=event_data)
+        dev_full = fam_full._coxdev(predictions, sample_weight).deviance
 
+        # now compute deviance on complement
+        
         split_c = np.ones_like(predictions, bool)
         split_c[split] = 0
 
@@ -403,17 +404,11 @@ class CoxDiffScorer(CoxScorer):
                           status_id=coxfam.status_id,
                           start_id=coxfam.start_id,
                           event_data=event_c)
-
-        # using mean-normalized weights based on https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/buildPredmat.coxnetlist.R#L26
-        # with `std.weights` defaulting to TRUE, `coxnet.deviance` will normalize weights to have mean 1...
-        full_w = sample_weight / sample_weight.mean()
         split_c_w = sample_weight[split_c]
-        split_c_w /= split_c_w.mean()
-
-        dev_full = fam_full._coxdev(predictions, full_w).deviance
         dev_c = fam_split_c._coxdev(predictions[split_c], split_c_w).deviance
-        
-        return (dev_full - dev_c) / (status[split] * sample_weight[split]).sum(), (status[split] * sample_weight[split]).sum()
+
+        w_sum = sample_weight.sum() - split_c_w.sum()
+        return (dev_full - dev_c) / w_sum, w_sum
 
 
     
