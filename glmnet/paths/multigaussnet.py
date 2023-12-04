@@ -20,7 +20,7 @@ from ..docstrings import (make_docstring,
 from .._multigaussnet import multigaussnet as _dense
 from .._multigaussnet import spmultigaussnet as _sparse
 
-from ..base import Scorer
+from ..scoring import Scorer
 
 @dataclass
 class MultiClassFamily(object):

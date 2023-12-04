@@ -15,7 +15,7 @@ from coxdev import CoxDeviance
 from .glm import (GLMFamilySpec,
                   GLMState,
                   GLM)
-from .base import Scorer
+from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
 from ._utils import _get_data

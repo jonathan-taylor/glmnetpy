@@ -21,7 +21,7 @@ from ..docstrings import (make_docstring,
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
 
-from ..base import Scorer
+from ..scoring import Scorer
 
 @dataclass
 class MultiClassFamily(object):
