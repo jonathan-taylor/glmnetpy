@@ -1,3 +1,5 @@
+import pytest
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import cross_validate
@@ -11,13 +13,15 @@ from test_gaussnet import (ifrpy,
                            sample_weight,
                            alpha,
                            path,
+                           offset,
                            has_rpy2)
 
 if has_rpy2:
     from rpy2.robjects.packages import importr
     from rpy2.robjects import numpy2ri
     from rpy2.robjects import default_converter
-
+    import rpy2.robjects as rpy
+    
     np_cv_rules = default_converter + numpy2ri.converter
 
     glmnetR = importr('glmnet')
@@ -33,11 +37,13 @@ rng = np.random.default_rng(0)
 @sample_weight
 @alpha
 @path
+@offset
 def test_glmnet(standardize,
                 fit_intercept,
                 sample_weight,
                 alpha,
                 path,
+                offset,
                 n=1000,
                 p=50):
 
@@ -56,42 +62,56 @@ def test_glmnet(standardize,
     beta = np.zeros(p)
     beta[:2] = [1,2]
 
-    with np_cv_rules.context():
-        binomial = statR.binomial
-        yR = statR.rbinom(n, 1, 0.5)
-        sample_weightR = baseR.as_numeric(sample_weight)
+    if offset:
+        offset = rng.standard_normal(n) * 0.3
+    else:
+        offset = np.zeros(n)
 
-        if path:
-            Gfit = glmnetR.glmnet_path
-        else:
-            Gfit = glmnetR.glmnet
-        G = Gfit(X,
-                 yR,
-                 weights=sample_weightR,
-                 intercept=fit_intercept,
-                 standardize=standardize,
-                 family=binomial,
-                 alpha=alpha)
-        B = glmnetR.predict_glmnet(G,
-                                   s=0.5 / np.sqrt(n),
-                                   type="coef",
-                                   exact=True,
-                                   x=X,
-                                   y=yR,
-                                   weights=sample_weightR)
-        soln_R = baseR.as_numeric(B)
+    with np_cv_rules.context():
+
+        rpy.r.assign('X', X)
+        rpy.r.assign('beta', beta)
+        rpy.r.assign('sample_weight', sample_weight)
+        rpy.r.assign('n', n)
+        rpy.r.assign('p', p)
+        rpy.r('y = rbinom(n, 1, 0.5)')
+        rpy.r.assign('fit_intercept', fit_intercept)
+        rpy.r.assign('standardize', standardize)
+        rpy.r.assign('alpha', alpha)
+        rpy.r.assign('offset', offset)
+        rpy.r('''
+        G = glmnet(X,
+                   y,
+                   weights=sample_weight,
+                   intercept=fit_intercept,
+                   standardize=standardize,
+                   family=binomial(link="probit"),
+                   offset=offset,
+                   alpha=alpha)
+        B = predict(G,
+                    s=0.5/sqrt(n),
+                    type="coef",
+                    exact=TRUE,
+                    x=X,
+                    y=y,
+                    offset=offset,
+                    weights=sample_weight)
+        ''')
+        y = rpy.r('y')
+        soln_R = rpy.r('as.numeric(B)')
         intercept_R = soln_R[0]
         coef_R = soln_R[1:]
 
-    G = RegGLM(lambda_val=0.5 / np.sqrt(n),
-               family=sm.families.Binomial(),
+    G = RegGLM(lambda_val=0.5/np.sqrt(n),
+               family=sm.families.Binomial(sm.families.links.Probit()),
                alpha=alpha,
                standardize=standardize, 
                fit_intercept=fit_intercept,
                response_id='response',
-               weight_id='weight')
+               weight_id='weight',
+               offset_id='offset')
 
-    df = pd.DataFrame({'response':yR, 'weight':sample_weight})
+    df = pd.DataFrame({'response':y, 'weight':sample_weight, 'offset':offset})
     G.fit(X, df)
 
     soln_py = np.hstack([G.intercept_, G.coef_])
@@ -107,6 +127,7 @@ def test_glmnet(standardize,
 
     assert fit_match and intercept_match and coef_match
 
+    
 @standardize
 @fit_intercept
 def test_cv(standardize,
@@ -124,7 +145,7 @@ def test_cv(standardize,
     y = (rng.standard_normal(n) + X @ beta > 0)
 
     G = RegGLM(lambda_val=0.5 / np.sqrt(n),
-               family=sm.families.Binomial(),
+               family=sm.families.Binomial(sm.families.links.Probit()),
                fit_intercept=fit_intercept,
                standardize=standardize)
     cross_validate(G, X, y, cv=5)
