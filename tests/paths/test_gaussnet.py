@@ -1,5 +1,8 @@
+from dataclasses import dataclass, field
+
 import numpy as np
 import pandas as pd
+from copy import copy
 
 import pytest
 rng = np.random.default_rng(0)
@@ -15,82 +18,117 @@ np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import GaussNet
 
+@dataclass
+class RGLMNet(object):
+
+    family: str='"gaussian"'
+    covariance: bool=False
+    standardize: bool=True
+    fit_intercept: bool=True
+    exclude: list = field(default_factory=list)
+    df_max: int=None
+    nlambda: int=None
+    lambda_min_ratio: float=None
+    lower_limits: float=None
+    upper_limits: float=None
+    penalty_factor: float=None
+    offset: float=None
+    weights: float=None
+    foldid: int=None
+    grouped: bool=True
+    alignment: str='lambda'
+
+    def __post_init__(self):
+
+        args = [f'family={self.family}']
+        with np_cv_rules.context():
+
+            args = {}
+
+            if self.df_max is not None:
+                rpy.r.assign('dfmax', self.df_max)
+                args['dfmax'] = 'dfmax'
+
+            if self.weights is not None:
+                rpy.r.assign('weights', self.weights)
+                rpy.r('weights=as.numeric(weights)')
+                args['weights'] = 'weights'
+
+            if self.offset is not None:
+                rpy.r.assign('offset', self.offset)
+                args['offset'] = 'offset'
+
+            if self.lambda_min_ratio is not None:
+                rpy.r.assign('lambda.min.ratio', self.lambda_min_ratio)
+                args['lambda.min.ratio'] = 'lambda.min.ratio'
+
+            if self.lower_limits is not None:
+                rpy.r.assign('lower.limits', self.lower_limits)
+                args['lower.limits'] = 'lower.limits'
+            if self.upper_limits is not None:
+                rpy.r.assign('upper.limits', self.upper_limits)
+                args['upper.limits'] = 'upper.limits'
+
+            if self.penalty_factor is not None:
+                rpy.r.assign('penalty.factor', self.penalty_factor)
+                args['penalty.factor'] = 'penalty.factor'
+
+            if self.nlambda is not None:
+                rpy.r.assign('nlambda', self.nlambda)
+                args['nlambda'] = 'nlambda'
+
+            if self.standardize:
+                rpy.r.assign('standardize', True)
+            else:
+                rpy.r.assign('standardize', False)
+            args['standardize'] = 'standardize'
+
+            if self.fit_intercept:
+                rpy.r.assign('intercept', True)
+            else:
+                rpy.r.assign('intercept', False)
+            args['intercept'] = 'intercept'
+
+            rpy.r.assign('exclude', np.array(self.exclude))
+            args['exclude'] = 'exclude'
+
+            self.args = args
+            self.cvargs = copy(self.args)
+            rpy.r.assign('doCV', self.foldid is not None)
+
+            if self.foldid is not None:
+                rpy.r.assign('foldid', self.foldid)
+                rpy.r('foldid = as.integer(foldid)')
+                self.cvargs['foldid'] = 'foldid'
+
+            rpy.r.assign('grouped', self.grouped)
+            self.cvargs['grouped'] = 'grouped'
+
+            self.cvargs['alignment'] = f'"{self.alignment}"'
+            
+
+@dataclass
+class RGaussNet(RGLMNet):
+
+    covariance: bool = False
+
+    def __post_init__(self):
+
+        super().__post_init__()
+        if self.covariance:
+            self.args['type.gaussian'] = '"covariance"'
+
+
+
 def get_glmnet_soln(X,
                     Y,
-                    covariance=False,
-                    standardize=True,
-                    fit_intercept=True,
-                    exclude=[],
-                    df_max=None,
-                    nlambda=None,
-                    lambda_min_ratio=None,
-                    lower_limits=None,
-                    upper_limits=None,
-                    penalty_factor=None,
-                    offset=None,
-                    weights=None,
-                    foldid=None,
-                    alignment='lambda'):
+                    **args):
 
+    parsed = RGaussNet(**args)
+    args = ','.join([f'{k}={v}' for k, v in parsed.args.items()])
+    cvargs = ','.join([f'{k}={v}' for k, v in parsed.cvargs.items()])
+    
     with np_cv_rules.context():
-
-        args = []
-
-        if df_max is not None:
-            rpy.r.assign('dfmax', df_max)
-            args.append('dfmax=dfmax')
-        if weights is not None:
-            rpy.r.assign('weights', weights)
-            args.append('weights=weights')
-
-        if offset is not None:
-            rpy.r.assign('offset', offset)
-            args.append('offset=offset')
-
-        if lambda_min_ratio is not None:
-            rpy.r.assign('lambda.min.ratio', lambda_min_ratio)
-            args.append('lambda.min.ratio=lambda.min.ratio')
-
-        if lower_limits is not None:
-            rpy.r.assign('lower.limits', lower_limits)
-            args.append('lower.limits=lower.limits')
-        if upper_limits is not None:
-            rpy.r.assign('upper.limits', upper_limits)
-            args.append('upper.limits=upper.limits')
-
-        if penalty_factor is not None:
-            rpy.r.assign('penalty.factor', penalty_factor)
-            args.append('penalty.factor=penalty.factor')
-
-        if nlambda is not None:
-            rpy.r.assign('nlambda', nlambda)
-            args.append('nlambda=nlambda')
-
-        if covariance:
-            args.append('type.gaussian="covariance"')
-
-        if standardize:
-            rpy.r.assign('standardize', True)
-        else:
-            rpy.r.assign('standardize', False)
-        args.append('standardize=standardize')
-
-        if fit_intercept:
-            rpy.r.assign('intercept', True)
-        else:
-            rpy.r.assign('intercept', False)
-        args.append('intercept=intercept')
-
-        rpy.r.assign('exclude', np.array(exclude))
-        args.append('exclude=exclude')
-
-        args = ','.join(args)
-
-        cvargs = ','.join([args, f'alignment="{alignment}"'])
-        CV = True
-        rpy.r.assign('doCV', foldid is not None)
-        if foldid is not None:
-            rpy.r.assign('foldid', foldid)
         rpy.r.assign('X', X)
         rpy.r.assign('Y', Y)
         cmd = f'''
@@ -101,7 +139,7 @@ G = glmnet(X, Y, {args})
 C = as.matrix(coef(G))
 if (doCV) {{
     foldid = as.integer(foldid)
-    CVG = cv.glmnet(X, Y, {cvargs}, foldid=foldid, grouped=TRUE)
+    CVG = cv.glmnet(X, Y, {cvargs})
     CVM = CVG$cvm
     CVSD = CVG$cvsd
 }}
@@ -110,10 +148,10 @@ if (doCV) {{
 
         rpy.r(cmd)
         C = rpy.r('C')
-        if foldid is not None:
+        if parsed.foldid is not None:
             CVM = rpy.r('CVM')
             CVSD = rpy.r('CVSD')
-    if foldid is None:
+    if parsed.foldid is None:
         return C.T
     else:
         return C.T, CVM, CVSD
@@ -127,6 +165,35 @@ def sample2(n):
     V = sample1(n)
     V[:n//5] = 0
     return V
+
+def get_data(n, p, sample_weight, offset):
+
+    X = rng.standard_normal((n, p))
+    Y = rng.standard_normal(n)
+    D = pd.DataFrame({'Y':Y})
+    col_args = {'response_id':'Y'}
+    
+    if offset is not None:
+        offset = offset(n)
+        offset_id = 'offset'
+        D['offset'] = offset
+        offsetR = offset
+    else:
+        offset_id = None
+        offsetR = None
+    if sample_weight is not None:
+        sample_weight = sample_weight(n)
+        weight_id = 'weight'
+        D['weight'] = sample_weight
+        weightsR = sample_weight
+    else:
+        weight_id = None
+        weightsR = None
+        
+    col_args = {'response_id':'Y',
+                'weight_id':weight_id,
+                'offset_id':offset_id}
+    return X, Y, D, col_args, weightsR, offsetR
 
 @pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
 @pytest.mark.parametrize('df_max', [None, 5])
@@ -152,20 +219,10 @@ def test_gaussnet(covariance,
                   n,
                   p):
 
+    X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, None)
+
     if lower_limits is not None:
         lower_limits = np.ones(p) * lower_limits
-    X = rng.standard_normal((n, p))
-    Y = rng.standard_normal(n)
-    D = pd.DataFrame({'Y':Y})
-    col_args = {'response_col':'Y'}
-    
-    if sample_weight is not None:
-        weights = sample_weight(n)
-        D['weights'] = weights
-        col_args['weight_col'] = 'weights'
-    else:
-        weights = None
-
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
                  fit_intercept=fit_intercept,
@@ -186,7 +243,8 @@ def test_gaussnet(covariance,
                         fit_intercept=fit_intercept,
                         lower_limits=lower_limits,
                         exclude=exclude,
-                        weights=weights,
+                        weights=weightsR,
+                        offset=offsetR,
                         nlambda=nlambda,
                         lambda_min_ratio=lambda_min_ratio,
                         df_max=df_max)
@@ -223,17 +281,8 @@ def test_limits(limits,
         lower_limits = np.ones(p) * lower_limits
     if upper_limits is not None:
         upper_limits = np.ones(p) * upper_limits
-    X = rng.standard_normal((n, p))
-    Y = rng.standard_normal(n)
-    D = pd.DataFrame({'Y':Y})
-    col_args = {'response_col':'Y'}
-    
-    if sample_weight is not None:
-        weights = sample_weight(n)
-        D['weights'] = weights
-        col_args['weight_col'] = 'weights'
-    else:
-        weights = None
+
+    X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, None)
 
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
@@ -259,21 +308,17 @@ def test_limits(limits,
                         upper_limits=upper_limits,
                         penalty_factor=penalty_factor,
                         exclude=exclude,
-                        weights=weights,
+                        weights=weightsR,
                         nlambda=nlambda,
                         df_max=df_max,
                         lambda_min_ratio=lambda_min_ratio)
 
-    # if np.any(lower_limits == 0) or np.any(upper_limits == 0):
-    #     tol = 1e-3
-    # else:
-    #     tol = 1e-10
     tol = 1e-10
     assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < tol
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@pytest.mark.parametrize('offset', [None, np.zeros(100), 20*sample1(100)]) # should match n=100 below
+@pytest.mark.parametrize('offset', [None, np.zeros, lambda n: 20*sample1(n)]) # should match n=100 below
 @pytest.mark.parametrize('penalty_factor', [None,
                                             sample1(50), # should match p=50 below
                                             sample2(50)])
@@ -291,21 +336,7 @@ def test_offset(offset,
                 n=100,
                 p=50):
 
-    X = rng.standard_normal((n, p))
-    Y = rng.standard_normal(n) * 100
-    D = pd.DataFrame({'Y':Y})
-    col_args = {'response_col':'Y'}
-
-    if sample_weight is not None:
-        weights = sample_weight(n)
-        D['weights'] = weights
-        col_args['weight_col'] = 'weights'
-    else:
-        weights = None
-
-    if offset is not None:
-        D['offset'] = offset
-        col_args['offset_col'] = 'offset'
+    X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
 
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
@@ -327,9 +358,9 @@ def test_offset(offset,
                         fit_intercept=fit_intercept,
                         penalty_factor=penalty_factor,
                         exclude=exclude,
-                        weights=weights,
+                        weights=weightsR,
                         nlambda=nlambda,
-                        offset=offset,
+                        offset=offsetR,
                         df_max=df_max,
                         lambda_min_ratio=lambda_min_ratio)
 
@@ -338,7 +369,7 @@ def test_offset(offset,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@pytest.mark.parametrize('offset', [None, np.zeros(103), 0.2*sample1(103)]) # should match n=103 below
+@pytest.mark.parametrize('offset', [None, np.zeros, lambda n: 0.2*sample1(n)]) # should match n=103 below
 @pytest.mark.parametrize('penalty_factor', [None,
                                             sample1(50), # should match p=50 below
                                             sample2(50)])
@@ -358,26 +389,12 @@ def test_CV(offset,
             n=103,
             p=50):
 
-    X = rng.standard_normal((n, p))
-    Y = rng.standard_normal(n) * 100
-    D = pd.DataFrame({'Y':Y})
-    col_args = {'response_col':'Y'}
+    X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
 
     cv = KFold(5, random_state=0, shuffle=True)
     foldid = np.empty(n)
     for i, (train, test) in enumerate(cv.split(np.arange(n))):
         foldid[test] = i+1
-
-    if sample_weight is not None:
-        weights = sample_weight(n)
-        D['weights'] = weights
-        col_args['weight_col'] = 'weights'
-    else:
-        weights = None
-
-    if offset is not None:
-        D['offset'] = offset
-        col_args['offset_col'] = 'offset'
 
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
@@ -404,9 +421,9 @@ def test_CV(offset,
                                    fit_intercept=fit_intercept,
                                    penalty_factor=penalty_factor,
                                    exclude=exclude,
-                                   weights=weights,
+                                   weights=weightsR,
                                    nlambda=nlambda,
-                                   offset=offset,
+                                   offset=offsetR,
                                    df_max=df_max,
                                    lambda_min_ratio=lambda_min_ratio,
                                    foldid=foldid,
