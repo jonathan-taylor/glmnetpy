@@ -76,14 +76,14 @@ EXTS = [Extension(
 
 def main(**extra_args):
     setup(name=info.NAME,
-          maintainer=info.MAINTAINER,
+          #maintainer=info.MAINTAINER,
           maintainer_email=info.MAINTAINER_EMAIL,
           #description=info.DESCRIPTION,
           url=info.URL,
           download_url=info.DOWNLOAD_URL,
-          license=info.LICENSE,
-          classifiers=info.CLASSIFIERS,
-          author=info.AUTHOR,
+          #license=info.LICENSE,
+          #classifiers=info.CLASSIFIERS,
+          #author=info.AUTHOR,
           author_email=info.AUTHOR_EMAIL,
           platforms=info.PLATFORMS,
           version=versioneer.get_version(),
