@@ -78,7 +78,7 @@ def main(**extra_args):
     setup(name=info.NAME,
           maintainer=info.MAINTAINER,
           maintainer_email=info.MAINTAINER_EMAIL,
-          description=info.DESCRIPTION,
+          #description=info.DESCRIPTION,
           url=info.URL,
           download_url=info.DOWNLOAD_URL,
           license=info.LICENSE,
@@ -94,7 +94,7 @@ def main(**extra_args):
           include_package_data=True,
           data_files=[],
           scripts=[],
-          long_description=long_description,
+          #long_description=long_description,
           long_description_content_type=long_description_content_type,
           cmdclass = cmdclass,
           **extra_args
