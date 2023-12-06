@@ -15,7 +15,6 @@ build-backend = "setuptools.build_meta"
 name = "glmnet"
 readme = "README.md"
 description  = "GlmNet for Python"
-license = "LICENSE.txt"
 authors = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
 maintainers = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
 dependencies = ["numpy>=1.7.1", # max version for numba
@@ -35,3 +34,6 @@ classifiers = ["Development Status :: 3 - Alpha",
                "Programming Language :: Python",
                "Topic :: Scientific/Engineering"]
 dynamic = ['version']
+
+[project.license]
+file = 'LICENSE.txt'
