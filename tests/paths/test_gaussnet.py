@@ -40,10 +40,10 @@ class RGLMNet(object):
 
     def __post_init__(self):
 
-        args = [f'family={self.family}']
         with np_cv_rules.context():
 
             args = {}
+            args['family'] = self.family
 
             if self.df_max is not None:
                 rpy.r.assign('dfmax', self.df_max)
@@ -94,6 +94,7 @@ class RGLMNet(object):
 
             self.args = args
             self.cvargs = copy(self.args)
+
             rpy.r.assign('doCV', self.foldid is not None)
 
             if self.foldid is not None:
@@ -106,6 +107,10 @@ class RGLMNet(object):
 
             self.cvargs['alignment'] = f'"{self.alignment}"'
             
+    def parse(self):
+        args = ','.join([f'{k}={v}' for k, v in self.args.items()])
+        cvargs = ','.join([f'{k}={v}' for k, v in self.cvargs.items()])
+        return args, cvargs
 
 @dataclass
 class RGaussNet(RGLMNet):
@@ -120,13 +125,13 @@ class RGaussNet(RGLMNet):
 
 
 
-def get_glmnet_soln(X,
+def get_glmnet_soln(parser_cls,
+                    X,
                     Y,
                     **args):
 
-    parsed = RGaussNet(**args)
-    args = ','.join([f'{k}={v}' for k, v in parsed.args.items()])
-    cvargs = ','.join([f'{k}={v}' for k, v in parsed.cvargs.items()])
+    parser = parser_cls(**args)
+    args, cvargs = parser.parse()
     
     with np_cv_rules.context():
         rpy.r.assign('X', X)
@@ -148,10 +153,11 @@ if (doCV) {{
 
         rpy.r(cmd)
         C = rpy.r('C')
-        if parsed.foldid is not None:
+        if parser.foldid is not None:
             CVM = rpy.r('CVM')
             CVSD = rpy.r('CVSD')
-    if parsed.foldid is None:
+
+    if parser.foldid is None:
         return C.T
     else:
         return C.T, CVM, CVSD
@@ -195,18 +201,42 @@ def get_data(n, p, sample_weight, offset):
                 'offset_id':offset_id}
     return X, Y, D, col_args, weightsR, offsetR
 
-@pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
-@pytest.mark.parametrize('df_max', [None, 5])
-@pytest.mark.parametrize('exclude', [[], [1,2,3]])
-@pytest.mark.parametrize('lower_limits', [-1, None])
+
+sample_weight_pyt = pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
+df_max_pyt = pytest.mark.parametrize('df_max', [None, 5])
+exclude_pyt = pytest.mark.parametrize('exclude', [[], [1,2,3]])
+lower_limits_pyt = pytest.mark.parametrize('lower_limits', [-1, None])
 # covariance changes type.gaussian, behaves unpredictably even in R
-@pytest.mark.parametrize('covariance', [None]) 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('nlambda', [None, 20])
-@pytest.mark.parametrize('lambda_min_ratio', [None,0.02])
-@pytest.mark.parametrize('n', [1000,50,500])
-@pytest.mark.parametrize('p', [10,100])
+covariance_pyt = pytest.mark.parametrize('covariance', [None]) 
+standardize_pyt = pytest.mark.parametrize('standardize', [True, False])
+fit_intercept_pyt = pytest.mark.parametrize('fit_intercept', [True, False])
+nlambda_pyt = pytest.mark.parametrize('nlambda', [None, 20])
+lambda_min_ratio_pyt = pytest.mark.parametrize('lambda_min_ratio', [None,0.02])
+nsample_pyt = pytest.mark.parametrize('n', [1000,50,500])
+nfeature_pyt = pytest.mark.parametrize('p', [10,100])
+limits_pyt = pytest.mark.parametrize('limits', [(-1, np.inf), (-np.inf, 1),
+                                                (-np.inf, 0), (0, np.inf),
+                                                (-np.inf, np.inf),
+                                                (-1, 1),
+                                                (0, 1)])
+penalty_factor_pyt = pytest.mark.parametrize('penalty_factor', [None,
+                                                                sample1,
+                                                                sample2])
+alignment_pyt = pytest.mark.parametrize('alignment', ['lambda', 'fraction'])
+offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: 20*sample1(n)]) # should match n=100 below
+
+@sample_weight_pyt
+@df_max_pyt
+@exclude_pyt
+@lower_limits_pyt
+# covariance changes type.gaussian, behaves unpredictably even in R
+@covariance_pyt
+@standardize_pyt
+@fit_intercept_pyt 
+@nlambda_pyt
+@lambda_min_ratio_pyt
+@nsample_pyt
+@nfeature_pyt
 def test_gaussnet(covariance,
                   standardize,
                   fit_intercept,
@@ -236,7 +266,8 @@ def test_gaussnet(covariance,
     L.fit(X,
           D)
 
-    C = get_glmnet_soln(X,
+    C = get_glmnet_soln(RGaussNet,
+                        X,
                         Y,
                         covariance=covariance,
                         standardize=standardize,
@@ -254,15 +285,9 @@ def test_gaussnet(covariance,
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
 
 
-@pytest.mark.parametrize('limits', [(-1, np.inf), (-np.inf, 1),
-                                    (-np.inf, 0), (0, np.inf),
-                                    (-np.inf, np.inf),
-                                    (-1, 1),
-                                    (0, 1)])
-@pytest.mark.parametrize('penalty_factor', [None,
-                                            sample1(50), # should match p=50 below
-                                            sample2(50)])
-@pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
+@limits_pyt
+@penalty_factor_pyt
+@sample_weight_pyt
 def test_limits(limits,
                 penalty_factor,
                 sample_weight,
@@ -281,6 +306,8 @@ def test_limits(limits,
         lower_limits = np.ones(p) * lower_limits
     if upper_limits is not None:
         upper_limits = np.ones(p) * upper_limits
+    if penalty_factor is not None:
+        penalty_factor = penalty_factor(p)
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, None)
 
@@ -299,7 +326,8 @@ def test_limits(limits,
     L.fit(X,
           D)
 
-    C = get_glmnet_soln(X,
+    C = get_glmnet_soln(RGaussNet,
+                        X,
                         Y,
                         covariance=covariance,
                         standardize=standardize,
@@ -318,11 +346,9 @@ def test_limits(limits,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@pytest.mark.parametrize('offset', [None, np.zeros, lambda n: 20*sample1(n)]) # should match n=100 below
-@pytest.mark.parametrize('penalty_factor', [None,
-                                            sample1(50), # should match p=50 below
-                                            sample2(50)])
-@pytest.mark.parametrize('sample_weight', [None, sample1, sample2])
+@offset_pyt
+@penalty_factor_pyt
+@sample_weight_pyt
 def test_offset(offset,
                 penalty_factor,
                 sample_weight,
@@ -335,6 +361,9 @@ def test_offset(offset,
                 lambda_min_ratio=None,
                 n=100,
                 p=50):
+
+    if penalty_factor is not None:
+        penalty_factor = penalty_factor(p)
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
 
@@ -351,7 +380,8 @@ def test_offset(offset,
     L.fit(X,
           D)
 
-    C = get_glmnet_soln(X,
+    C = get_glmnet_soln(RGaussNet,
+                        X,
                         Y.copy(),
                         covariance=covariance,
                         standardize=standardize,
@@ -369,12 +399,10 @@ def test_offset(offset,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@pytest.mark.parametrize('offset', [None, np.zeros, lambda n: 0.2*sample1(n)]) # should match n=103 below
-@pytest.mark.parametrize('penalty_factor', [None,
-                                            sample1(50), # should match p=50 below
-                                            sample2(50)])
-@pytest.mark.parametrize('sample_weight', [None, sample1])
-@pytest.mark.parametrize('alignment', ['lambda', 'fraction'])
+@offset_pyt
+@penalty_factor_pyt
+@sample_weight_pyt
+@alignment_pyt
 def test_CV(offset,
             penalty_factor,
             sample_weight,
@@ -388,6 +416,9 @@ def test_CV(offset,
             lambda_min_ratio=None,
             n=103,
             p=50):
+
+    if penalty_factor is not None:
+        penalty_factor = penalty_factor(p)
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
 
@@ -414,7 +445,8 @@ def test_CV(offset,
                             cv=cv)
     CVM_ = L.cv_scores_['Mean Squared Error']
     CVSD_ = L.cv_scores_['SD(Mean Squared Error)']
-    C, CVM, CVSD = get_glmnet_soln(X,
+    C, CVM, CVSD = get_glmnet_soln(RGaussNet,
+                                   X,
                                    Y.copy(),
                                    covariance=covariance,
                                    standardize=standardize,
