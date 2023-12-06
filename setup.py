@@ -77,7 +77,7 @@ EXTS = [Extension(
 def main(**extra_args):
     setup(name=info.NAME,
           #maintainer=info.MAINTAINER,
-          maintainer_email=info.MAINTAINER_EMAIL,
+          #maintainer_email=info.MAINTAINER_EMAIL,
           #description=info.DESCRIPTION,
           url=info.URL,
           download_url=info.DOWNLOAD_URL,

@@ -67,11 +67,10 @@ class LogNet(FastNetMixin):
         # adjust dim of offset -- seems necessary to get 1d?
 
         if offset is None:
-            offset = response * 0.
-        else:
-            # from https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/lognet.R#L57
-            offset = np.column_stack([offset,-offset])
+            offset = 0. * response # np.zeros(response.shape + (2,))
             
+        # from https://github.com/trevorhastie/glmnet/blob/3b268cebc7a04ff0c7b22931cb42b4c328ede307/R/lognet.R#L57
+        offset = np.column_stack([offset,-offset])
         offset = np.asfortranarray(offset)
 
         nobs, nvars = design.X.shape
