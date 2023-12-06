@@ -15,8 +15,11 @@ build-backend = "setuptools.build_meta"
 name = "glmnet"
 readme = "README.md"
 description  = "GlmNet for Python"
-authors = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
-maintainers = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
+authors = [
+{name="Naras Balasubrimanian", email="naras@stanford.edu"},
+{name="Trevor Hastie", email="hastie@stanford.edu"},
+{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
+maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 dependencies = ["numpy>=1.7.1", # max version for numba
                "scipy>=1.8",
                "pandas>=0.20",
