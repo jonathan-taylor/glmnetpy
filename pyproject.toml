@@ -15,7 +15,6 @@ build-backend = "setuptools.build_meta"
 name = "glmnet"
 readme = "README.md"
 description  = "GlmNet for Python"
-version = "0.0.1"
 license = "BSD license"
 authors = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
 maintainers = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
@@ -35,3 +34,4 @@ classifiers = ["Development Status :: 3 - Alpha",
                "Operating System :: OS Independent",
                "Programming Language :: Python",
                "Topic :: Scientific/Engineering"]
+dynamic = ['version']
