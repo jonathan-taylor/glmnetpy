@@ -15,7 +15,7 @@ build-backend = "setuptools.build_meta"
 name = "glmnet"
 readme = "README.md"
 description  = "GlmNet for Python"
-license = "BSD license"
+license = "LICENSE.txt"
 authors = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
 maintainers = "Naras Balasubrimanian, Trevor Hastie, Jonathan Taylor"
 dependencies = ["numpy>=1.7.1", # max version for numba
