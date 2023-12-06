@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold
 
 import rpy2.robjects as rpy

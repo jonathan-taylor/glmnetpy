@@ -461,7 +461,6 @@ def test_CV(offset,
                                    foldid=foldid,
                                    alignment=alignment)
 
-    print(CVM, CVM_)
     assert np.allclose(CVM, CVM_)
     assert np.allclose(CVSD, CVSD_)
 

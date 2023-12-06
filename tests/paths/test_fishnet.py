@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold
 
 import rpy2.robjects as rpy
@@ -20,34 +19,17 @@ from glmnet import FishNet
 from test_gaussnet import (RGLMNet,
                            get_glmnet_soln,
                            sample_weight_pyt,
-                           df_max_pyt,
-                           exclude_pyt,
-                           lower_limits_pyt,
                            standardize_pyt,
                            fit_intercept_pyt,
-                           nlambda_pyt,
-                           lambda_min_ratio_pyt,
                            nsample_pyt,
                            nfeature_pyt,
-                           limits_pyt,
-                           penalty_factor_pyt,
                            alignment_pyt)
 
 @dataclass
 class RFishNet(RGLMNet):
 
-    modified_newton: bool = False
     family: str= '"poisson"'
     
-    def __post_init__(self):
-
-        super().__post_init__()
-
-        if self.modified_newton:
-            rpy.r.assign('type.logistic', "modified.Newton")
-        else:
-            rpy.r.assign('type.logistic', "Newton")
-        self.args['type.logistic'] = 'type.logistic'
 
 def get_data(n, p, sample_weight, offset):
 
@@ -90,13 +72,13 @@ offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.un
 @fit_intercept_pyt
 @nsample_pyt
 @nfeature_pyt
-def test_lognet(standardize,
-                fit_intercept,
-                n,
-                p,
-                sample_weight,
-                offset,
-                ):
+def test_fishnet(standardize,
+                 fit_intercept,
+                 n,
+                 p,
+                 sample_weight,
+                 offset,
+                 ):
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
         
@@ -177,6 +159,5 @@ def test_CV(offset,
                                    foldid=foldid,
                                    alignment=alignment)
 
-    print(CVM, CVM_)
     assert np.allclose(CVM, CVM_)
     assert np.allclose(CVSD, CVSD_)
