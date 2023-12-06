@@ -46,8 +46,8 @@ jobs:
     - name: Test pyglmnet
       run: |
         pip install pytest
-	sudo apt-get install r-cran-glmnet
-	pip install rpy2
+        sudo apt-get install r-cran-glmnet
+        pip install rpy2
         pytest tests/paths/test*py
         pytest tests/flex/test*py
         pytest tests/test_design.py
