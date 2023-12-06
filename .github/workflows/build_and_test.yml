@@ -24,7 +24,9 @@ jobs:
     - name: Test pyglmnet
       run: |
         pip install pytest
-        pytest tests/test_glmnetpp.py
+        pytest tests/paths/test*py
+        pytest tests/flex/test*py
+        pytest tests/test_design.py
 
   build-linux:
     runs-on: ubuntu-latest
