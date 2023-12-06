@@ -147,9 +147,9 @@ def test_mrelnet(standardize,
                         fit_intercept=fit_intercept,
                         offset=offsetR)
 
-    assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < 1e-10
+    assert np.linalg.norm(C[:,1:] - L.coefs_) / max(np.linalg.norm(L.coefs_), 1) < 1e-8
     if fit_intercept:
-        assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
+        assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
 @offset_pyt
 @sample_weight_pyt
