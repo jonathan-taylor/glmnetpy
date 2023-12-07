@@ -46,6 +46,7 @@ lower_limits = pytest.mark.parametrize('lower_limits', [None, -0.1])
 @sample_weight
 @alpha
 @path
+@offset
 def test_glmnet(standardize,
                 fit_intercept,
                 sample_weight,
