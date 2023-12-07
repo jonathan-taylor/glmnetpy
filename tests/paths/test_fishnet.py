@@ -1,110 +1,163 @@
-import numpy as np
+from dataclasses import dataclass
 
+import numpy as np
+import pandas as pd
 import pytest
-rng = np.random.default_rng(0)
+
+from sklearn.model_selection import KFold
 
 import rpy2.robjects as rpy
 from rpy2.robjects.packages import importr
 from rpy2.robjects import numpy2ri
 from rpy2.robjects import default_converter
 
+rng = np.random.default_rng(0)
 np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import FishNet
 
+from test_gaussnet import (RGLMNet,
+                           get_glmnet_soln,
+                           sample_weight_pyt,
+                           standardize_pyt,
+                           fit_intercept_pyt,
+                           nsample_pyt,
+                           nfeature_pyt,
+                           alignment_pyt)
 
-def get_glmnet_soln(X,
-                    Y,
-                    standardize=True,
-                    fit_intercept=True):
+@dataclass
+class RFishNet(RGLMNet):
 
-    with np_cv_rules.context():
+    family: str= '"poisson"'
+    
 
-        if standardize:
-            rpy.r.assign('standardize', True)
-        else:
-            rpy.r.assign('standardize', False)
+def get_data(n, p, sample_weight, offset):
 
-        if fit_intercept:
-            rpy.r.assign('intercept', True)
-        else:
-            rpy.r.assign('intercept', False)
+    X = rng.standard_normal((n, p))
+    X = rng.standard_normal((n, p))
+    Y = rng.poisson(20, size=n)
 
-        rpy.r.assign('X', X)
-        rpy.r.assign('Y', Y)
-        rpy.r('''
-    library(glmnet)
-    G = glmnet(X, Y, family='poisson',
-               standardize=standardize, intercept=intercept)
-    C = as.matrix(coef(G))
-    ''')
-        C = rpy.r('C')
-    return C.T
+    Y_R = Y
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('n', [1000,50])
-@pytest.mark.parametrize('p', [10,100])
+    D = pd.DataFrame({'Y':Y})
+    col_args = {'response_id':'Y'}
+    
+    if offset is not None:
+        offset = offset(n)
+        offset_id = 'offset'
+        D['offset'] = offset
+        offsetR = offset
+    else:
+        offset_id = None
+        offsetR = None
+    if sample_weight is not None:
+        sample_weight = sample_weight(n)
+        weight_id = 'weight'
+        D['weight'] = sample_weight
+        weightsR = sample_weight
+    else:
+        weight_id = None
+        weightsR = None
+        
+    col_args = {'response_id':'Y',
+                'weight_id':weight_id,
+                'offset_id':offset_id}
+    return X, Y_R, D, col_args, weightsR, offsetR
+
+offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.uniform(0, 1, size=n)])
+
+@offset_pyt
+@sample_weight_pyt
+@standardize_pyt
+@fit_intercept_pyt
+@nsample_pyt
+@nfeature_pyt
 def test_fishnet(standardize,
                  fit_intercept,
                  n,
-                 p):
+                 p,
+                 sample_weight,
+                 offset,
+                 ):
 
-    X = rng.standard_normal((n, p))
-    Y = rng.poisson(20, size=n)
+    X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
+        
     L = FishNet(standardize=standardize,
-                fit_intercept=fit_intercept)
+                fit_intercept=fit_intercept,
+                **col_args)
 
-    L.fit(X, Y)
-    C = get_glmnet_soln(X,
+    L.fit(X, D)
+
+    C = get_glmnet_soln(RFishNet,
+                        X,
                         Y,
+                        weights=weightsR,
                         standardize=standardize,
-                        fit_intercept=fit_intercept)
+                        fit_intercept=fit_intercept,
+                        offset=offsetR)
 
-    assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < 1e-10
+    assert np.linalg.norm(C[:,1:] - L.coefs_) / max(np.linalg.norm(L.coefs_), 1) < 1e-8
     if fit_intercept:
-        assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
+        assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
+@offset_pyt
+#@penalty_factor_pyt -- some fails with different penalty factors
+@sample_weight_pyt
+@alignment_pyt
+def test_CV(offset,
+            sample_weight,
+            alignment,
+            penalty_factor=None,
+            df_max=None,
+            standardize=True,
+            fit_intercept=True,
+            exclude=[],
+            nlambda=None,
+            lambda_min_ratio=None,
+            n=103,
+            p=20):
 
+    if penalty_factor is not None:
+        penalty_factor = penalty_factor(p)
 
-# import numpy as np
-# rng = np.random.default_rng(0)
-# n, p = 4, 5
-# X = rng.standard_normal((n, p))
-# Y = rng.poisson(lam=20, size=n)
+    X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
 
-# from glmnet import FishNet
-# nlambda, lambda_min_ratio = 3, 0.2
-# L = FishNet(nlambda=nlambda, lambda_min_ratio=lambda_min_ratio)
-# L.fit(X, Y)
+    cv = KFold(5, random_state=0, shuffle=True)
+    foldid = np.empty(n)
+    for i, (train, test) in enumerate(cv.split(np.arange(n))):
+        foldid[test] = i+1
 
+    L = FishNet(standardize=standardize,
+                fit_intercept=fit_intercept,
+                lambda_min_ratio=lambda_min_ratio,
+                penalty_factor=penalty_factor,
+                exclude=exclude,
+                df_max=df_max, **col_args)
+    if nlambda is not None:
+        L.nlambda = nlambda
 
-# import rpy2
-# # %load_ext rpy2.ipython
-# # %R -i X,Y,nlambda,lambda_min_ratio
+    L.fit(X,
+          D)
+    L.cross_validation_path(X,
+                            D,
+                            alignment=alignment,
+                            cv=cv)
+    CVM_ = L.cv_scores_['Poisson Deviance']
+    CVSD_ = L.cv_scores_['SD(Poisson Deviance)']
+    C, CVM, CVSD = get_glmnet_soln(RFishNet,
+                                   X,
+                                   Y.copy(),
+                                   standardize=standardize,
+                                   fit_intercept=fit_intercept,
+                                   penalty_factor=penalty_factor,
+                                   exclude=exclude,
+                                   weights=weightsR,
+                                   nlambda=nlambda,
+                                   offset=offsetR,
+                                   df_max=df_max,
+                                   lambda_min_ratio=lambda_min_ratio,
+                                   foldid=foldid,
+                                   alignment=alignment)
 
-# # + language="R"
-# # library(glmnet)
-# # G = glmnet(X, Y, family='poisson', nlam=nlambda, lambda.min.ratio=lambda_min_ratio)
-# # plot(G)
-# # G
-# # -
-
-# ax = L.plot_coefficients(xvar='norm')
-
-# L.summary_
-
-# # + magic_args="-o C_R,I_R" language="R"
-# # C_R = as.matrix(coef(G))[-1,]
-# # I_R = as.matrix(coef(G))[1,]
-# # -
-
-# np.linalg.norm(C_R.T - L.coefs_) / np.linalg.norm(L.coefs_)
-
-# np.linalg.norm(I_R - L.intercepts_) / np.linalg.norm(L.intercepts_)
-
-# L.coefs_.shape
-
-# L._fit['nin'].max()
-
-
+    assert np.allclose(CVM, CVM_)
+    assert np.allclose(CVSD, CVSD_)

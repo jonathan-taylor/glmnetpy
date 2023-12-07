@@ -28,15 +28,16 @@ from ._utils import (_parent_dataclass_from_child,
                      _get_data)
 
 from .base import (Design,
-                   _get_design,
-                   Scorer,
-                   mae_scorer,
-                   mse_scorer,
-                   accuracy_scorer,
-                   auc_scorer,
-                   aucpr_scorer,
-                   ungrouped_mse_scorer,
-                   ungrouped_mae_scorer)
+                   _get_design)
+
+from .scoring import (Scorer,
+                      mae_scorer,
+                      mse_scorer,
+                      accuracy_scorer,
+                      auc_scorer,
+                      aucpr_scorer,
+                      ungrouped_mse_scorer,
+                      ungrouped_mae_scorer)
 
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
