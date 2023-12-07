@@ -40,3 +40,4 @@ dynamic = ['version']
 
 [project.license]
 file = 'LICENSE.txt'
+
