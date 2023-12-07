@@ -1,3 +1,5 @@
+# Run tests comparing results to R
+
 name: Compare to R
 
 # Controls when the workflow will run
