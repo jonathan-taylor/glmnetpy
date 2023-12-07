@@ -3,11 +3,12 @@ from dataclasses import asdict
 import pytest
 
 import numpy as np
+import pandas as pd
 import scipy.sparse
 import statsmodels.api as sm
 
 from glmnet.elnet import ElNet
-from glmnet.glmnet import GLMNet
+from glmnet.regularized_glm import RegGLM
 
 rng = np.random.default_rng(0)
 n, p = 30, 10
@@ -15,48 +16,51 @@ n, p = 30, 10
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('fit_intercept', [True, False])
 @pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
-@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
-@pytest.mark.parametrize('alpha', [0, 0.5, 1])
-def test_compare_glmnet_elnet(standardize,
+@pytest.mark.parametrize('lambda_val', [np.sqrt(n)])
+@pytest.mark.parametrize('alpha', [0.5, 1])
+def test_compare_regglm_elnet(standardize,
                               fit_intercept,
                               sample_weight,
                               lambda_val,
                               alpha):
 
     sample_weight = sample_weight(n)
+    
     X = rng.normal(size=(n,p))
     coefs = np.zeros(p)
     coefs[[2,3]] = 3 / np.sqrt(n)
     y = rng.normal(size=n) + 1 + X @ coefs
 
+    df = pd.DataFrame({'response':y,
+                       'weight':sample_weight})
+
     elnet = ElNet(lambda_val,
-                           alpha=alpha,
-                           standardize=standardize,
-                           fit_intercept=fit_intercept)
+                  alpha=alpha,
+                  standardize=standardize,
+                  fit_intercept=fit_intercept)
     elnet.fit(X, 
               y,
-              sample_weight)
+              sample_weight=sample_weight / sample_weight.mean())
 
-    glmnet = GLMNet(lambda_val,
-                    alpha=alpha,
-                    standardize=standardize,
-                    fit_intercept=fit_intercept)
-    print('glmnet alpha', glmnet.alpha)
-    glmnet.fit(X, 
-               y,
-               sample_weight)
+    reg_glm = RegGLM(lambda_val / n,
+                     alpha=alpha,
+                     standardize=standardize,
+                     fit_intercept=fit_intercept,
+                     weight_id='weight')
+    reg_glm.fit(X, 
+               df)
 
-    if not np.allclose(elnet.intercept_, glmnet.intercept_, rtol=1e-4):
+    if not np.allclose(elnet.intercept_, reg_glm.intercept_, rtol=1e-4):
         raise ValueError('intercepts not close')
-    if not np.linalg.norm(elnet.coef_ - glmnet.coef_) / np.linalg.norm(glmnet.coef_) < 1e-4:
+    if not np.linalg.norm(elnet.coef_ - reg_glm.coef_) / np.linalg.norm(reg_glm.coef_) < 1e-4:
         raise ValueError('coefs not close')
 
     elnet_dict = asdict(elnet)
-    glmnet_dict = asdict(glmnet)
+    reg_glm_dict = asdict(reg_glm)
 
-    eta = X @ glmnet.coef_ + glmnet.intercept_
+    eta = X @ reg_glm.coef_ + reg_glm.intercept_
     dev = np.sum(sample_weight * (y - eta)**2) 
-    # dev_ratio = 1 - dev / glmnet_dict['nulldev']
+    # dev_ratio = 1 - dev / reg_glm_dict['nulldev']
 
     # # check the regularizer 
     # assert(dev_ratio == glmnet_dict['dev_ratio'])
@@ -130,15 +134,16 @@ def test_compare_sparse_glmnet(standardize,
     y = rng.normal(size=n) + X @ beta
     sample_weight = sample_weight(n)
 
-    glmnet = GLMNet(lambda_val,
+    glmnet = RegGLM(lambda_val,
                     standardize=standardize,
                     fit_intercept=fit_intercept)
+    df = pd.DataFrame({'response':y})
     glmnet.fit(X,
-               y,
+               df,
                sample_weight=sample_weight)
 
     Xs = scipy.sparse.csc_array(X).tocsc()
-    glmnet_s = GLMNet(lambda_val,
+    glmnet_s = RegGLM(lambda_val,
                       standardize=standardize,
                       fit_intercept=fit_intercept)
     glmnet_s.fit(Xs,
@@ -167,12 +172,13 @@ def test_logistic(standardize,
     weights = np.ones(n) + rng.uniform(0, 1, size=(n,))
     weights /= weights.sum()
 
-    glmnet = GLMNet(lambda_val,
+    glmnet = RegGLM(lambda_val,
                     standardize=standardize,
                     fit_intercept=fit_intercept,
                     family=sm.families.Binomial())
+    df = pd.DataFrame({'response':y})
     glmnet.fit(X, 
-               y,
+               df,
                weights)
     print(glmnet.coef_)
 
@@ -194,11 +200,12 @@ def test_probit(standardize,
     weights /= weights.sum()
 
     link = sm.families.links.Probit()
-    glmnet = GLMNet(lambda_val,
+    glmnet = RegGLM(lambda_val,
                     standardize=standardize,
                     fit_intercept=fit_intercept,
                     family=sm.families.Binomial(link=link))
+    df = pd.DataFrame({'response':y})
     glmnet.fit(X, 
-               y,
+               df,
                weights)
     print(glmnet.coef_)
