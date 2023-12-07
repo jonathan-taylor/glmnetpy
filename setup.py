@@ -39,7 +39,7 @@ def read_vars_from(ver_file):
         exec(fobj.read(), ns)
     return Bunch(ns)
 
-info = read_vars_from(os.path.join('glmnet', 'info.py'))
+# info = read_vars_from(os.path.join('glmnet', 'info.py'))
 
 # find eigen source directory of submodule
 
@@ -75,26 +75,13 @@ EXTS = [Extension(
                                                    'multigaussnet']]
 
 def main(**extra_args):
-    setup(name=info.NAME,
-          #maintainer=info.MAINTAINER,
-          #maintainer_email=info.MAINTAINER_EMAIL,
-          #description=info.DESCRIPTION,
-          url=info.URL,
-          download_url=info.DOWNLOAD_URL,
-          #license=info.LICENSE,
-          #classifiers=info.CLASSIFIERS,
-          #author=info.AUTHOR,
-          author_email=info.AUTHOR_EMAIL,
-          platforms=info.PLATFORMS,
+    setup(name='glmnet',
           version=versioneer.get_version(),
           packages = ['glmnet',
                       'glmnet.paths'],
           ext_modules = EXTS,
           package_data = {'glmnet':['test_data/*']},
           include_package_data=True,
-          data_files=[],
-          scripts=[],
-          #long_description=long_description,
           long_description_content_type=long_description_content_type,
           cmdclass = cmdclass,
           **extra_args
