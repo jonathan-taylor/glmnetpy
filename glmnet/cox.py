@@ -166,16 +166,15 @@ class CoxFamilySpec(object):
 
         return pseudo_response, newton_weights
     
-    def default_scorers(self):
-
-        return [CoxDiffScorer(coxfam=self), CoxScorer(coxfam=self)]
-    
-
     def information(self,
                     state,
                     sample_weight):
         return self._coxdev.information(state.link_parameter,
                                         sample_weight)
+
+    def _default_scorers(self):
+
+        return [CoxDiffScorer(coxfam=self), CoxScorer(coxfam=self)]
 
 @dataclass
 class CoxLM(GLM):

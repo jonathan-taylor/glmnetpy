@@ -33,7 +33,7 @@ class PathScorer(object):
     def compute_scores(self,
                        scorers=[]):
 
-        self.scorers = list(set(scorers).union(self.family.default_scorers()))
+        self.scorers = list(set(scorers).union(self.family._default_scorers()))
 
         score_dict = self._get_scores(self.predictions,
                                       self.sample_weight,

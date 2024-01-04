@@ -362,7 +362,7 @@ class GLMNet(BaseEstimator,
             raise ValueError("xvar should be in ['lambda', '-lambda', 'norm', 'dev']")
 
         if score is None:
-            score = self.family.default_scorers()[0]
+            score = self.family._default_scorers()[0]
 
         return plot_cv(self.cv_scores_,
                        self.index_best_,
