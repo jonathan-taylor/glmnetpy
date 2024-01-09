@@ -21,31 +21,16 @@ from ..docstrings import (make_docstring,
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
 
+from ..scoring import Scorer
+
 @dataclass
 class MultiClassFamily(object):
 
     def default_scorers(self):
 
-        def _misclass(y, p_hat, sample_weight): 
-            return zero_one_loss(np.argmax(y, -1),
-                                 np.argmax(p_hat, -1),
-                                 sample_weight=sample_weight,
-                                 normalize=True)
-
-        def _accuracy_score(y, p_hat, sample_weight): 
-            return accuracy_score(np.argmax(y, -1),
-                                  np.argmax(p_hat, -1),
-                                  sample_weight=sample_weight,
-                                  normalize=True)
-
-        def _deviance(y, p_hat, sample_weight): 
-            return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
-
-        scorers_ = [('Accuracy', _accuracy_score, 'max'),
-                    ('Misclassification Error', _misclass, 'min'),
-                    ('Multinomial Deviance', _deviance, 'min')]
-
-        return scorers_
+        return [accuracy_scorer,
+                misclass_scorer,
+                deviance_scorer]
 
 @dataclass
 class MultiClassNet(MultiFastNetMixin):
@@ -136,3 +121,32 @@ class MultiClassNet(MultiFastNetMixin):
         del(_args['w'])
 
         return _args
+
+# for CV scores
+
+def _misclass(y, p_hat, sample_weight): 
+    return zero_one_loss(np.argmax(y, -1),
+                         np.argmax(p_hat, -1),
+                         sample_weight=sample_weight,
+                         normalize=True)
+
+def _accuracy_score(y, p_hat, sample_weight): 
+    return accuracy_score(np.argmax(y, -1),
+                          np.argmax(p_hat, -1),
+                          sample_weight=sample_weight,
+                          normalize=True)
+
+def _deviance(y, p_hat, sample_weight): 
+    return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
+
+misclass_scorer = Scorer(name='Misclassification Error',
+                         score=_misclass,
+                         maximize=False)
+
+accuracy_scorer = Scorer(name='Accuracy',
+                         score=_accuracy_score,
+                         maximize=True)
+
+deviance_scorer = Scorer(name="Multinomial Deviance",
+                         score=_deviance,
+                         maximize=False)

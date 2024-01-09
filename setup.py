@@ -10,37 +10,6 @@ import pybind11
 import versioneer
 #from cythexts import cyproc_exts, get_pyx_sdist
 
-# Get various parameters for this version, stored in ISLP/info.py
-
-class Bunch(object):
-    def __init__(self, vars):
-        for key, name in vars.items():
-            if key.startswith('__'):
-                continue
-            self.__dict__[key] = name
-
-def read_vars_from(ver_file):
-    """ Read variables from Python text file
-
-    Parameters
-    ----------
-    ver_file : str
-        Filename of file to read
-
-    Returns
-    -------
-    info_vars : Bunch instance
-        Bunch object where variables read from `ver_file` appear as
-        attributes
-    """
-    # Use exec for compabibility with Python 3
-    ns = {}
-    with open(ver_file, 'rt') as fobj:
-        exec(fobj.read(), ns)
-    return Bunch(ns)
-
-info = read_vars_from(os.path.join('glmnet', 'info.py'))
-
 # find eigen source directory of submodule
 
 dirname = os.path.abspath(os.path.dirname(__file__))
@@ -75,17 +44,8 @@ EXTS = [Extension(
                                                    'multigaussnet']]
 
 def main(**extra_args):
-    setup(name=info.NAME,
-          maintainer=info.MAINTAINER,
-          maintainer_email=info.MAINTAINER_EMAIL,
-          description=info.DESCRIPTION,
-          url=info.URL,
-          download_url=info.DOWNLOAD_URL,
-          license=info.LICENSE,
-          classifiers=info.CLASSIFIERS,
-          author=info.AUTHOR,
-          author_email=info.AUTHOR_EMAIL,
-          platforms=info.PLATFORMS,
+    setup(name='glmnet',
+          url="http://github.org/intro-stat-learning/glmnetpy",
           version=versioneer.get_version(),
           packages = ['glmnet',
                       'glmnet.paths'],
@@ -94,7 +54,7 @@ def main(**extra_args):
           include_package_data=True,
           data_files=[],
           scripts=[],
-          long_description=long_description,
+          #long_description=long_description,
           long_description_content_type=long_description_content_type,
           cmdclass = cmdclass,
           **extra_args

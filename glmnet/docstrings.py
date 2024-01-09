@@ -34,6 +34,10 @@ X: Union[np.ndarray, scipy.sparse, DesignSpec]
 y: np.ndarray
     Response variable.''',
 
+    'response':'''
+response: np.ndarray
+    Response variable.''',
+
     'dtype':'''
 dtype: np.dtype
     The dtype for Design as a LinearOperator.
@@ -100,8 +104,30 @@ alpha: Optional[float]
 
     'fit_intercept':'''
 fit_intercept: bool
-    Should intercept be fitted (default=`True`) or set to zero (`False`)?''',
 
+    Should intercept be fitted (default=True) or set to zero (False)?''',
+
+    'mu':'''
+mu: np.ndarray
+    Mean parameter of GLM family.''',
+
+    'mean_parameter':r'''
+mu: np.ndarray
+    Mean parameter of GLM family. Commonly referred to as $\mu$.''',
+
+    'linear_predictor':r'''
+eta: np.ndarray
+    Linear predictor of GLM family. Commonly referred to as $\eta$.''',
+
+    'eta':r'''
+eta: np.ndarray
+    Linear predictor of GLM family. Commonly referred to as $\eta$.''',
+
+    'deviance':'''
+deviance: float
+    Deviance of a GLM.
+    ''',
+    
     'thresh':'''
 thresh: float
     Convergence threshold for coordinate descent. Each inner
@@ -209,20 +235,17 @@ control: Optional(ElNetControl)
     'control_glm': '''
 control: Optional(GLMControl)
 
-    Parameters to control the solver.
-    ''',
-    
+    Parameters to control the solver.''',    
+
     'control_regglm': '''
 control: Optional(RegGLMControl)
 
-    Parameters to control the solver.
-    ''',
+    Parameters to control the solver.''',
 
     'control_glmnet': '''
 control: Optional(GLMNetControl)
 
-    Parameters to control the solver.
-    ''',
+    Parameters to control the solver.''',
 
     'mxitnr':'''
 mxitnr: int
@@ -294,6 +317,7 @@ summarize: bool
 
     'coef_':'''
 coef_: array-like of shape (n_features,)
+
     Fitted coefficients.''',
 
     'intercept_':'''
@@ -321,7 +345,15 @@ dispersion_: float
     Estimated dispersion of model. For Gaussian this uses the usual unbiased estimate of variance.''',
     
     'regularizer_':'''
-regularizer_: object
+regularizer_: GLMRegularizer
+    Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.''',
+
+    'check':'''
+check: bool
+    Run the `_check` method to validate `(X,y)`.''',
+    
+    'regularizer':'''
+regularizer_: GLMRegularizer
     Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.''',
 
     'regularized_estimator':'''

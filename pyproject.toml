@@ -14,7 +14,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "glmnet"
-version = "0.0.1"
+readme = "README.md"
+description  = "GlmNet for Python"
+authors = [
+{name="Naras Balasubrimanian", email="naras@stanford.edu"},
+{name="Trevor Hastie", email="hastie@stanford.edu"},
+{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
+maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 dependencies = ["numpy>=1.7.1", # max version for numba
                "scipy>=1.8",
                "pandas>=0.20",
@@ -24,4 +30,15 @@ dependencies = ["numpy>=1.7.1", # max version for numba
 	       "coxdev",
 	       "pybind11",
 	       "tqdm"]
+classifiers = ["Development Status :: 3 - Alpha",
+               "Environment :: Console",
+               "Intended Audience :: Science/Research",
+               "License :: OSI Approved :: BSD License",
+               "Operating System :: OS Independent",
+               "Programming Language :: Python",
+               "Topic :: Scientific/Engineering"]
+dynamic = ['version']
+
+[project.license]
+file = 'LICENSE.txt'
 

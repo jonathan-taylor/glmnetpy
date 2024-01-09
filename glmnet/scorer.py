@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+import warnings
+
 from sklearn.model_selection import (cross_val_predict,
                                      check_cv,
                                      KFold)
@@ -31,80 +33,82 @@ class PathScorer(object):
     def compute_scores(self,
                        scorers=[]):
 
-        self.scorers = list(set(scorers).union(self.family.default_scorers()))
+        self.scorers = list(set(scorers).union(self.family._default_scorers()))
 
-        response, y_arg = self.data
+        score_dict = self._get_scores(self.predictions,
+                                      self.sample_weight,
+                                      self.splits,
+                                      self.scorers)
+        df_dict = {}
 
-        scores_ = self._get_scores(response,
-                                    y_arg,
-                                    self.predictions,
-                                    self.sample_weight,
-                                    self.splits,
-                                    self.scorers)
+        for scorer in score_dict.keys():
+            val_W = score_dict[scorer]
+            val = val_W[:,:,0]
+            W = val_W[:,:,1]
+            mask = ~np.isnan(val)
+            count = mask.sum(1)
+            mean_ = np.sum(val * mask * W, 1) / np.sum(mask * W, 1)
+            df_dict[scorer.name] = mean_
 
-        weight = self.sample_weight
-        wsum = np.array([weight[split].sum() for split in self.splits])
-        wsum = wsum[:, None, None]
-        mask = ~np.isnan(scores_)
-        scores_mean_ = (np.sum(scores_ * mask * wsum, 0) /
-                        np.sum(mask * wsum, 0))
+            if self.compute_std_error:
+                resid = val - mean_[:,None]
+                std_ = np.sqrt(np.sum(resid**2 * mask * W, 1) / (np.sum(mask * W, 1) * (count-1)))
+                df_dict[f'SD({scorer.name})'] = std_
+            else:
+                std_ = None
 
-        if self.compute_std_error:
-            count = mask.sum(0)
-            resid_ = scores_ - scores_mean_[None,:]
-            scores_std_ = np.sqrt(np.sum(resid_**2 *
-                                         mask * wsum, 0) /
-                                  (np.sum(mask * wsum, 0) * (count - 1)))
-        else:
-            scores_std_ = None
 
-        self.cv_scores_ = pd.DataFrame(scores_mean_,
-                                       columns=[name for
-                                                name, _, _ in self.scorers],
+        self.cv_scores_ = pd.DataFrame(df_dict,
                                        index=self.index)
 
-        for i, (name, _, _) in enumerate(self.scorers):
-            self.cv_scores_[f'SD({name})'] = scores_std_[:,i]
-        
         index_best_, index_1se_ = _tune(self.index,
                                         self.scorers,
                                         self.cv_scores_,
-                                        scores_mean_,
-                                        scores_std_,
                                         complexity_order=self.complexity_order,
                                         compute_std_error=self.compute_std_error)
+
         return self.cv_scores_, index_best_, index_1se_
     
     def _get_scores(self,
-                    response,
-                    full_y, # ignored by default, used in Cox
                     predictions,
                     sample_weight,
                     test_splits,
                     scorers):
 
-        y = response # shorthand
-
+        response, original_y = self.data
+                                      
         scores_ = []
-           
-        for f, split in enumerate(test_splits):
-            preds_ = predictions[split]
-            y_ = y[split]
-            w_ = sample_weight[split]
-            w_ = w_ / w_.mean()
-            score_array = np.empty((preds_.shape[1], len(scorers)), float) * np.nan
-            for i, j in product(np.arange(preds_.shape[1]),
-                                np.arange(len(scorers))):
-                _, cur_scorer, _ = scorers[j]
-                try:
-                    score_array[i, j] = cur_scorer(y_, preds_[:,i], sample_weight=w_)
-                except ValueError as e:
-                    warnings.warn(f'{cur_scorer} failed on fold {f}, lambda {i}: {e}')                    
-                    pass
-                    
-            scores_.append(score_array)
+        grouped_weights_ = [sample_weight[split].sum() for split in test_splits]
 
-        return np.array(scores_)
+        final_scores = {}
+        for cur_scorer in scorers:
+            scores = []
+            for i in np.arange(predictions.shape[1]):
+                cur_scores = []
+                for f, split in enumerate(test_splits):
+                    try:
+                        if cur_scorer.use_full_data:
+                            y = original_y
+                        else:
+                            y = response
+                        val, w = cur_scorer.score_fn(split,
+                                                     y,
+                                                     predictions[:,i],
+                                                     sample_weight=sample_weight)
+                    except ValueError as e:
+                        warnings.warn(f'Scorer "{cur_scorer.name}" failed on fold {f}, lambda {i}: {e}')                    
+                        pass
+                    cur_scores.append([val, w])
+
+                if cur_scorer.grouped:
+                    cur_scores = np.array(cur_scores)
+                else:
+                    cur_scores = np.hstack(cur_scores).T
+                scores.append(cur_scores)
+            scores = np.array(scores) # preds x splits x 2 (the 2 is for value, weight_sum)
+            final_scores[cur_scorer] = scores
+
+        return final_scores
     
 def plot(cv_scores,
          index_best,
@@ -186,8 +190,6 @@ def plot(cv_scores,
 def _tune(index,
           scorers,
           cv_scores,
-          scores_mean,
-          scores_std,
           complexity_order=None,
           compute_std_error=True):
 
@@ -200,22 +202,22 @@ def _tune(index,
 
     npath = cv_scores.shape[0]
     
-    for i, (name, _, pick_best) in enumerate(scorers):
-        picker = {'min':np.argmin, 'max':np.argmax}[pick_best]
+    for i, scorer in enumerate(scorers):
+        picker = {False:np.argmin, True:np.argmax}[scorer.maximize]
 
         if complexity_order == 'increasing':
-            _mean = scores_mean[:,i]
+            _mean = np.asarray(cv_scores[scorer.name])
         else:
             # in this case indices are taken from the last entry
             # must reshuffle indices below
-            _mean = scores_mean[:,i][::-1]
+            _mean = np.asarray(cv_scores[scorer.name].iloc[::-1])
 
         _best_idx = picker(_mean)
-        index_best_.append((name, index[_best_idx]))
+        index_best_.append((scorer.name, index[_best_idx]))
 
         if compute_std_error:
-            _std = scores_std[:,i]
-            if pick_best == 'min':
+            _std = np.asarray(cv_scores[f'SD({scorer.name})'])
+            if not scorer.maximize:
                 _mean_1se = (_mean + _std)[_best_idx]
 
                 if complexity_order is not None:
@@ -224,7 +226,7 @@ def _tune(index,
                 else:
                     _1se_idx = None
 
-            elif pick_best == 'max':
+            else:
                 _mean_1se = (_mean - _std)[_best_idx]                    
                 if complexity_order is not None:
                     _1se_idx = max(np.nonzero((_mean >=
@@ -233,9 +235,9 @@ def _tune(index,
                     _1se_idx = None
 
             if _1se_idx is not None:
-                index_1se_.append((name, index[_1se_idx]))
+                index_1se_.append((scorer.name, index[_1se_idx]))
             else:
-                index_1se_.append((name, np.nan))
+                index_1se_.append((scorer.name, np.nan))
 
     index_best_ = pd.Series([v for _, v in index_best_],
                             index=[n for n, _ in index_best_],

@@ -1,5 +1,6 @@
-name: Testing pyglmnet
+name: Build and run python tests
 
+# Controls when the workflow will run
 on: [push]
 
 jobs:
@@ -24,7 +25,7 @@ jobs:
     - name: Test pyglmnet
       run: |
         pip install pytest
-        pytest tests/test_glmnetpp.py
+        pytest tests/test_*py
 
   build-linux:
     runs-on: ubuntu-latest
@@ -46,6 +47,6 @@ jobs:
     - name: Test pyglmnet
       run: |
         pip install pytest
-        pytest tests/test_glmnetpp.py
-        pytest tests/test_design.py
-        pytest tests/test_glmnet.py
+        pytest tests/test_*py
+
+

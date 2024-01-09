@@ -20,10 +20,6 @@ from sklearn.base import (BaseEstimator,
 from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (mean_squared_error,
-                             mean_absolute_error,
-                             accuracy_score,
-                             roc_auc_score)
 
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
@@ -31,11 +27,24 @@ from statsmodels.genmod.families import links as sm_links
 from ._utils import (_parent_dataclass_from_child,
                      _get_data)
 
-from .base import Design, _get_design
+from .base import (Design,
+                   _get_design)
+
+from .scoring import (Scorer,
+                      mae_scorer,
+                      mse_scorer,
+                      accuracy_scorer,
+                      auc_scorer,
+                      aucpr_scorer,
+                      ungrouped_mse_scorer,
+                      ungrouped_mae_scorer)
+
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
 from .irls import IRLS
+
+  
 
 @add_dataclass_docstring
 @dataclass
@@ -155,23 +164,22 @@ class GLMFamilySpec(object):
 
         fam_name = self.base.__class__.__name__
 
-        scorers_ = [(f'{fam_name} Deviance',
-                     (lambda y, yhat, sample_weight:
-                      self.deviance(y,
-                                    yhat,
-                                    sample_weight) / y.shape[0]),
-                     'min'),
-                    ('Mean Squared Error', mean_squared_error, 'min'),
-                    ('Mean Absolute Error', mean_absolute_error, 'min')]
+        def _dev(y, yhat, sample_weight):
+            return self.deviance(y, yhat, sample_weight) / y.shape[0]
+        dev_scorer = Scorer(name=f'{fam_name} Deviance',
+                            score=_dev,
+                            maximize=False)
+        
+        scorers_ = [dev_scorer,
+                    mse_scorer,
+                    mae_scorer,
+                    ungrouped_mse_scorer,
+                    ungrouped_mae_scorer]
 
         if isinstance(self.base, sm_family.Binomial):
-            def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
-                return accuracy_score(y,
-                                      yhat>0.5,
-                                      sample_weight=sample_weight,
-                                      normalize=True)
-            scorers_.extend([('Accuracy', _accuracy_score, 'max'),
-                             ('AUC', roc_auc_score, 'max')])
+            scorers_.extend([accuracy_scorer,
+                             auc_scorer,
+                             aucpr_scorer])
 
         return scorers_
 
@@ -407,7 +415,7 @@ class GLMBase(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
-            dispersion=None,
+            dispersion=1,
             check=True,
             fit_null=True):
 
@@ -503,8 +511,6 @@ class GLMBase(BaseEstimator,
                    obj_function,
                    self.control)
 
-        self.state_ = state
-
         if self.summarize:
             self._information = self._family.information(state,
                                                          sample_weight)
@@ -519,16 +525,17 @@ class GLMBase(BaseEstimator,
                                                state.mean_parameter,
                                                sample_weight) # not the normalized weights!
 
+        if offset is None:
+            offset = np.zeros(y.shape[0])
+
         self._set_coef_intercept(state)
 
-        if dispersion is not None:
-            self.dispersion_ = dispersion
-        elif (hasattr(self._family, "base") and 
+        if (hasattr(self._family, "base") and 
             isinstance(self._family.base, sm_family.Gaussian)): # GLM specific
             # usual estimate of sigma^2
             self.dispersion_ = self.deviance_ / (nobs-nvar-self.fit_intercept) 
         else:
-            self.dispersion_ = 1
+            self.dispersion_ = dispersion
 
         return self
     fit.__doc__ = '''
@@ -800,3 +807,4 @@ Returns
         result[:,0] = 1 - prob_1
 
         return result
+

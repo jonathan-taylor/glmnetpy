@@ -163,6 +163,32 @@ class Design(LinearOperator):
         
         return Q
 
+@add_dataclass_docstring
+@dataclass
+class DiagonalOperator(LinearOperator):
+
+    """LinearOperator implementing multiplication by a diagonal matrix.
+
+    >>> x = np.array([3,4,5])
+    >>> D = DiagonalOperator([1,2,3])
+    >>> D @ x
+    array([ 3,  8, 15])
+    """
+
+    weights: np.ndarray
+
+    def __post_init__(self):
+        self.weights = np.asarray(self.weights).reshape(-1)
+        n = self.weights.shape[0]
+        self.shape = (n, n)
+
+    def _matvec(self, arg):
+        return self.weights * arg.reshape(-1)
+
+    def _adjoint(self, arg):
+        return self._matvec(arg)
+    
+
 def _get_design(X,
                 sample_weight,
                 standardize=False,
@@ -202,3 +228,5 @@ class Penalty(object):
             self.alpha * (self.penalty_factor * np.fabs(coef)).sum() + 
             (1 - self.alpha) * np.linalg.norm(coef)**2)
         return val
+
+    

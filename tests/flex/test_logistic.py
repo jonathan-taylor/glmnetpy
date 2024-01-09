@@ -1,17 +1,17 @@
-import pytest
-
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import cross_validate
 import statsmodels.api as sm
 
 from glmnet.regularized_glm import RegGLM
 
-try:
-    import rpy2
-    has_rpy2 = True
-
-except ImportError:
-    has_rpy2 = False
+from test_gaussnet import (ifrpy,
+                           standardize,
+                           fit_intercept,
+                           sample_weight,
+                           alpha,
+                           path,
+                           has_rpy2)
 
 if has_rpy2:
     from rpy2.robjects.packages import importr
@@ -23,23 +23,23 @@ if has_rpy2:
     glmnetR = importr('glmnet')
     baseR = importr('base')
     statR = importr('stats')
+
 rng = np.random.default_rng(0)
 
-def nonuniform_(n):
-    W = rng.uniform(0, 1, size=(n,))
-    W[:n//2] *= 2
-    return W
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, nonuniform_])
-@pytest.mark.parametrize('alpha', [0, 0.5, 1])
-def test_glmnet_R(standardize,
-                  intercept,
-                  sample_weight,
-                  alpha,
-                  n=1000,
-                  p=50):
+@ifrpy
+@standardize
+@fit_intercept
+@sample_weight
+@alpha
+@path
+def test_glmnet(standardize,
+                fit_intercept,
+                sample_weight,
+                alpha,
+                path,
+                n=1000,
+                p=50):
 
     n, p = 1000, 50
 
@@ -60,14 +60,18 @@ def test_glmnet_R(standardize,
         binomial = statR.binomial
         yR = statR.rbinom(n, 1, 0.5)
         sample_weightR = baseR.as_numeric(sample_weight)
-        print(yR)
-        G = glmnetR.glmnet_path(X,
-                                yR,
-                                weights=sample_weightR,
-                                intercept=intercept,
-                                standardize=standardize,
-                                family=binomial,
-                                alpha=alpha)
+
+        if path:
+            Gfit = glmnetR.glmnet_path
+        else:
+            Gfit = glmnetR.glmnet
+        G = Gfit(X,
+                 yR,
+                 weights=sample_weightR,
+                 intercept=fit_intercept,
+                 standardize=standardize,
+                 family=binomial,
+                 alpha=alpha)
         B = glmnetR.predict_glmnet(G,
                                    s=0.5 / np.sqrt(n),
                                    type="coef",
@@ -83,9 +87,12 @@ def test_glmnet_R(standardize,
                family=sm.families.Binomial(),
                alpha=alpha,
                standardize=standardize, 
-               fit_intercept=intercept)
-    y = np.asarray(yR)
-    G.fit(X, y, sample_weight=sample_weight)
+               fit_intercept=fit_intercept,
+               response_id='response',
+               weight_id='weight')
+
+    df = pd.DataFrame({'response':yR, 'weight':sample_weight})
+    G.fit(X, df)
 
     soln_py = np.hstack([G.intercept_, G.coef_])
     soln_R = np.hstack([intercept_R, coef_R])    
@@ -100,8 +107,8 @@ def test_glmnet_R(standardize,
 
     assert fit_match and intercept_match and coef_match
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
+@standardize
+@fit_intercept
 def test_cv(standardize,
             fit_intercept,
             n=1000,
