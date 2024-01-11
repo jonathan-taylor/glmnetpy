@@ -21,15 +21,26 @@ from sklearn.base import clone
 def fixed_lambda_estimator(glmnet_obj,
                            lambda_val):
     check_is_fitted(glmnet_obj, ["coefs_", "feature_names_in_"])
-    estimator = clone(glmnet_obj.reg_glm_est_)
-    estimator.lambda_val = lambda_val
+    estimator = glmnet_obj.regularized_estimator(
+                           lambda_val=lambda_val,
+                           family=glmnet_obj.family,
+                           alpha=glmnet_obj.alpha,
+                           penalty_factor=glmnet_obj.penalty_factor,
+                           lower_limits=glmnet_obj.lower_limits,
+                           upper_limits=glmnet_obj.upper_limits,
+                           fit_intercept=glmnet_obj.fit_intercept,
+                           standardize=glmnet_obj.standardize,
+                           control=glmnet_obj.control,
+                           offset_id=glmnet_obj.offset_id,
+                           weight_id=glmnet_obj.weight_id,            
+                           response_id=glmnet_obj.response_id,
+                           exclude=glmnet_obj.exclude
+                           )
+
     coefs, intercepts = glmnet_obj.interpolate_coefs([lambda_val])
     cls = glmnet_obj.state_.__class__
     state = cls(coefs[0], intercepts[0])
-    estimator.regularizer_ = glmnet_obj.reg_glm_est_.regularizer_
-    estimator.regularizer_.warm_state = state
-
-    return estimator
+    return estimator, state
 
 def lasso_inference(glmnet_obj,
                     lambda_val,
@@ -37,17 +48,21 @@ def lasso_inference(glmnet_obj,
                     full_data,
                     level=.9):
 
-    fixed_lambda = fixed_lambda_estimator(glmnet_obj, lambda_val)
+    fixed_lambda, warm_state = fixed_lambda_estimator(glmnet_obj, lambda_val)
     X_sel, Y_sel, weight_sel = selection_data
 
     if weight_sel is None:
         weight_sel = np.ones(X_sel.shape[0])
         
-    fixed_lambda.fit(X_sel, Y_sel, sample_weight=weight_sel)
+    fixed_lambda.fit(X_sel,
+                     Y_sel,
+                     sample_weight=weight_sel,
+                     warm_state=warm_state)
+
     FL = fixed_lambda # shorthand
     
-    if (not np.all(FL.upper_limits == np.inf) or
-        not np.all(FL.lower_limits == -np.inf)):
+    if (not np.all(FL.upper_limits >= FL.control.big) or
+        not np.all(FL.lower_limits <= -FL.control.big)):
         raise NotImplementedError('upper/lower limits coming soon')
 
     active_set = np.nonzero(FL.coef_ != 0)[0]
@@ -59,10 +74,6 @@ def lasso_inference(glmnet_obj,
     unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
     C_sel = unreg_sel_LM.covariance_
 
-    state = FL.state_
-    information = FL._family.information(state,
-                                         weight_sel)
-    
     keep = np.zeros(FL.design_.shape[1], bool)
     if hasattr(FL, 'penalty_factors'):
         penfac = FL.penalty_factors[active_set]
@@ -77,23 +88,32 @@ def lasso_inference(glmnet_obj,
         signs = np.hstack([0, signs])
         keep[0] = 1
         keep[1 + active_set] = 1
-        stacked = np.hstack([state.intercept,
-                             state.coef[active_set]])
-        delta = np.zeros(keep.sum())
-        delta[1:] = weight_sel.sum() * lambda_val * penfac[1:] * signs[1:]
+        stacked = np.hstack([FL.intercept_,
+                             FL.coef_[active_set]])
+        delta = weight_sel.sum() * lambda_val * penfac * signs
+        print(penfac)
     else:
         # keep[active_set] = 1
         keep[1 + active_set] = 1
-        stacked = state.coef[active_set]
+        stacked = FL.coef_[active_set]
         delta = weight_sel.sum() * lambda_val * penfac * signs
 
-    delta = C_sel @ delta
+    print(active_set, 'huh')
+    
+    D = np.column_stack([np.ones(X_sel.shape[0]), X_sel[:,active_set]])
+    other_mle = np.linalg.pinv(D) @ Y_sel
+    A_sel = C_sel / unreg_sel_LM.dispersion_
+    print(np.linalg.norm(A_sel - np.linalg.inv(unreg_sel_LM.design_.quadratic_form(unreg_sel_LM._information))), 'normie')
+    delta = A_sel @ delta
     noisy_mle = stacked + delta
 
     penalized = penfac > 0
-    sel_P = -np.diag(signs[penalized]) @ np.eye(C_sel.shape[0])[penalized]
+    sel_P = -np.diag(signs[penalized]) @ np.eye(A_sel.shape[0])[penalized]
 
     # fit full model
+
+    subgrad1 = X_sel[:,active_set].T @ (Y_sel - FL.design_ @ np.hstack([FL.intercept_, FL.coef_]))
+    print(subgrad1, 'subgrad1')
 
     X_full, Y_full, weight_full = full_data
 
@@ -111,6 +131,12 @@ def lasso_inference(glmnet_obj,
     else:
         full_mle = unreg_LM.coef_
 
+    print(other_mle, 'other')
+    print(noisy_mle, 'noisy')
+    print(full_mle, 'full')
+
+    stop
+    
     ## iterate over coordinates
     Ls = np.zeros_like(noisy_mle)
     Us = np.zeros_like(noisy_mle)
@@ -783,6 +809,8 @@ def interval_constraints(support_directions,
                      direction_of_interest)
 
     U = A.dot(X) - b
+    print(U, np.fabs(U).max()* tol, b, '?')
+
     if not np.all(U  < tol * np.fabs(U).max()):
         warn('constraints not satisfied: %s' % repr(U))
 
@@ -810,6 +838,7 @@ def interval_constraints(support_directions,
     else:
         lower_bound = -np.inf
 
+    print(lower_bound, V, upper_bound, sigma)
     return lower_bound, V, upper_bound, sigma
 
 def selection_interval(support_directions, 
@@ -865,7 +894,7 @@ def selection_interval(support_directions,
     """
 
     (lower_bound,
-     _,
+     V,
      upper_bound,
      _) = interval_constraints(support_directions, 
                                 support_offsets,
@@ -878,7 +907,10 @@ def selection_interval(support_directions,
     ## sqrt(alpha) is just sigma_noisy - sigma_full
     smoothing_sigma = np.sqrt(max(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2, 0))
     estimate = (direction_of_interest * observation).sum()
+    noisy_estimate = (direction_of_interest * noisy_observation).sum()
 
+    print(V, estimate, noisy_estimate, 'huh')
+    
     if smoothing_sigma > 1e-6 * sigma:
 
         grid = np.linspace(estimate - 20 * sigma, estimate + 20 * sigma, 801)
@@ -906,6 +938,7 @@ def selection_interval(support_directions,
         ub = estimate + 20 * sigma
 
         if estimate < lower_bound or estimate > upper_bound:
+            print(estimate, lower_bound, upper_bound)
             warn('Constraints not satisfied: returning [-np.inf, np.inf]')
             return -np.inf, np.inf, np.nan, np.nan
         

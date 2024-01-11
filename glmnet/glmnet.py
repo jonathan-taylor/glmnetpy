@@ -89,6 +89,7 @@ class GLMNet(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 3 options non sklearn API
+            warm_state=None,
             interpolation_grid=None):
 
         if not hasattr(self, "_family"):
@@ -124,7 +125,11 @@ class GLMNet(BaseEstimator,
                                exclude=self.exclude
                                )
 
-        self.reg_glm_est_.fit(X, y, None, fit_null=False) 
+        self.reg_glm_est_.fit(X,
+                              y,
+                              None,
+                              fit_null=False,
+                              warm_state=warm_state) 
         regularizer_ = self.reg_glm_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,

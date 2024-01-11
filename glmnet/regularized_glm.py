@@ -149,9 +149,13 @@ class RegGLM(GLM,
                    response_id=self.response_id)
 
     def _get_regularizer(self,
-                         X):
+                         nvars=None):
 
         # self.design_ will have been set by now
+
+        if nvars is None:
+            check_is_fitted(self, ["design_"])
+            nvars = self.design_.X.shape[1]
 
         return ElNetRegularizer(lambda_val=self.lambda_val,
                                 alpha=self.alpha,
@@ -159,7 +163,7 @@ class RegGLM(GLM,
                                 lower_limits=self.lower_limits * self.design_.scaling_,
                                 upper_limits=self.upper_limits * self.design_.scaling_,
                                 fit_intercept=self.fit_intercept,
-                                nvars=X.shape[1],
+                                nvars=nvars,
                                 control=self.control,
                                 exclude=self.exclude)
 
@@ -177,6 +181,7 @@ class RegGLM(GLM,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 3 options non sklearn API
+            warm_state=None,
             check=True,
             fit_null=True):
 
@@ -184,6 +189,7 @@ class RegGLM(GLM,
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
+                    warm_state=warm_state,
                     dispersion=1,
                     check=check)
 
@@ -220,6 +226,7 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 

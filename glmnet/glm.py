@@ -109,6 +109,7 @@ class GLMFamilySpec(object):
                              self,
                              offset,
                              None)
+
         else:
             state = GLMState(np.zeros(1), 0)
             state.link_parameter = offset
@@ -160,7 +161,7 @@ class GLMFamilySpec(object):
 
         return pseudo_response, newton_weights
         
-    def default_scorers(self):
+    def _default_scorers(self):
 
         fam_name = self.base.__class__.__name__
 
@@ -383,7 +384,7 @@ class GLMBase(BaseEstimator,
               GLMBaseSpec):
 
     def _get_regularizer(self,
-                         X):
+                         nvars=None):
         return GLMRegularizer(fit_intercept=self.fit_intercept)
 
     # no standardization for GLM
@@ -415,6 +416,7 @@ class GLMBase(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True,
             fit_null=True):
@@ -454,9 +456,12 @@ class GLMBase(BaseEstimator,
         # the regularizer stores the warm start
 
         if regularizer is None:
-            regularizer = self._get_regularizer(X)
+            regularizer = self._get_regularizer(nvars=design.X.shape[0])
         self.regularizer_ = regularizer
 
+        if warm_state is not None:
+            self.regularizer_.warm_state = warm_state
+            
         if fit_null or not hasattr(self.regularizer_, 'warm_state'):
             (null_state,
              self.null_deviance_) = self._family.get_null_deviance(
@@ -642,6 +647,7 @@ class GLM(GLMBase):
             y,
             sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 
@@ -649,6 +655,7 @@ class GLM(GLMBase):
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
+                    warm_state=warm_state,
                     dispersion=dispersion,
                     check=check)
 
@@ -736,6 +743,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             y,
             sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 
@@ -750,6 +758,7 @@ class BinomialGLM(ClassifierMixin, GLM):
                            y,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
+                           warm_state=warm_state,
                            dispersion=dispersion,
                            check=check)
 
