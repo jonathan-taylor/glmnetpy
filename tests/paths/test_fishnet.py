@@ -16,14 +16,14 @@ np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import FishNet
 
-from test_gaussnet import (RGLMNet,
-                           get_glmnet_soln,
-                           sample_weight_pyt,
-                           standardize_pyt,
-                           fit_intercept_pyt,
-                           nsample_pyt,
-                           nfeature_pyt,
-                           alignment_pyt)
+from .test_gaussnet import (RGLMNet,
+                            get_glmnet_soln,
+                            sample_weight_pyt,
+                            standardize_pyt,
+                            fit_intercept_pyt,
+                            nsample_pyt,
+                            nfeature_pyt,
+                            alignment_pyt)
 
 @dataclass
 class RFishNet(RGLMNet):

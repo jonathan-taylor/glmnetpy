@@ -17,13 +17,13 @@ np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import MultiGaussNet
 
-from test_gaussnet import (RGLMNet,
-                           sample_weight_pyt,
-                           standardize_pyt,
-                           fit_intercept_pyt,
-                           nsample_pyt,
-                           nfeature_pyt,
-                           alignment_pyt)
+from .test_gaussnet import (RGLMNet,
+                            sample_weight_pyt,
+                            standardize_pyt,
+                            fit_intercept_pyt,
+                            nsample_pyt,
+                            nfeature_pyt,
+                            alignment_pyt)
 
 def get_glmnet_soln(parser_cls,
                     X,
@@ -213,3 +213,4 @@ def test_CV(offset,
 
     assert np.allclose(CVM, CVM_)
     assert np.allclose(CVSD, CVSD_)
+
