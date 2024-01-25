@@ -7,14 +7,14 @@ import statsmodels.api as sm
 
 from glmnet.regularized_glm import RegGLM
 
-from test_gaussnet import (ifrpy,
-                           standardize,
-                           fit_intercept,
-                           sample_weight,
-                           alpha,
-                           path,
-                           offset,
-                           has_rpy2)
+from .test_gaussnet import (ifrpy,
+                            standardize,
+                            fit_intercept,
+                            sample_weight,
+                            alpha,
+                            path,
+                            offset,
+                            has_rpy2)
 
 if has_rpy2:
     from rpy2.robjects.packages import importr
