@@ -66,10 +66,10 @@ add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 class GLMNet(BaseEstimator,
              GLMNetSpec):
 
-    def _check(self,
-               X,
-               y,
-               check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
@@ -95,7 +95,7 @@ class GLMNet(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
 
-        X, y, response, offset, weight = self._check(X, y)
+        X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
@@ -315,7 +315,7 @@ class GLMNet(BaseEstimator,
         # truncate to the size we got
         predictions = predictions[:,:self.lambda_values_.shape[0]]
 
-        response, offset, weight = self._check(X, y, check=False)[2:]
+        response, offset, weight = self.get_data_arrays(X, y, check=False)[2:]
 
         # adjust for offset
         # because predictions are just X\beta
@@ -464,7 +464,7 @@ class GLMNet(BaseEstimator,
             intercept_ = glm.intercept_
         else:
             if self.fit_intercept:
-                response, offset, weight = self._check(X, y, check=False)[2:]
+                response, offset, weight = self.get_data_arrays(X, y, check=False)[2:]
                 state0 = self._family.null_fit(response,
                                                weight,
                                                offset,

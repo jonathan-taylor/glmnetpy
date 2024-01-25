@@ -403,7 +403,7 @@ class GLMBase(BaseEstimator,
         elif isinstance(self.family, GLMFamilySpec):
             return self.family
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
         return _get_data(self,
                          X,
                          y,
@@ -431,7 +431,7 @@ class GLMBase(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
 
-        X, y, response, offset, weight = self._check(X, y, check=check)
+        X, y, response, offset, weight = self.get_data_arrays(X, y, check=check)
 
         sample_weight = weight
         self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
@@ -456,7 +456,7 @@ class GLMBase(BaseEstimator,
         # the regularizer stores the warm start
 
         if regularizer is None:
-            regularizer = self._get_regularizer(nvars=design.X.shape[0])
+            regularizer = self._get_regularizer(nvars=design.X.shape[1])
         self.regularizer_ = regularizer
 
         if warm_state is not None:
@@ -542,6 +542,7 @@ class GLMBase(BaseEstimator,
         else:
             self.dispersion_ = dispersion
 
+        self.state_ = state
         return self
     fit.__doc__ = '''
 Fit a GLM.
@@ -659,7 +660,7 @@ class GLM(GLMBase):
                     dispersion=dispersion,
                     check=check)
 
-        weight = self._check(X, y, check=False)[-1]
+        weight = self.get_data_arrays(X, y, check=False)[-1]
             
         if self.summarize:
             self.covariance_, self.summary_ = self._summarize(self.exclude,
@@ -728,9 +729,9 @@ class BinomialGLM(ClassifierMixin, GLM):
 
     family: sm_family.Family = field(default_factory=sm_family.Binomial)
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
 
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = LabelEncoder()
         labels = np.asfortranarray(encoder.fit_transform(response))
         self.classes_ = encoder.classes_

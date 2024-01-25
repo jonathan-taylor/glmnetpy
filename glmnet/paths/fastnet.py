@@ -62,7 +62,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        X, y, response, offset, weight = self._check(X, y)
+        X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
             X = np.asfortranarray(X)
@@ -129,8 +129,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self.coefs_ = result['coefs']
         self.intercepts_ = result['intercepts']
             
-        self.state_ = GLMState(self.coefs_[-1],
-                               self.intercepts_[-1])
+        if self.coefs_.ndim == 1:
+            self.state_ = GLMState(self.coefs_[-1],
+                                   self.intercepts_[-1])
 
         self.lambda_values_ = result['lambda_values']
         nfits = self.lambda_values_.shape[0]

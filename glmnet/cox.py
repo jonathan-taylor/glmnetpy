@@ -190,10 +190,10 @@ class CoxLM(GLM):
                              status_id=self.family.status_id,
                              start_id=self.family.start_id)
 
-    def _check(self,
-               X,
-               y,
-               check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
@@ -243,7 +243,10 @@ class RegCoxLM(RegGLM):
     
     fit_intercept: Literal[False] = False
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
@@ -268,10 +271,10 @@ class CoxNet(GLMNet):
     fit_intercept: Literal[False] = False
     regularized_estimator: BaseEstimator = RegCoxLM
     
-    def _check(self,
-               X,
-               y,
-               check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
