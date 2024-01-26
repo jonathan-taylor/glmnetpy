@@ -41,9 +41,12 @@ class LogNet(FastNetMixin):
         V = super()._extract_fits(X_shape, response_shape)
         return V
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
 
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = LabelEncoder()
         labels = np.asfortranarray(encoder.fit_transform(response))
         self.classes_ = encoder.classes_

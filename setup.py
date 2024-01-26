@@ -43,9 +43,10 @@ EXTS = [Extension(
                                                    'gaussnet',
                                                    'multigaussnet']]
 
+long_description = open('README.md', 'rt', encoding='utf-8').read()
+
 def main(**extra_args):
     setup(name='glmnet',
-          url="http://github.org/intro-stat-learning/glmnetpy",
           version=versioneer.get_version(),
           packages = ['glmnet',
                       'glmnet.paths'],
@@ -54,7 +55,7 @@ def main(**extra_args):
           include_package_data=True,
           data_files=[],
           scripts=[],
-          #long_description=long_description,
+          long_description=long_description,
           long_description_content_type=long_description_content_type,
           cmdclass = cmdclass,
           **extra_args

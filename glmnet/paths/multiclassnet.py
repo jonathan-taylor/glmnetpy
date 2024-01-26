@@ -26,7 +26,7 @@ from ..scoring import Scorer
 @dataclass
 class MultiClassFamily(object):
 
-    def default_scorers(self):
+    def _default_scorers(self):
 
         return [accuracy_scorer,
                 misclass_scorer,
@@ -68,9 +68,9 @@ class MultiClassNet(MultiFastNetMixin):
         value = exp_value / exp_value.sum(-1)[:,:,None]
         return value
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
 
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = OneHotEncoder(sparse_output=False)
         y_onehot = np.asfortranarray(encoder.fit_transform(response.reshape((-1,1))))
         self.categories_ = encoder.categories_[0]

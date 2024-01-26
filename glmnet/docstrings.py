@@ -12,6 +12,11 @@ lambda_min_ratio: float
 #     Data class containing GLMNet control parameters.
 #     ''',
 
+    'intercept':'''
+intercept:
+    For a Design, is there an intercept?
+    ''',
+    
     'nlambda':'''
 nlambda: int
     Number of values on data-dependent grid of lambda values.

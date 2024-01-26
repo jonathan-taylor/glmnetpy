@@ -28,9 +28,12 @@ class FishNet(FastNetMixin):
     def __post_init__(self):
         self._family = GLMFamilySpec(base=sm_family.Poisson())
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
 
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         if np.any(response < 0):
             raise ValueError("negative responses encountered;  not permitted for Poisson family")
         response = np.asarray(response, float).copy()
