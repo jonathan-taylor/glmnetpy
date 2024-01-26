@@ -50,7 +50,10 @@ def lasso_inference(glmnet_obj,
 
     fixed_lambda, warm_state = fixed_lambda_estimator(glmnet_obj, lambda_val)
     X_sel, Y_sel, weight_sel = selection_data
-
+    X_sel, Y_sel, _, _, weight_sel = fixed_lambda.get_data_arrays(X_sel,
+                                                                  Y_sel)
+    Y_sel = np.asarray(Y_sel)
+    
     if weight_sel is None:
         weight_sel = np.ones(X_sel.shape[0])
         
