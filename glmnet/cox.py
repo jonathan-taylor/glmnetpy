@@ -57,11 +57,12 @@ class CoxState(GLMState):
                    family,
                    y,
                    sample_weight):
+
         link_parameter = self.link_parameter
         family._result = family._coxdev(link_parameter,
                                         sample_weight)
         # the gradient is the gradient of the deviance
-        # we want deviance of the log-likelihood
+        # we want gradient of the log-likelihood
         return - family._result.gradient / 2
 
 @dataclass

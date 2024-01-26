@@ -52,8 +52,6 @@ def lasso_inference(glmnet_obj,
     X_sel, Y_sel, weight_sel = selection_data
     X_sel, Y_sel, _, _, weight_sel = fixed_lambda.get_data_arrays(X_sel,
                                                                   Y_sel)
-    Y_sel = np.asarray(Y_sel)
-    
     if weight_sel is None:
         weight_sel = np.ones(X_sel.shape[0])
         
@@ -94,19 +92,16 @@ def lasso_inference(glmnet_obj,
         stacked = np.hstack([FL.intercept_,
                              FL.coef_[active_set]])
         delta = weight_sel.sum() * lambda_val * penfac * signs
-        print(penfac)
     else:
         # keep[active_set] = 1
         keep[1 + active_set] = 1
         stacked = FL.coef_[active_set]
         delta = weight_sel.sum() * lambda_val * penfac * signs
 
-    print(active_set, 'huh')
-    
     D = np.column_stack([np.ones(X_sel.shape[0]), X_sel[:,active_set]])
     other_mle = np.linalg.pinv(D) @ Y_sel
     A_sel = C_sel / unreg_sel_LM.dispersion_
-    print(np.linalg.norm(A_sel - np.linalg.inv(unreg_sel_LM.design_.quadratic_form(unreg_sel_LM._information))), 'normie')
+
     delta = A_sel @ delta
     noisy_mle = stacked + delta
 
@@ -115,8 +110,10 @@ def lasso_inference(glmnet_obj,
 
     # fit full model
 
-    subgrad1 = X_sel[:,active_set].T @ (Y_sel - FL.design_ @ np.hstack([FL.intercept_, FL.coef_]))
-    print(subgrad1, 'subgrad1')
+    Y_sel = np.asarray(Y_sel)
+
+    # X'(Y-X\hat{\beta}) (appropriately weighted)
+    subgrad1 = FL.design_.T @ FL.state_.logl_score(FL._family, Y_sel, sample_weight=weight_sel)
 
     X_full, Y_full, weight_full = full_data
 
@@ -134,12 +131,6 @@ def lasso_inference(glmnet_obj,
     else:
         full_mle = unreg_LM.coef_
 
-    print(other_mle, 'other')
-    print(noisy_mle, 'noisy')
-    print(full_mle, 'full')
-
-    stop
-    
     ## iterate over coordinates
     Ls = np.zeros_like(noisy_mle)
     Us = np.zeros_like(noisy_mle)
@@ -812,7 +803,7 @@ def interval_constraints(support_directions,
                      direction_of_interest)
 
     U = A.dot(X) - b
-    print(U, np.fabs(U).max()* tol, b, '?')
+    #print(U, np.fabs(U).max()* tol, b, '?')
 
     if not np.all(U  < tol * np.fabs(U).max()):
         warn('constraints not satisfied: %s' % repr(U))
@@ -841,7 +832,6 @@ def interval_constraints(support_directions,
     else:
         lower_bound = -np.inf
 
-    print(lower_bound, V, upper_bound, sigma)
     return lower_bound, V, upper_bound, sigma
 
 def selection_interval(support_directions, 
@@ -912,7 +902,7 @@ def selection_interval(support_directions,
     estimate = (direction_of_interest * observation).sum()
     noisy_estimate = (direction_of_interest * noisy_observation).sum()
 
-    print(V, estimate, noisy_estimate, 'huh')
+    #print(V, estimate, noisy_estimate, 'huh')
     
     if smoothing_sigma > 1e-6 * sigma:
 
@@ -941,7 +931,7 @@ def selection_interval(support_directions,
         ub = estimate + 20 * sigma
 
         if estimate < lower_bound or estimate > upper_bound:
-            print(estimate, lower_bound, upper_bound)
+            #print(estimate, lower_bound, upper_bound)
             warn('Constraints not satisfied: returning [-np.inf, np.inf]')
             return -np.inf, np.inf, np.nan, np.nan
         
