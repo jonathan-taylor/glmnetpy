@@ -41,7 +41,7 @@ def run_inference(n,
     Y = rng.standard_normal(n) * 2
     beta = np.zeros(p)
     if alt:
-        beta[:s] = rng.standard_normal(s)
+        beta[rng.choice(p, s, replace=False)] = rng.standard_normal(s) / 2
     Y += X @ beta
     Df = pd.DataFrame({'response':Y})
 
