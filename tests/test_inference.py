@@ -31,25 +31,36 @@ def run_inference(n,
                   rng=None,
                   alt=False,
                   s=3,
-                  prop=0.8):
+                  prop=0.8,
+                  family='gaussian'):
 
     if rng is None:
         rng = np.random.default_rng(0)
     X = rng.standard_normal((n, p))
-    D = np.linspace(1, p, p) / p + 1
+    D = np.linspace(1, p, p) / p + 0.2
     X *= D[None,:]
     Y = rng.standard_normal(n) * 2
     beta = np.zeros(p)
     if alt:
-        beta[rng.choice(p, s, replace=False)] = rng.standard_normal(s) / 2
-    Y += X @ beta
-    Df = pd.DataFrame({'response':Y})
+        subs = rng.choice(p, s, replace=False)
+        beta[subs] = rng.standard_normal(s) 
+    mu = X @ beta
+    Y += mu
 
-    fam = sm.families.Gaussian()
+    if family == 'gaussian':
+        fam = sm.families.Gaussian()
+    elif family == 'probit':
+        fam = sm.families.Binomial(link=sm.families.links.Probit())
+        Y = (mu + rng.standard_normal(n)) > 0
+    else:
+        raise ValueError('only testing "gaussian" and "probit"')
+    
     GN = GLMNet(response_id='response',
                 family=fam,
                 fit_intercept=fit_intercept,
                 standardize=standardize)
+    Df = pd.DataFrame({'response':Y})
+
     GN.fit(X, Df)
     m = int(prop*n)
 
@@ -65,9 +76,13 @@ def run_inference(n,
 
     if fit_intercept:
         X_sel = np.column_stack([np.ones(X_sel.shape[0]), X_sel])
-    targets = np.linalg.pinv(X_sel) @ X @ beta
+    targets = np.linalg.pinv(X_sel) @ mu
 
     df['target'] = targets
+    if alt:
+        if family == 'probit' and not set(subs).issubset(active_set):
+            df['target'] *= np.nan
+            
     return df
 
 
@@ -76,34 +91,8 @@ def main_null(fit_intercept=True,
               n=2000,
               p=50,
               ntrial=500,
-              rng=None):
-
-    ncover = 0
-    nsel = 0
-
-    dfs = []
-
-    rng = np.random.default_rng(0)
-    for i in range(ntrial):
-        df = run_inference(n,
-                           p,
-                           fit_intercept,
-                           standardize,
-                           rng=rng)
-        dfs.append(df)
-        all_df = pd.concat(dfs)
-        ncover += ((all_df['lower'] < 0) & (all_df['upper'] > 0)).sum()
-        nsel += all_df.shape[0]
-
-        print('cover:', ncover / nsel, 'typeI:', (all_df['pval'] < 0.05).mean())
-
-
-def main_alt(fit_intercept=True,
-              standardize=True,
-              n=2000,
-              p=50,
-              ntrial=500,
-              rng=None):
+              rng=None,
+              family='gaussian'):
 
     ncover = 0
     nsel = 0
@@ -117,9 +106,39 @@ def main_alt(fit_intercept=True,
                            fit_intercept,
                            standardize,
                            rng=rng,
-                           alt=True)
+                           family=family)
         dfs.append(df)
         all_df = pd.concat(dfs)
+        ncover += ((all_df['lower'] < 0) & (all_df['upper'] > 0)).sum()
+        nsel += all_df.shape[0]
+
+        print('cover:', ncover / nsel, 'typeI:', (all_df['pval'] < 0.05).mean())
+
+
+def main_alt(fit_intercept=True,
+              standardize=True,
+              n=200,
+              p=50,
+              ntrial=500,
+              rng=None,
+              family='gaussian'):
+
+    ncover = 0
+    nsel = 0
+
+    dfs = []
+
+    rng = np.random.default_rng(0)
+    for i in range(ntrial):
+        df = run_inference(n,
+                           p,
+                           fit_intercept,
+                           standardize,
+                           rng=rng,
+                           family=family,
+                           alt=True)
+        dfs.append(df)
+        all_df = pd.concat(dfs).dropna()
         ncover += ((all_df['lower'] < all_df['target']) & (all_df['upper'] > all_df['target'])).sum()
         nsel += all_df.shape[0]
 

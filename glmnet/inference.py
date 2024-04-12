@@ -121,9 +121,6 @@ def lasso_inference(glmnet_obj,
         penfac = np.ones(active_set.shape[0])
     signs = np.sign(FL.coef_[active_set])
 
-    # we multiply by weight_sel.sum() due to this factor
-    # appearing in glmnet objective...
-
     if FL.fit_intercept:
         # correct the scaling
         penfac = np.hstack([0, penfac])
@@ -141,25 +138,19 @@ def lasso_inference(glmnet_obj,
     delta = Q_sel @ delta * weight_sel.sum() 
     noisy_mle = stacked + delta # unitless scale
 
-    transform_to_scaled = np.diag(np.hstack([1, 1/scaling_sel]))
-    transform_to_scaled[0,1:] = -design_sel.centers_/scaling_sel
-    DEVEL = False
-    if DEVEL: # compare to coefs and intercept on scales with units
-        scaled_mle = transform_to_scaled @ noisy_mle
-        #scaled_mle[1:] /= scaling_sel
-        #scaled_mle[0] = scaled_mle[0] - (scaled_mle[1:] * design_sel.centers_).sum()
-        assert( np.allclose(scaled_mle, np.hstack([unreg_sel_GLM.intercept_, unreg_sel_GLM.coef_])))
-
     penalized = penfac > 0
     sel_P = -np.diag(signs[penalized]) @ np.eye(Q_sel.shape[0])[penalized]
     assert (np.all(sel_P @ noisy_mle < -signs[penalized] * delta[penalized]))
 
-    ## TODO: will this handle fit_intercept?
+    ## the GLM's coef and intercept are on the original scale
+    ## we transform them here to the (typically) unitless "standardized" scale
     if FL.fit_intercept:
-        full_mle = np.hstack([unreg_GLM.state_.intercept,
-                              unreg_GLM.state_.coef])
+        intercept = unreg_GLM.state_.intercept + (unreg_GLM.state_.coef * design_full.centers_).sum()
+        coef = unreg_GLM.state_.coef * scaling_full
+        full_mle = np.hstack([intercept,
+                              coef])
     else:
-        full_mle = unreg_GLM.state_.coef
+        full_mle = unreg_GLM.state_.coef * scaling_full
 
     ## iterate over coordinates
     Ls = np.zeros_like(noisy_mle)
@@ -168,12 +159,12 @@ def lasso_inference(glmnet_obj,
     pvals = np.zeros_like(noisy_mle)
 
     if FL.fit_intercept:
-        transform_to_scaled = np.diag(np.hstack([1, 1/scaling_full]))
-        transform_to_scaled[0,1:] = -design_full.centers_/scaling_full
+        transform_to_original = np.diag(np.hstack([1, 1/scaling_full]))
+        transform_to_original[0,1:] = -design_full.centers_/scaling_full
     else:
-        transform_to_scaled = np.diag(1/scaling_full)
+        transform_to_original = np.diag(1/scaling_full)
 
-    for i in range(transform_to_scaled.shape[0]):
+    for i in range(transform_to_original.shape[0]):
         ## call selection_interval and return
         L, U, mle, p = selection_interval(
             support_directions=sel_P,
@@ -182,7 +173,7 @@ def lasso_inference(glmnet_obj,
             Q_full=Q_full,
             noisy_observation=noisy_mle,
             observation=full_mle,
-            direction_of_interest=transform_to_scaled[i],
+            direction_of_interest=transform_to_original[i],
             level=level,
             dispersion=unreg_GLM.dispersion_
         )
@@ -350,7 +341,7 @@ def selection_interval(support_directions,
      upper_bound,
      _) = interval_constraints(support_directions, 
                                support_offsets,
-                               Q_full,
+                               Q_noisy,
                                noisy_observation,
                                direction_of_interest,
                                tol=tol)
