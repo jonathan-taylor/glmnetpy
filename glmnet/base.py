@@ -95,8 +95,15 @@ class Design(LinearOperator):
 
     def quadratic_form(self,
                        G=None,
-                       columns=None):
+                       columns=None,
+                       transformed=False):
         '''
+        if transformed is False: compute
+
+        [1 X]'G[1 X[:,E]]
+
+        if transformed is True: compute
+
         A'GA[:,E]
 
         where A is the effective matrix
@@ -104,6 +111,7 @@ class Design(LinearOperator):
         [1, XS^{-1} - 1 (xm/xs)']
 
         and E is a subset of columns
+
         '''
 
         # A is effective matrix
@@ -112,6 +120,9 @@ class Design(LinearOperator):
         # A'G1 = S^{-1}(X' - xm 1')G1 = S^{-1}X'G1 - S^{-1}xm 1'G1
         # A'GA = S^{-1}X'GXS^{-1} - S^{-1}X'G1 xm/xs' - xm/xs 1'GXS^{-1} + xm/xs 1'G1 (xm/xs)'
         
+        # or, the reverse
+        # X'GX = SA'GAS + X'G1xm' + xm1'GX - xm1'G1xm'
+
         n, p = self.shape[0], self.shape[1] - 1
         
         if columns is None:
@@ -122,35 +133,49 @@ class Design(LinearOperator):
 
         if G is None:
             XX_block = self.X.T @ X_R # have to assume this is not too expensive
+            if scipy.sparse.issparse(self.X): 
+                XX_block = XX_block.toarray()
             X1_block = self.X.sum(0) # X'1
             G_sum = n
-            
+
         else:
             GX = G @ X_R
             G1 = G @ np.ones(G.shape[0])
             XX_block = self.X.T @ GX
             X1_block = self.X.T @ G1
             G_sum = G1.sum()
-            
-        if scipy.sparse.issparse(XX_block):
-            XX_block = XX_block.toarray()
-            
-        # correct XX_block for standardize
-        
+
         xm, xs = self.centers_, self.scaling_
+        if scipy.sparse.issparse(self.X): # in this case X has not been transformed 
 
-        if columns is not None:
-            XX_block -= (np.multiply.outer(X1_block, xm[columns]) + np.multiply.outer(xm, X1_block[columns]))
-            XX_block += np.multiply.outer(xm, xm[columns]) * G_sum
-            XX_block /= np.multiply.outer(xs, xs[columns])
-        else:
-            XX_block -= (np.multiply.outer(X1_block, xm) + np.multiply.outer(xm, X1_block))
-            XX_block += np.multiply.outer(xm, xm) * G_sum
-            XX_block /= np.multiply.outer(xs, xs)
+            # correct XX_block for standardize
 
-        X1_block -= G_sum * xm
-        X1_block /= xs
-        
+            if transformed:
+                if columns is not None:
+                    XX_block -= (np.multiply.outer(X1_block, xm[columns]) + np.multiply.outer(xm, X1_block[columns]))
+                    XX_block += np.multiply.outer(xm, xm[columns]) * G_sum
+                    XX_block /= np.multiply.outer(xs, xs[columns])
+                else:
+                    XX_block -= (np.multiply.outer(X1_block, xm) + np.multiply.outer(xm, X1_block))
+                    XX_block += np.multiply.outer(xm, xm) * G_sum
+                    XX_block /= np.multiply.outer(xs, xs)
+
+                X1_block -= G_sum * xm
+                X1_block /= xs
+
+        else: # X will already have been transformed, so
+              # we only have to undo it if transformed=False
+
+            # or, the reverse
+            # X'GX = SA'GAS + X'G1xm' + xm1'GX - xm1'G1xm'
+
+            if not transformed:
+                XX_block *= np.multiply.outer(xs, xs[columns])
+                X1_block *= xs
+                XX_block += (np.multiply.outer(X1_block, xm[columns]) + np.multiply.outer(xm, X1_block[columns]))
+                XX_block += np.multiply.outer(xm, xm[columns]) * G_sum
+                X1_block += G_sum * xm
+
         Q = np.zeros((XX_block.shape[0] + 1,
                       XX_block.shape[1] + 1))
         Q[1:,1:] = XX_block
@@ -160,7 +185,7 @@ class Design(LinearOperator):
         else:
             Q[0,1:] = X1_block
         Q[0,0] = G_sum
-        
+
         return Q
 
 @add_dataclass_docstring
