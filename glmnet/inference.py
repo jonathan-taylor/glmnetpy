@@ -18,6 +18,8 @@ mp.dps = 80
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import clone
 
+from .base import _get_design
+
 def fixed_lambda_estimator(glmnet_obj,
                            lambda_val):
     check_is_fitted(glmnet_obj, ["coefs_", "feature_names_in_"])
@@ -54,7 +56,7 @@ def lasso_inference(glmnet_obj,
                                                                   Y_sel)
     if weight_sel is None:
         weight_sel = np.ones(X_sel.shape[0])
-        
+
     fixed_lambda.fit(X_sel,
                      Y_sel,
                      sample_weight=weight_sel,
@@ -68,137 +70,51 @@ def lasso_inference(glmnet_obj,
 
     active_set = np.nonzero(FL.coef_ != 0)[0]
 
-    # find selection data covariance
+    # fit unpenalized model on selection data
 
-    unreg_sel_LM = glmnet_obj.get_LM()
-    unreg_sel_LM.summarize = True
-    unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
-    C_sel = unreg_sel_LM.covariance_
+    unreg_sel_GLM = glmnet_obj.get_GLM()
 
-    keep = np.zeros(FL.design_.shape[1], bool)
-    if hasattr(FL, 'penalty_factors'):
-        penfac = FL.penalty_factors[active_set]
-    else:
-        penfac = np.ones(active_set.shape[0])
-    signs = np.sign(FL.coef_[active_set])
+    unreg_sel_GLM.summarize = True
+    unreg_sel_GLM.fit(X_sel[:,active_set],
+                      Y_sel,
+                      sample_weight=weight_sel)
 
-    # we multiply by weight_sel.sum() due to this factor
-    # appearing in glmnet objective...
-    if FL.fit_intercept:
-        penfac = np.hstack([0, penfac])
-        signs = np.hstack([0, signs])
-        keep[0] = 1
-        keep[1 + active_set] = 1
-        stacked = np.hstack([FL.intercept_,
-                             FL.coef_[active_set]])
-        delta = weight_sel.sum() * lambda_val * penfac * signs
-    else:
-        # keep[active_set] = 1
-        keep[1 + active_set] = 1
-        stacked = FL.coef_[active_set]
-        delta = weight_sel.sum() * lambda_val * penfac * signs
+    # quadratic approximation up to scaling and a factor of weight_sel.sum()
 
-    D = np.column_stack([np.ones(X_sel.shape[0]), X_sel[:,active_set]])
-    other_mle = np.linalg.pinv(D) @ Y_sel
-    A_sel = C_sel / unreg_sel_LM.dispersion_
-
-    delta = A_sel @ delta
-    noisy_mle = stacked + delta
-
-    penalized = penfac > 0
-    sel_P = -np.diag(signs[penalized]) @ np.eye(A_sel.shape[0])[penalized]
-
-    # fit full model
-
-    Y_sel = np.asarray(Y_sel)
-
-    # X'(Y-X\hat{\beta}) (appropriately weighted)
-    subgrad1 = FL.design_.T @ FL.state_.logl_score(FL._family, Y_sel, sample_weight=weight_sel)
-
-    X_full, Y_full, weight_full = full_data
-
-    unreg_LM = glmnet_obj.get_LM()
-    unreg_LM.summarize = True
-    unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
-    C_full = unreg_LM.covariance_
-
-    # selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_sel).sum(), 0, 1)
-    
-    ## TODO: will this handle fit_intercept?
-    if FL.fit_intercept:
-        full_mle = np.hstack([unreg_LM.intercept_,
-                              unreg_LM.coef_])
-    else:
-        full_mle = unreg_LM.coef_
-
-    ## iterate over coordinates
-    Ls = np.zeros_like(noisy_mle)
-    Us = np.zeros_like(noisy_mle)
-    mles = np.zeros_like(noisy_mle)
-    pvals = np.zeros_like(noisy_mle)
-    for i in range(len(noisy_mle)):
-        e_i = np.zeros_like(noisy_mle)
-        e_i[i] = 1.
-        ## call selection_interval and return
-        L, U, mle, p = selection_interval(
-            support_directions=sel_P,
-            support_offsets=-signs[penalized] * delta[penalized], 
-            covariance_noisy=C_sel,
-            covariance_full=C_full,
-            noisy_observation=noisy_mle,
-            observation=full_mle,
-            direction_of_interest=e_i,
-            level=level,
-        )
-        Ls[i] = L
-        Us[i] = U
-        mles[i] = mle
-        pvals[i] = p
-    
-    idx = (active_set).tolist()
-    if FL.fit_intercept:
-        idx = [-1] + idx
-    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
-
-def lasso_bootstrap_inference(glmnet_obj,
-                              lambda_val,
-                              selection_data, ## X = \Sigma^{-1/2}, Y = \Sigma^{-1/2}\hat\beta^{(b)}
-                              full_data,
-                              C_full, ## bootstrap variance
-                              alpha,
-                              level=.9):
-
-    fixed_lambda = fixed_lambda_estimator(glmnet_obj, lambda_val)
-    fixed_lambda.fit_intercept = False
-    gaussian = sm.families.Gaussian()
-    fixed_lambda.family = gaussian
-    X_sel, Y_sel, weight_sel = selection_data
-
-    if weight_sel is None:
-        weight_sel = np.ones(X_sel.shape[0])
+    design_sel = _get_design(X_sel[:,active_set],
+                             weight_sel,
+                             standardize=glmnet_obj.standardize,
+                             intercept=glmnet_obj.fit_intercept)
+    scaling_sel = design_sel.scaling_
+    P_sel = design_sel.quadratic_form(unreg_sel_GLM._information,
+                                      transformed=True)
+    Q_sel = np.linalg.inv(P_sel)
+    if not FL.fit_intercept:
+        Q_sel = Q_sel[1:,1:]
         
-    fixed_lambda.fit(X_sel, Y_sel, sample_weight=weight_sel)
-    FL = fixed_lambda # shorthand
-    
-    if (not np.all(FL.upper_limits == np.inf) or
-        not np.all(FL.lower_limits == -np.inf)):
-        raise NotImplementedError('upper/lower limits coming soon')
+    # fit unpenalized model on full data
 
-    active_set = np.nonzero(FL.coef_ != 0)[0]
+    X_full, Y_full, weight_full = full_data
+    if weight_full is None:
+        weight_full = np.ones(X_full.shape[0])
+        
+    unreg_GLM = glmnet_obj.get_GLM()
+    unreg_GLM.summarize = True
+    unreg_GLM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
 
-    # find selection data covariance
+    # quadratic approximation
 
-    # unreg_sel_LM = glmnet_obj.get_LM()
-    # unreg_sel_LM.summarize = True
-    # unreg_sel_LM.fit(X_sel[:,active_set], Y_sel, sample_weight=weight_sel)
-    # C_sel = unreg_sel_LM.covariance_
-    # C_full = np.eye(len(active_set))
+    design_full = _get_design(X_full[:,active_set],
+                              weight_full,
+                              standardize=glmnet_obj.standardize,
+                              intercept=glmnet_obj.fit_intercept)
+    scaling_full = design_full.scaling_
+    P_full = design_full.quadratic_form(unreg_GLM._information,
+                                        transformed=True)
+    Q_full = np.linalg.inv(P_full)
+    if not FL.fit_intercept:
+        Q_full = Q_full[1:,1:]
 
-    state = FL.state_
-    information = FL._family.information(state,
-                                         weight_sel)
-    
-    keep = np.zeros(FL.design_.shape[1], bool)
     if hasattr(FL, 'penalty_factors'):
         penfac = FL.penalty_factors[active_set]
     else:
@@ -207,76 +123,77 @@ def lasso_bootstrap_inference(glmnet_obj,
 
     # we multiply by weight_sel.sum() due to this factor
     # appearing in glmnet objective...
+
     if FL.fit_intercept:
+        # correct the scaling
         penfac = np.hstack([0, penfac])
         signs = np.hstack([0, signs])
-        keep[0] = 1
-        keep[1 + active_set] = 1
-        stacked = np.hstack([state.intercept,
-                             state.coef[active_set]])
-        delta = np.zeros(keep.sum())
-        delta[1:] = weight_sel.sum() * lambda_val * penfac[1:] * signs[1:]
+        stacked = np.hstack([FL.state_.intercept,
+                             FL.state_.coef[active_set]])
     else:
-        keep[1 + active_set] = 1
-        stacked = state.coef[active_set]
-        delta = weight_sel.sum() * lambda_val * penfac * signs
+        stacked = FL.state_.coef[active_set]
 
-    C_full_ = C_full.copy()
-    C_full = C_full[keep[1:]][:,keep[1:]]
-    C_sel = (1 + alpha) * C_full
+    delta = lambda_val * penfac * signs
 
-    delta = C_sel @ delta
-    noisy_mle = stacked + delta
+    # remember loss of glmnet is normalized by sum of weights
+    # when taking newton step adjust by weight_sel.sum()
+    
+    delta = Q_sel @ delta * weight_sel.sum() 
+    noisy_mle = stacked + delta # unitless scale
+
+    transform_to_scaled = np.diag(np.hstack([1, 1/scaling_sel]))
+    transform_to_scaled[0,1:] = -design_sel.centers_/scaling_sel
+    DEVEL = False
+    if DEVEL: # compare to coefs and intercept on scales with units
+        scaled_mle = transform_to_scaled @ noisy_mle
+        #scaled_mle[1:] /= scaling_sel
+        #scaled_mle[0] = scaled_mle[0] - (scaled_mle[1:] * design_sel.centers_).sum()
+        assert( np.allclose(scaled_mle, np.hstack([unreg_sel_GLM.intercept_, unreg_sel_GLM.coef_])))
 
     penalized = penfac > 0
-    sel_P = -np.diag(signs[penalized]) @ np.eye(C_sel.shape[0])[penalized]
+    sel_P = -np.diag(signs[penalized]) @ np.eye(Q_sel.shape[0])[penalized]
+    assert (np.all(sel_P @ noisy_mle < -signs[penalized] * delta[penalized]))
 
-    # fit full model
-
-    X_full, Y_full, weight_full = full_data
-
-    unreg_LM = glmnet_obj.get_LM()
-    unreg_LM.summarize = True
-    unreg_LM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
-    # C_full = unreg_LM.covariance_
-
-    # selection_proportion = np.clip(np.diag(C_full).sum() / np.diag(C_sel).sum(), 0, 1)
-    
     ## TODO: will this handle fit_intercept?
     if FL.fit_intercept:
-        full_mle = np.hstack([unreg_LM.intercept_,
-                              unreg_LM.coef_])
+        full_mle = np.hstack([unreg_GLM.state_.intercept,
+                              unreg_GLM.state_.coef])
     else:
-        full_mle = unreg_LM.coef_
+        full_mle = unreg_GLM.state_.coef
 
     ## iterate over coordinates
     Ls = np.zeros_like(noisy_mle)
     Us = np.zeros_like(noisy_mle)
     mles = np.zeros_like(noisy_mle)
     pvals = np.zeros_like(noisy_mle)
-    for i in range(len(noisy_mle)):
-        e_i = np.zeros_like(noisy_mle)
-        e_i[i] = 1.
-        # e_i = np.linalg.pinv(X_sel) @ e_i
+
+    if FL.fit_intercept:
+        transform_to_scaled = np.diag(np.hstack([1, 1/scaling_full]))
+        transform_to_scaled[0,1:] = -design_full.centers_/scaling_full
+    else:
+        transform_to_scaled = np.diag(1/scaling_full)
+
+    for i in range(transform_to_scaled.shape[0]):
         ## call selection_interval and return
         L, U, mle, p = selection_interval(
             support_directions=sel_P,
             support_offsets=-signs[penalized] * delta[penalized], 
-            covariance_noisy=C_sel,
-            covariance_full=C_full,
+            Q_noisy=Q_sel,
+            Q_full=Q_full,
             noisy_observation=noisy_mle,
             observation=full_mle,
-            direction_of_interest=e_i,
+            direction_of_interest=transform_to_scaled[i],
             level=level,
+            dispersion=unreg_GLM.dispersion_
         )
         Ls[i] = L
         Us[i] = U
         mles[i] = mle
         pvals[i] = p
-
+    
     idx = (active_set).tolist()
     if FL.fit_intercept:
-        idx = [-1] + idx
+        idx = ['intercept'] + idx
     return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
 
 class constraints(object):
@@ -406,71 +323,6 @@ class constraints(object):
         Compute $\max(Ay-b)$.
         """
         return (self.linear_part.dot(Y) - self.offset).max()
-
-    def conditional(self,
-                    linear_part,
-                    value,
-                    rank=None):
-        """
-        Return an equivalent constraint 
-        after having conditioned on a linear equality.
-        
-        Let the inequality constraints be specified by
-        `(A,b)` and the equality constraints be specified
-        by `(C,d)`. We form equivalent inequality constraints by 
-        considering the residual
-
-        .. math::
-           
-           AY - E(AY|CY=d)
-
-        Parameters
-        ----------
-
-        linear_part : np.float((k,q))
-             Linear part of equality constraint, `C` above.
-
-        value : np.float(k)
-             Value of equality constraint, `b` above.
-
-        rank : int
-            If not None, this should specify
-            the rank of `linear_part`. Defaults
-            to `min(k,q)`.
-
-        Returns
-        -------
-
-        conditional_con : `constraints`
-             Affine constraints having applied equality constraint.
-
-        """
-
-        S = self.covariance
-        C, d = linear_part, value
-
-        M1 = S.dot(C.T)
-        M2 = C.dot(M1)
-
-        if M2.shape:
-            M2i = np.linalg.pinv(M2)
-            delta_cov = M1.dot(M2i.dot(M1.T))
-            delta_mean = M1.dot(M2i.dot(C.dot(self.mean) - d))
-        else:
-            delta_cov = np.multiply.outer(M1, M1) / M2
-            delta_mean = M1 * (C.dot(self.mean) - d) / M2
-
-        if rank is None:
-            if len(linear_part.shape) == 2:
-                rank = min(linear_part.shape)
-            else:
-                rank = 1
-
-        return constraints(self.linear_part,
-                           self.offset,
-                           covariance=self.covariance - delta_cov,
-                           mean=self.mean - delta_mean,
-                           rank=self.rank - rank)
 
     def bounds(self, direction_of_interest, Y):
         r"""
@@ -803,9 +655,9 @@ def interval_constraints(support_directions,
                      direction_of_interest)
 
     U = A.dot(X) - b
-    #print(U, np.fabs(U).max()* tol, b, '?')
 
     if not np.all(U  < tol * np.fabs(U).max()):
+        stop
         warn('constraints not satisfied: %s' % repr(U))
 
     Sw = S.dot(w)
@@ -836,13 +688,14 @@ def interval_constraints(support_directions,
 
 def selection_interval(support_directions, 
                        support_offsets,
-                       covariance_noisy,
-                       covariance_full,
+                       Q_noisy,
+                       Q_full,
                        noisy_observation,
                        observation,
                        direction_of_interest,
                        tol = 1.e-4,
                        level = 0.90,
+                       dispersion=1,
                        UMAU=True):
     """
     Given an affine in cone constraint $\{z:Az+b \leq 0\}$ (elementwise)
@@ -890,23 +743,24 @@ def selection_interval(support_directions,
      V,
      upper_bound,
      _) = interval_constraints(support_directions, 
-                                support_offsets,
-                                covariance_full,
-                                noisy_observation,
-                                direction_of_interest,
-                                tol=tol)
+                               support_offsets,
+                               Q_full,
+                               noisy_observation,
+                               direction_of_interest,
+                               tol=tol)
+
     ## lars path lockhart tibs^2 taylor paper
-    sigma = np.sqrt(direction_of_interest.T @ covariance_full @ direction_of_interest)
+    sigma = np.sqrt(direction_of_interest.T @ Q_full @ direction_of_interest * dispersion)
     ## sqrt(alpha) is just sigma_noisy - sigma_full
-    smoothing_sigma = np.sqrt(max(direction_of_interest.T @ covariance_noisy @ direction_of_interest - sigma**2, 0))
+    noisy_sigma = np.sqrt(direction_of_interest.T @ Q_noisy @ direction_of_interest * dispersion)
+    smoothing_sigma = np.sqrt(max(noisy_sigma**2 - sigma**2, 0))
+    
     estimate = (direction_of_interest * observation).sum()
     noisy_estimate = (direction_of_interest * noisy_observation).sum()
 
-    #print(V, estimate, noisy_estimate, 'huh')
-    
     if smoothing_sigma > 1e-6 * sigma:
 
-        grid = np.linspace(estimate - 20 * sigma, estimate + 20 * sigma, 801)
+        grid = np.linspace(estimate - 10 * sigma, estimate + 10 * sigma, 2001)
         weight = (
             normal_dbn.cdf(
                 (upper_bound - grid) / (smoothing_sigma)
@@ -914,24 +768,23 @@ def selection_interval(support_directions,
                 (lower_bound - grid) / (smoothing_sigma)
             )
         )
-        weight *= normal_dbn.pdf(grid / sigma)
+        weight *= normal_dbn.pdf((grid - estimate) / sigma)
 
         sel_distr = discrete_family(grid, weight)
         L, U = sel_distr.equal_tailed_interval(estimate,
-                                                alpha=1-level)
+                                               alpha=1-level)
         mle, _, _ = sel_distr.MLE(estimate)
-        mle *= sigma**2
-        pval = sel_distr.cdf(0, estimate)
+        mle *= sigma**2; mle += estimate
+        pval = sel_distr.cdf(-estimate / sigma**2, estimate)
         pval = 2 * min(pval, 1-pval)
-        L *= sigma**2
-        U *= sigma**2
+        L *= sigma**2; L += estimate
+        U *= sigma**2; U += estimate
     else:
 
         lb = estimate - 20 * sigma
         ub = estimate + 20 * sigma
 
-        if estimate < lower_bound or estimate > upper_bound:
-            #print(estimate, lower_bound, upper_bound)
+        if noisy_estimate < lower_bound or noisy_estimate > upper_bound:
             warn('Constraints not satisfied: returning [-np.inf, np.inf]')
             return -np.inf, np.inf, np.nan, np.nan
         
@@ -972,7 +825,6 @@ def selection_interval(support_directions,
             U = np.inf
 
         mle = np.nan
-        
 
     return L, U, mle, pval
 
@@ -1072,9 +924,11 @@ class discrete_family(object):
         The weights are normalized to sum to 1.
         """
         xw = np.array(sorted(zip(sufficient_stat, weights)), float)
+        xw[:,1] = np.maximum(xw[:,1], 1e-40)
         self._x = xw[:,0]
         self._w = xw[:,1]
         self._lw = np.log(xw[:,1])
+        
         self._w /= self._w.sum() # make sure they are a pmf
         self.n = len(xw)
         self._theta = np.nan

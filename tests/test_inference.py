@@ -10,49 +10,120 @@ from glmnet.inference import (fixed_lambda_estimator,
 @pytest.mark.parametrize('n', [500])
 @pytest.mark.parametrize('p', [103])
 @pytest.mark.parametrize('fit_intercept', [True, False])
-def test_inference(n, p, fit_intercept):
-    run_inference(n, p, fit_intercept)
+@pytest.mark.parametrize('standardize', [True, False])
+def test_inference(n,
+                   p,
+                   fit_intercept,
+                   standardize,
+                   ntrial=10):
+    # run a few times to be sure KKT conditions not violated
 
-def run_inference(n, p, fit_intercept):
+    for _ in range(ntrial):
+        run_inference(n,
+                      p,
+                      fit_intercept,
+                      standardize)
 
-    rng = np.random.default_rng(0)
+def run_inference(n,
+                  p,
+                  fit_intercept,
+                  standardize,
+                  rng=None,
+                  alt=False,
+                  s=3,
+                  prop=0.8):
+
+    if rng is None:
+        rng = np.random.default_rng(0)
     X = rng.standard_normal((n, p))
-    Y = np.random.standard_normal(n) * 2
+    D = np.linspace(1, p, p) / p + 1
+    X *= D[None,:]
+    Y = rng.standard_normal(n) * 2
+    beta = np.zeros(p)
+    if alt:
+        beta[:s] = rng.standard_normal(s)
+    Y += X @ beta
     Df = pd.DataFrame({'response':Y})
 
     fam = sm.families.Gaussian()
     GN = GLMNet(response_id='response',
                 family=fam,
-                fit_intercept=fit_intercept)
+                fit_intercept=fit_intercept,
+                standardize=standardize)
     GN.fit(X, Df)
-    return lasso_inference(GN, 
-                           GN.lambda_values_[10],
-                           (X[:50], Df.iloc[:50], None),
-                           (X, Df, None))
+    m = int(prop*n)
 
-# ncover = 0
-# nsel = 0
-# niter = 1000
-# for i in range(niter):
-#     GN = GLMNet(response_id='response',
-#                 family=fam,
-#                 control=GNcontrol,
-#                 fit_intercept=False,
-#              )
-    
-#     X = rng.standard_normal((n, p))
-#     Y = rng.standard_normal(n) * 1
-#     Df = pd.DataFrame({'response':Y})
-#     GN.fit(X, Df)
-#     sel_slice = slice(0, 4*n//5)
-#     res = lasso_inference(GN, 
-#                           GN.lambda_values_[10],
-#                           (X[sel_slice], Df.iloc[sel_slice], None),
-#                           (X, Df, None),
-#                           level=0.8)
+    df = lasso_inference(GN, 
+                         GN.lambda_values_[10],
+                         (X[:m], Df.iloc[:m], None),
+                         (X, Df, None))
+    if fit_intercept:
+        active_set = np.array(df.index[1:]).astype(int)
+    else:
+        active_set = np.array(df.index).astype(int)
+    X_sel = X[:,active_set]
 
-#     ncover += ((res['lower'] < 0) & (res['upper'] > 0)).sum()
-#     nsel += res.shape[0]
+    if fit_intercept:
+        X_sel = np.column_stack([np.ones(X_sel.shape[0]), X_sel])
+    targets = np.linalg.pinv(X_sel) @ X @ beta
 
-# ncover / nsel
+    df['target'] = targets
+    return df
 
+
+def main_null(fit_intercept=True,
+              standardize=True,
+              n=2000,
+              p=50,
+              ntrial=500,
+              rng=None):
+
+    ncover = 0
+    nsel = 0
+
+    dfs = []
+
+    rng = np.random.default_rng(0)
+    for i in range(ntrial):
+        df = run_inference(n,
+                           p,
+                           fit_intercept,
+                           standardize,
+                           rng=rng)
+        dfs.append(df)
+        all_df = pd.concat(dfs)
+        ncover += ((all_df['lower'] < 0) & (all_df['upper'] > 0)).sum()
+        nsel += all_df.shape[0]
+
+        print('cover:', ncover / nsel, 'typeI:', (all_df['pval'] < 0.05).mean())
+
+
+def main_alt(fit_intercept=True,
+              standardize=True,
+              n=2000,
+              p=50,
+              ntrial=500,
+              rng=None):
+
+    ncover = 0
+    nsel = 0
+
+    dfs = []
+
+    rng = np.random.default_rng(0)
+    for i in range(ntrial):
+        df = run_inference(n,
+                           p,
+                           fit_intercept,
+                           standardize,
+                           rng=rng,
+                           alt=True)
+        dfs.append(df)
+        all_df = pd.concat(dfs)
+        ncover += ((all_df['lower'] < all_df['target']) & (all_df['upper'] > all_df['target'])).sum()
+        nsel += all_df.shape[0]
+
+        print('cover:', ncover / nsel)
+    return all_df
+
+        

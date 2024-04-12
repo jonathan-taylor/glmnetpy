@@ -213,7 +213,8 @@ class CoxLM(GLM):
         # IRLS used normalized weights,
         # this unnormalizes them...
 
-        unscaled_precision_ = self.design_.quadratic_form(self._information)
+        unscaled_precision_ = self.design_.quadratic_form(self._information,
+                                                          transformed=False)
         
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
