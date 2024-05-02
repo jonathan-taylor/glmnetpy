@@ -22,6 +22,7 @@ from .base import _get_design
 
 def fixed_lambda_estimator(glmnet_obj,
                            lambda_val):
+
     check_is_fitted(glmnet_obj, ["coefs_", "feature_names_in_"])
     estimator = glmnet_obj.regularized_estimator(
                            lambda_val=lambda_val,
@@ -115,10 +116,10 @@ def lasso_inference(glmnet_obj,
     if not FL.fit_intercept:
         Q_full = Q_full[1:,1:]
 
-    if hasattr(FL, 'penalty_factors'):
-        penfac = FL.penalty_factors[active_set]
+        penfac = FL.penalty_factor[active_set]
     else:
         penfac = np.ones(active_set.shape[0])
+
     signs = np.sign(FL.coef_[active_set])
 
     if FL.fit_intercept:

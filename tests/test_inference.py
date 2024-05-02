@@ -32,6 +32,7 @@ def run_inference(n,
                   alt=False,
                   s=3,
                   prop=0.8,
+                  penalty_facs=True,
                   family='gaussian'):
 
     if rng is None:
@@ -55,17 +56,25 @@ def run_inference(n,
     else:
         raise ValueError('only testing "gaussian" and "probit"')
     
+    if penalty_facs:
+        penalty_factor = np.ones(X.shape[1])
+        penalty_factor[:10] = 0.5
+    else:
+        penalty_factor = None
+
     GN = GLMNet(response_id='response',
                 family=fam,
                 fit_intercept=fit_intercept,
-                standardize=standardize)
+                standardize=standardize,
+                penalty_factor=penalty_factor)
+
     Df = pd.DataFrame({'response':Y})
 
     GN.fit(X, Df)
     m = int(prop*n)
 
     df = lasso_inference(GN, 
-                         GN.lambda_values_[10],
+                         GN.lambda_values_[min(10, GN.lambda_values_.shape[0]-1)],
                          (X[:m], Df.iloc[:m], None),
                          (X, Df, None))
     if fit_intercept:
