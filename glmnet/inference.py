@@ -271,11 +271,11 @@ def lasso_inference(glmnet_obj,
 
         score_ *= scale
 
-        # we now know that `score_` is bounded by \pm 1
+        # we now know that `score_` is bounded by \pm lambda_val
 
         I = scipy.sparse.eye(score_.shape[0])
         L = scipy.sparse.vstack([I, -I])
-        O = np.ones(L.shape[0])
+        O = np.ones(L.shape[0]) * lambda_val
 
         # X'WX_E
         # here, X is the effective matrix implied by scale / intercept choices
@@ -373,7 +373,7 @@ def selection_interval(active_con,
 
     (lower_bound,
      upper_bound) = active_con.interval_constraints(noisy_estimate,
-                                                    Q_noisy @ direction_of_interest / unnormalized_var,
+                                                    Q_noisy @ direction_of_interest / noisy_var,
                                                     tol=tol)
 
     ## lars path lockhart tibs^2 taylor paper

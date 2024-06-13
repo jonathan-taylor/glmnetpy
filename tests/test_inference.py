@@ -24,6 +24,31 @@ def test_inference(n,
                       fit_intercept,
                       standardize)
 
+def test_Auto():
+
+    df = sm.datasets.get_rdataset('Auto', package='ISLR').data
+    df = df.set_index('name')
+    X = np.asarray(df.drop(columns=['mpg']))
+    y = np.asarray(df['mpg'])
+
+    GN = GLMNet(response_id='response',
+                fit_intercept=True,
+                standardize=True)
+
+    Df = pd.DataFrame({'response':y})
+
+    GN.fit(X, Df)
+    prop = 0.8
+    n =	df.shape[0]
+    m = int(prop*n)
+
+    df = lasso_inference(GN,
+                         GN.lambda_values_[min(10, GN.lambda_values_.shape[0]-1)],
+                         (X[:m], Df.iloc[:m], None),
+                         (X, Df, None))
+    print(df)
+
+
 def run_inference(n,
                   p,
                   fit_intercept,
