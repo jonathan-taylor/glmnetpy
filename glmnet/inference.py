@@ -7,7 +7,9 @@ after LASSO.
 import warnings
 from warnings import warn
 from copy import copy
+
 import numpy as np
+import scipy.sparse
 import pandas as pd
 from scipy.stats import norm as normal_dbn
 import statsmodels.api as sm
@@ -15,35 +17,112 @@ import statsmodels.api as sm
 import mpmath as mp
 mp.dps = 80
 
-from sklearn.utils.validation import check_is_fitted
-from sklearn.base import clone
-
 from .base import _get_design
 
-def fixed_lambda_estimator(glmnet_obj,
-                           lambda_val):
+from dataclasses import dataclass
+from typing import Optional
 
-    check_is_fitted(glmnet_obj, ["coefs_", "feature_names_in_"])
-    estimator = glmnet_obj.regularized_estimator(
-                           lambda_val=lambda_val,
-                           family=glmnet_obj.family,
-                           alpha=glmnet_obj.alpha,
-                           penalty_factor=glmnet_obj.penalty_factor,
-                           lower_limits=glmnet_obj.lower_limits,
-                           upper_limits=glmnet_obj.upper_limits,
-                           fit_intercept=glmnet_obj.fit_intercept,
-                           standardize=glmnet_obj.standardize,
-                           control=glmnet_obj.control,
-                           offset_id=glmnet_obj.offset_id,
-                           weight_id=glmnet_obj.weight_id,            
-                           response_id=glmnet_obj.response_id,
-                           exclude=glmnet_obj.exclude
-                           )
+@dataclass
+class AffineConstraint(object):
 
-    coefs, intercepts = glmnet_obj.interpolate_coefs([lambda_val])
-    cls = glmnet_obj.state_.__class__
-    state = cls(coefs[0], intercepts[0])
-    return estimator, state
+    linear: np.ndarray
+    offset: np.ndarray
+    observed: np.ndarray
+    cov_selected: Optional[np.ndarray] = None # covariance with coefs in selected model
+
+    def __post_init__(self):
+
+        if not all (self.linear @ self.observed - self.offset <= 0):
+            raise ValueError('constraint not satisfied for observed data')
+    
+    def interval_constraints(self,
+                             target,
+                             gamma,
+                             tol = 1.e-4):
+        r"""
+        Given an affine constraint $\{z:Az \leq b \leq \}$ (elementwise)
+        specified with $A$ as `support_directions` and $b$ as
+        `support_offset`, a new direction of interest $\eta$, and
+        an `observed_data` is Gaussian vector $Z \sim N(\mu,\Sigma)$ 
+        with `covariance` matrix $\Sigma$, this
+        function returns $\eta^TZ$ as well as an interval
+        bounding this value. 
+
+        The interval constructed is such that the endpoints are 
+        independent of $\eta^TZ$, hence the $p$-value
+        of `Kac Rice`_
+        can be used to form an exact pivot.
+
+        Parameters
+        ----------
+
+        support_directions : np.float
+             Matrix specifying constraint, $A$.
+
+        support_offsets : np.float
+             Offset in constraint, $b$.
+
+        covariance : np.float
+             Covariance matrix of `observed_data`.
+
+        observed_data : np.float
+             Observations.
+
+        direction_of_interest : np.float
+             Direction in which we're interested for the
+             contrast.
+
+        tol : float
+             Relative tolerance parameter for deciding 
+             sign of $Az-b$.
+
+        Returns
+        -------
+
+        lower_bound : float
+
+        observed : float
+
+        upper_bound : float
+
+        sigma : float
+
+        """
+
+        # shorthand
+        A, b, D = (self.linear,
+                   self.offset,
+                   self.observed)
+
+        N = D - gamma * target
+
+        U = A.dot(N) - b
+        V = A @ gamma
+        
+        # Inequalities are now U + V @ target <= 0
+        
+        # adding the zero_coords in the denominator ensures that
+        # there are no divide-by-zero errors in RHS
+        # these coords are never used in upper_bound or lower_bound
+
+        zero_coords = V == 0
+        RHS = -U / (V + zero_coords)
+        RHS[zero_coords] = np.nan
+        pos_coords = V > tol * np.fabs(V).max()
+        neg_coords = V < -tol * np.fabs(V).max()
+
+        if np.any(pos_coords):
+            upper_bound = RHS[pos_coords].min()
+        else:
+            upper_bound = np.inf
+
+        if np.any(neg_coords):
+            lower_bound = RHS[neg_coords].max()
+        else:
+            lower_bound = -np.inf
+
+        print(lower_bound, upper_bound)
+        return lower_bound, upper_bound
 
 def lasso_inference(glmnet_obj,
                     lambda_val,
@@ -51,7 +130,7 @@ def lasso_inference(glmnet_obj,
                     full_data,
                     level=.9):
 
-    fixed_lambda, warm_state = fixed_lambda_estimator(glmnet_obj, lambda_val)
+    fixed_lambda, warm_state = glmnet_obj.get_fixed_lambda(lambda_val)
     X_sel, Y_sel, weight_sel = selection_data
     X_sel, Y_sel, _, _, weight_sel = fixed_lambda.get_data_arrays(X_sel,
                                                                   Y_sel)
@@ -64,12 +143,13 @@ def lasso_inference(glmnet_obj,
                      warm_state=warm_state)
 
     FL = fixed_lambda # shorthand
-    
+
     if (not np.all(FL.upper_limits >= FL.control.big) or
         not np.all(FL.lower_limits <= -FL.control.big)):
         raise NotImplementedError('upper/lower limits coming soon')
 
     active_set = np.nonzero(FL.coef_ != 0)[0]
+    inactive_set = np.nonzero(FL.coef_ == 0)[0]
 
     # fit unpenalized model on selection data
 
@@ -89,6 +169,7 @@ def lasso_inference(glmnet_obj,
     scaling_sel = design_sel.scaling_
     P_sel = design_sel.quadratic_form(unreg_sel_GLM._information,
                                       transformed=True)
+
     Q_sel = np.linalg.inv(P_sel)
     if not FL.fit_intercept:
         Q_sel = Q_sel[1:,1:]
@@ -165,11 +246,56 @@ def lasso_inference(glmnet_obj,
     else:
         transform_to_original = np.diag(1/scaling_full)
 
+    linear = sel_P
+    offset = -signs[penalized] * delta[penalized]
+    active_con = AffineConstraint(linear=linear,
+                                  offset=offset,
+                                  observed=noisy_mle)
+    cov_selected = Q_sel
+
+    inactive = True
+    if inactive:
+        pf = FL.regularizer_.penalty_factor
+        scale = 1 / (pf + (pf <= 0))
+
+        logl_score = FL.state_.logl_score(FL._family,
+                                          Y_sel,
+                                          weight_sel / weight_sel.sum())
+
+        # X_{-E}'(Y-X\hat{\beta}_E) -- \hat{\beta}_E is the LASSO soln, not GLM !
+        # this is (2nd order Taylor series sense) equivalent to
+        # X_{-E}'(Y-X\bar{\beta}_E) + X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
+        # with \bar{\beta}_E the GLM soln
+        
+        score_ = (FL.design_.T @ logl_score)[1:]
+
+        score_ *= scale
+
+        # we now know that `score_` is bounded by \pm 1
+
+        I = scipy.sparse.eye(score_.shape[0])
+        L = scipy.sparse.vstack([I, -I])
+        O = np.ones(L.shape[0])
+
+        # X'WX_E
+        # here, X is the effective matrix implied by scale / intercept choices
+        P_inactive = FL.design_.quadratic_form(unreg_sel_GLM._information,
+                                               transformed=True,
+                                               columns=active_set)[1:]
+        if not FL.fit_intercept:
+            P_inactive = P_inactive[:,1:]
+            
+        # (\lambda_{-E})^{-1} X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
+        I_inactive = (scale[:,None] * (P_inactive @ delta))[inactive_set] 
+
+        inactive_con = AffineConstraint(linear=L,
+                                        offset=O,
+                                        observed=score_)
+
     for i in range(transform_to_original.shape[0]):
         ## call selection_interval and return
         L, U, mle, p = selection_interval(
-            support_directions=sel_P,
-            support_offsets=-signs[penalized] * delta[penalized], 
+            active_con=active_con,
             Q_noisy=Q_sel,
             Q_full=Q_full,
             noisy_observation=noisy_mle,
@@ -189,103 +315,7 @@ def lasso_inference(glmnet_obj,
     return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
 
 
-def interval_constraints(support_directions, 
-                         support_offsets,
-                         covariance,
-                         observed_data, 
-                         direction_of_interest,
-                         tol = 1.e-4):
-    r"""
-    Given an affine constraint $\{z:Az \leq b \leq \}$ (elementwise)
-    specified with $A$ as `support_directions` and $b$ as
-    `support_offset`, a new direction of interest $\eta$, and
-    an `observed_data` is Gaussian vector $Z \sim N(\mu,\Sigma)$ 
-    with `covariance` matrix $\Sigma$, this
-    function returns $\eta^TZ$ as well as an interval
-    bounding this value. 
-
-    The interval constructed is such that the endpoints are 
-    independent of $\eta^TZ$, hence the $p$-value
-    of `Kac Rice`_
-    can be used to form an exact pivot.
-
-    Parameters
-    ----------
-
-    support_directions : np.float
-         Matrix specifying constraint, $A$.
-
-    support_offsets : np.float
-         Offset in constraint, $b$.
-
-    covariance : np.float
-         Covariance matrix of `observed_data`.
-
-    observed_data : np.float
-         Observations.
-
-    direction_of_interest : np.float
-         Direction in which we're interested for the
-         contrast.
-
-    tol : float
-         Relative tolerance parameter for deciding 
-         sign of $Az-b$.
-
-    Returns
-    -------
-
-    lower_bound : float
-
-    observed : float
-
-    upper_bound : float
-
-    sigma : float
-
-    """
-
-    # shorthand
-    A, b, S, X, w = (support_directions,
-                     support_offsets,
-                     covariance,
-                     observed_data,
-                     direction_of_interest)
-
-    U = A.dot(X) - b
-
-    if not np.all(U  < tol * np.fabs(U).max()):
-        stop
-        warn('constraints not satisfied: %s' % repr(U))
-
-    Sw = S.dot(w)
-    sigma = np.sqrt((w*Sw).sum())
-    alpha = A.dot(Sw) / sigma**2
-    V = (w*X).sum() # \eta^TZ
-
-    # adding the zero_coords in the denominator ensures that
-    # there are no divide-by-zero errors in RHS
-    # these coords are never used in upper_bound or lower_bound
-
-    zero_coords = alpha == 0
-    RHS = (-U + V * alpha) / (alpha + zero_coords)
-    RHS[zero_coords] = np.nan
-
-    pos_coords = alpha > tol * np.fabs(alpha).max()
-    if np.any(pos_coords):
-        upper_bound = RHS[pos_coords].min()
-    else:
-        upper_bound = np.inf
-    neg_coords = alpha < -tol * np.fabs(alpha).max()
-    if np.any(neg_coords):
-        lower_bound = RHS[neg_coords].max()
-    else:
-        lower_bound = -np.inf
-
-    return lower_bound, V, upper_bound, sigma
-
-def selection_interval(support_directions, 
-                       support_offsets,
+def selection_interval(active_con,
                        Q_noisy,
                        Q_full,
                        noisy_observation,
@@ -337,24 +367,21 @@ def selection_interval(support_directions,
 
     """
 
+    noisy_var = direction_of_interest.T @ Q_noisy @ direction_of_interest
+    noisy_estimate = (direction_of_interest * noisy_observation).sum()
+    estimate = (direction_of_interest * observation).sum()
+
     (lower_bound,
-     V,
-     upper_bound,
-     _) = interval_constraints(support_directions, 
-                               support_offsets,
-                               Q_noisy,
-                               noisy_observation,
-                               direction_of_interest,
-                               tol=tol)
+     upper_bound) = active_con.interval_constraints(noisy_estimate,
+                                                    Q_noisy @ direction_of_interest / unnormalized_var,
+                                                    tol=tol)
 
     ## lars path lockhart tibs^2 taylor paper
     sigma = np.sqrt(direction_of_interest.T @ Q_full @ direction_of_interest * dispersion)
     ## sqrt(alpha) is just sigma_noisy - sigma_full
-    noisy_sigma = np.sqrt(direction_of_interest.T @ Q_noisy @ direction_of_interest * dispersion)
+    noisy_sigma = np.sqrt(noisy_var * dispersion)
     smoothing_sigma = np.sqrt(max(noisy_sigma**2 - sigma**2, 0))
     
-    estimate = (direction_of_interest * observation).sum()
-    noisy_estimate = (direction_of_interest * noisy_observation).sum()
 
     if smoothing_sigma > 1e-6 * sigma:
 

@@ -5,12 +5,12 @@ import pandas as pd
 import statsmodels.api as sm
 
 from glmnet import GLMNet
-from glmnet.inference import (fixed_lambda_estimator,
-                              lasso_inference)
-@pytest.mark.parametrize('n', [500])
-@pytest.mark.parametrize('p', [103])
-@pytest.mark.parametrize('fit_intercept', [True, False])
+from glmnet.inference import lasso_inference
+
 @pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('p', [103])
+@pytest.mark.parametrize('n', [500])
 def test_inference(n,
                    p,
                    fit_intercept,

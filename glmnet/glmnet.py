@@ -482,3 +482,28 @@ class GLMNet(BaseEstimator,
                    weight_id=self.weight_id,
                    response_id=self.response_id)
 
+    def get_fixed_lambda(self,
+                         lambda_val):
+
+        check_is_fitted(self, ["coefs_", "feature_names_in_"])
+
+        estimator = self.regularized_estimator(
+                               lambda_val=lambda_val,
+                               family=self.family,
+                               alpha=self.alpha,
+                               penalty_factor=self.penalty_factor,
+                               lower_limits=self.lower_limits,
+                               upper_limits=self.upper_limits,
+                               fit_intercept=self.fit_intercept,
+                               standardize=self.standardize,
+                               control=self.control,
+                               offset_id=self.offset_id,
+                               weight_id=self.weight_id,            
+                               response_id=self.response_id,
+                               exclude=self.exclude
+                               )
+
+        coefs, intercepts = self.interpolate_coefs([lambda_val])
+        cls = self.state_.__class__
+        state = cls(coefs[0], intercepts[0])
+        return estimator, state
