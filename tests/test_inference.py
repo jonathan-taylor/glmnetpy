@@ -56,7 +56,7 @@ def run_inference(n,
                   rng=None,
                   alt=False,
                   s=3,
-                  prop=0.8,
+                  prop=0.75,
                   penalty_facs=True,
                   family='gaussian'):
 
@@ -122,8 +122,8 @@ def run_inference(n,
 
 def main_null(fit_intercept=True,
               standardize=True,
-              n=2000,
-              p=50,
+              n=500,
+              p=75,
               ntrial=500,
               rng=None,
               family='gaussian'):
@@ -151,8 +151,8 @@ def main_null(fit_intercept=True,
 
 def main_alt(fit_intercept=True,
               standardize=True,
-              n=200,
-              p=50,
+              n=1000,
+              p=75,
               ntrial=500,
               rng=None,
               family='gaussian'):

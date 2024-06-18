@@ -28,7 +28,6 @@ class AffineConstraint(object):
     linear: np.ndarray
     offset: np.ndarray
     observed: np.ndarray
-    cov_selected: Optional[np.ndarray] = None # covariance with coefs in selected model
 
     def __post_init__(self):
 
@@ -166,10 +165,10 @@ def lasso_inference(glmnet_obj,
                              weight_sel,
                              standardize=glmnet_obj.standardize,
                              intercept=glmnet_obj.fit_intercept)
-    scaling_sel = design_sel.scaling_
     P_sel = design_sel.quadratic_form(unreg_sel_GLM._information,
                                       transformed=True)
 
+    scaling_sel = design_sel.scaling_
     Q_sel = np.linalg.inv(P_sel)
     if not FL.fit_intercept:
         Q_sel = Q_sel[1:,1:]
@@ -196,7 +195,6 @@ def lasso_inference(glmnet_obj,
     Q_full = np.linalg.inv(P_full)
     if not FL.fit_intercept:
         Q_full = Q_full[1:,1:]
-
         penfac = FL.penalty_factor[active_set]
     else:
         penfac = np.ones(active_set.shape[0])
@@ -209,20 +207,23 @@ def lasso_inference(glmnet_obj,
         signs = np.hstack([0, signs])
         stacked = np.hstack([FL.state_.intercept,
                              FL.state_.coef[active_set]])
+        noisy_mle = np.hstack([unreg_sel_GLM.state_.intercept,
+                               unreg_sel_GLM.state_.coef])
     else:
         stacked = FL.state_.coef[active_set]
+        noisy_mle = unreg_sel_GLM.state_.coef
 
-    delta = lambda_val * penfac * signs
+    # delta = lambda_val * penfac * signs
 
-    # remember loss of glmnet is normalized by sum of weights
-    # when taking newton step adjust by weight_sel.sum()
+    # # remember loss of glmnet is normalized by sum of weights
+    # # when taking newton step adjust by weight_sel.sum()
     
-    delta = Q_sel @ delta * weight_sel.sum() 
-    noisy_mle = stacked + delta # unitless scale
+    # delta = Q_sel @ delta * weight_sel.sum() 
+    # noisy_mle = stacked + delta # unitless scale
 
     penalized = penfac > 0
-    sel_P = -np.diag(signs[penalized]) @ np.eye(Q_sel.shape[0])[penalized]
-    assert (np.all(sel_P @ noisy_mle < -signs[penalized] * delta[penalized]))
+    sel_P = -np.diag(signs[penalized]) @ np.eye(Q_full.shape[0])[penalized]
+#    assert (np.all(sel_P @ noisy_mle < -signs[penalized] * delta[penalized]))
 
     ## the GLM's coef and intercept are on the original scale
     ## we transform them here to the (typically) unitless "standardized" scale
@@ -235,10 +236,10 @@ def lasso_inference(glmnet_obj,
         full_mle = unreg_GLM.state_.coef * scaling_full
 
     ## iterate over coordinates
-    Ls = np.zeros_like(noisy_mle)
-    Us = np.zeros_like(noisy_mle)
-    mles = np.zeros_like(noisy_mle)
-    pvals = np.zeros_like(noisy_mle)
+    Ls = np.zeros_like(stacked)
+    Us = np.zeros_like(stacked)
+    mles = np.zeros_like(stacked)
+    pvals = np.zeros_like(stacked)
 
     if FL.fit_intercept:
         transform_to_original = np.diag(np.hstack([1, 1/scaling_full]))
@@ -247,12 +248,10 @@ def lasso_inference(glmnet_obj,
         transform_to_original = np.diag(1/scaling_full)
 
     linear = sel_P
-    offset = -signs[penalized] * delta[penalized]
+    offset = np.zeros(sel_P.shape[0]) # -signs[penalized] * delta[penalized]
     active_con = AffineConstraint(linear=linear,
                                   offset=offset,
-                                  observed=noisy_mle)
-    cov_selected = Q_sel
-
+                                  observed=stacked)
     inactive = True
     if inactive:
         pf = FL.regularizer_.penalty_factor
@@ -268,9 +267,8 @@ def lasso_inference(glmnet_obj,
         # with \bar{\beta}_E the GLM soln
         
         score_ = (FL.design_.T @ logl_score)[1:]
-
         score_ *= scale
-
+        score_ = score_[inactive_set]
         # we now know that `score_` is bounded by \pm lambda_val
 
         I = scipy.sparse.eye(score_.shape[0])
@@ -279,14 +277,14 @@ def lasso_inference(glmnet_obj,
 
         # X'WX_E
         # here, X is the effective matrix implied by scale / intercept choices
-        P_inactive = FL.design_.quadratic_form(unreg_sel_GLM._information,
-                                               transformed=True,
-                                               columns=active_set)[1:]
-        if not FL.fit_intercept:
-            P_inactive = P_inactive[:,1:]
+        # P_inactive = FL.design_.quadratic_form(unreg_sel_GLM._information,
+        #                                        transformed=True,
+        #                                        columns=active_set)[1:]
+        # if not FL.fit_intercept:
+        #     P_inactive = P_inactive[:,1:]
             
-        # (\lambda_{-E})^{-1} X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
-        I_inactive = (scale[:,None] * (P_inactive @ delta))[inactive_set] 
+        # # (\lambda_{-E})^{-1} X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
+        # I_inactive = (scale[:,None] * (P_inactive @ delta))[inactive_set] 
 
         inactive_con = AffineConstraint(linear=L,
                                         offset=O,
