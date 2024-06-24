@@ -4,6 +4,7 @@ import scipy.sparse
 import statsmodels.api as sm
 
 from glmnet.base import Design
+from glmnet.glm import GLMState
 rng = np.random.default_rng(0)
 
 n, p, q = 100, 5, 3
@@ -174,4 +175,28 @@ def test_scaler_unscaler_inv(intercept,
     M = D.unscaler_ @ np.identity(6)
     MI = D.scaler_ @ np.identity(6) 
     assert np.allclose(M @ MI, np.identity(6))
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_scaler_to_raw_conversion(intercept,
+                                  standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    raw_state = GLMState(coef=np.random.standard_normal(5),
+                         intercept=np.random.standard_normal())
+    scaled_state = D.raw_to_scaled(raw_state)
+    raw_state_roundtrip = D.scaled_to_raw(scaled_state)
+
+    assert np.allclose(raw_state._stack,
+                       raw_state_roundtrip._stack)
+    
+    scaled_state = GLMState(coef=np.random.standard_normal(5),
+                            intercept=np.random.standard_normal())
+    raw_state = D.scaled_to_raw(scaled_state)
+    scaled_state_roundtrip = D.raw_to_scaled(raw_state)
+
+    assert np.allclose(scaled_state._stack,
+                       scaled_state_roundtrip._stack)
+    
     
