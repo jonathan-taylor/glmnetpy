@@ -4,6 +4,7 @@ import scipy.sparse
 import statsmodels.api as sm
 
 from glmnet.base import Design
+from glmnet.glm import GLMState
 rng = np.random.default_rng(0)
 
 n, p, q = 100, 5, 3
@@ -86,55 +87,116 @@ def test_design(X, weights, standardize, intercept):
     assert np.allclose(design.T @ V_l, design_s.T @ V_l)
     
 
-# @pytest.mark.parametrize('X', [rng.standard_normal((n, p)),
-#                                scipy.sparse.csc_array(rng.standard_normal((n, p)))] )
-# @pytest.mark.parametrize('weights', [np.ones(n), rng.uniform(1, 2, size=(n,))])
-# @pytest.mark.parametrize('standardize', [True, False])
-# @pytest.mark.parametrize('intercept', [True, False])
-# @pytest.mark.parametrize('gls', [None,
-#                                  rng.uniform(1, 2, size=(n,)),
-#                                  rng.uniform(1, 2, size=(n,n))])
-# def test_quadratic_form(X, weights, standardize, intercept, gls):
-#     """
-#     test the linear / adjoint maps of Design from an np.ndarray and a scipy.sparse.csc_array
-#     """
+@pytest.mark.parametrize('X', [rng.standard_normal((n, p)),
+                               scipy.sparse.csc_array(rng.standard_normal((n, p)))] )
+@pytest.mark.parametrize('weights', [np.ones(n), rng.uniform(1, 2, size=(n,))])
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+@pytest.mark.parametrize('gls', [None,
+                                 np.diag(rng.uniform(1, 2, size=(n,))),
+                                 rng.uniform(1, 2, size=(n,n))])
+def test_quadratic_form(X, weights, standardize, intercept, gls):
+    """
+    test the linear / adjoint maps of Design from an np.ndarray and a scipy.sparse.csc_array
+    """
     
-#     if gls is not None and gls.ndim == 2:
-#         gls = (gls + gls.T) / 2
-#     X_s = scipy.sparse.csc_array(X)
-#     design = Design(X, W, standardize=stand)
-#     design_s = Design(X_s, W, standardize=stand)
+    if gls is not None and gls.ndim == 2:
+        gls = (gls + gls.T) / 2
 
-#     Q_s = design_s.quadratic_form(G=gls, columns=columns)
-#     Q = design.quadratic_form(G=gls, columns=columns)
+    X_s = scipy.sparse.csc_array(X)
+    W = weights
+    design = Design(X, W, standardize=standardize)
+    design_s = Design(X_s, W, standardize=standardize)
 
-#     X_eff = scipy.sparse.csc_array(X).toarray()
-#     if stand:
-#         xm = (X_eff * W[:,None]).sum(0) / W.sum()
-#         x2 = (X_eff**2 * W[:,None]).sum(0) / W.sum()
-#         xs = np.sqrt(x2 - xm**2)
-#     else:
-#         xm = np.zeros(p)
-#         xs = np.ones(p)
+    columns = [0,1,3]
+    Q_s = design_s.quadratic_form(G=gls, columns=columns, transformed=standardize)
+    Q = design.quadratic_form(G=gls, columns=columns, transformed=standardize)
 
-#     X_eff = X_eff / xs[None,:] - np.multiply.outer(np.ones(n), xm / xs)
-#     X_eff = np.concatenate([np.ones((n,1)), X_eff], axis=1)
+    X_eff = scipy.sparse.csc_array(X).toarray()
 
-#     if columns is not None:
-#         columns = np.array(columns)
-#         columns += 1
-#         columns = np.hstack([[0], columns])
+    if standardize:
+        xm = (X_eff * W[:,None]).sum(0) / W.sum()
+        x2 = (X_eff**2 * W[:,None]).sum(0) / W.sum()
+        xs = np.sqrt(x2 - xm**2)
+    else:
+        xm = np.zeros(p)
+        xs = np.ones(p)
 
-#     if gls is None:
-#         Q_eff = X_eff.T @ X_eff
-#     elif gls.ndim == 1:
-#         Q_eff = X_eff.T @ (gls[:, None] * X_eff)
-#     else:
-#         Q_eff = X_eff.T @ gls @ X_eff
-#     if columns is not None:
-#         Q_eff = Q_eff[:, columns]
-#     assert np.allclose(Q, Q_eff)  # calculation is done correctly
+    X_eff = X_eff / xs[None,:] - np.multiply.outer(np.ones(n), xm / xs)
+    X_eff = np.concatenate([np.ones((n,1)), X_eff], axis=1)
 
-#     assert np.allclose(Q_s, Q) # sparse and dense agree
+    if columns is not None:
+        columns = np.array(columns)
+        columns += 1
+        columns = np.hstack([[0], columns])
 
-        
+    if gls is None:
+        Q_eff = X_eff.T @ X_eff
+    elif gls.ndim == 1:
+        Q_eff = X_eff.T @ (gls[:, None] * X_eff)
+    else:
+        Q_eff = X_eff.T @ gls @ X_eff
+    if columns is not None:
+        Q_eff = Q_eff[:, columns]
+    assert np.allclose(Q, Q_eff)  # calculation is done correctly
+
+    assert np.allclose(Q_s, Q) # sparse and dense agree
+
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_unscaler(intercept,
+                  standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    M = D.unscaler_ @ np.identity(6)
+    MT = D.unscaler_.T @ np.identity(6) 
+    assert np.allclose(MT, M.T)
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_scaler(intercept,
+                  standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    M = D.scaler_ @ np.identity(6)
+    MT = D.scaler_.T @ np.identity(6) 
+    assert np.allclose(MT, M.T)
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_scaler_unscaler_inv(intercept,
+                             standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    M = D.unscaler_ @ np.identity(6)
+    MI = D.scaler_ @ np.identity(6) 
+    assert np.allclose(M @ MI, np.identity(6))
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_scaler_to_raw_conversion(intercept,
+                                  standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    raw_state = GLMState(coef=np.random.standard_normal(5),
+                         intercept=np.random.standard_normal())
+    scaled_state = D.raw_to_scaled(raw_state)
+    raw_state_roundtrip = D.scaled_to_raw(scaled_state)
+
+    assert np.allclose(raw_state._stack,
+                       raw_state_roundtrip._stack)
+    
+    scaled_state = GLMState(coef=np.random.standard_normal(5),
+                            intercept=np.random.standard_normal())
+    raw_state = D.scaled_to_raw(scaled_state)
+    scaled_state_roundtrip = D.raw_to_scaled(raw_state)
+
+    assert np.allclose(scaled_state._stack,
+                       scaled_state_roundtrip._stack)
+    
+    

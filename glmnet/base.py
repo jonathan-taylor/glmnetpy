@@ -55,6 +55,10 @@ class Design(LinearOperator):
             self.X = (self.X - self.centers_[None,:]) / self.scaling_[None,:]
             self.X = np.asfortranarray(self.X)
 
+        self.unscaler_ = UnscaleOperator(centers=self.centers_,
+                                         scaling=self.scaling_)
+        self.scaler_ = ScaleOperator(centers=self.centers_,
+                                     scaling=self.scaling_)
     # LinearOperator API
 
     def _matvec(self, x):
@@ -95,8 +99,15 @@ class Design(LinearOperator):
 
     def quadratic_form(self,
                        G=None,
-                       columns=None):
+                       columns=None,
+                       transformed=False):
         '''
+        if transformed is False: compute
+
+        [1 X]'G[1 X[:,E]]
+
+        if transformed is True: compute
+
         A'GA[:,E]
 
         where A is the effective matrix
@@ -104,6 +115,7 @@ class Design(LinearOperator):
         [1, XS^{-1} - 1 (xm/xs)']
 
         and E is a subset of columns
+
         '''
 
         # A is effective matrix
@@ -112,6 +124,9 @@ class Design(LinearOperator):
         # A'G1 = S^{-1}(X' - xm 1')G1 = S^{-1}X'G1 - S^{-1}xm 1'G1
         # A'GA = S^{-1}X'GXS^{-1} - S^{-1}X'G1 xm/xs' - xm/xs 1'GXS^{-1} + xm/xs 1'G1 (xm/xs)'
         
+        # or, the reverse
+        # X'GX = SA'GAS + X'G1xm' + xm1'GX - xm1'G1xm'
+
         n, p = self.shape[0], self.shape[1] - 1
         
         if columns is None:
@@ -122,35 +137,49 @@ class Design(LinearOperator):
 
         if G is None:
             XX_block = self.X.T @ X_R # have to assume this is not too expensive
+            if scipy.sparse.issparse(self.X): 
+                XX_block = XX_block.toarray()
             X1_block = self.X.sum(0) # X'1
             G_sum = n
-            
+
         else:
             GX = G @ X_R
             G1 = G @ np.ones(G.shape[0])
             XX_block = self.X.T @ GX
             X1_block = self.X.T @ G1
             G_sum = G1.sum()
-            
-        if scipy.sparse.issparse(XX_block):
-            XX_block = XX_block.toarray()
-            
-        # correct XX_block for standardize
-        
+
         xm, xs = self.centers_, self.scaling_
+        if scipy.sparse.issparse(self.X): # in this case X has not been transformed 
 
-        if columns is not None:
-            XX_block -= (np.multiply.outer(X1_block, xm[columns]) + np.multiply.outer(xm, X1_block[columns]))
-            XX_block += np.multiply.outer(xm, xm[columns]) * G_sum
-            XX_block /= np.multiply.outer(xs, xs[columns])
-        else:
-            XX_block -= (np.multiply.outer(X1_block, xm) + np.multiply.outer(xm, X1_block))
-            XX_block += np.multiply.outer(xm, xm) * G_sum
-            XX_block /= np.multiply.outer(xs, xs)
+            # correct XX_block for standardize
 
-        X1_block -= G_sum * xm
-        X1_block /= xs
-        
+            if transformed:
+                if columns is not None:
+                    XX_block -= (np.multiply.outer(X1_block, xm[columns]) + np.multiply.outer(xm, X1_block[columns]))
+                    XX_block += np.multiply.outer(xm, xm[columns]) * G_sum
+                    XX_block /= np.multiply.outer(xs, xs[columns])
+                else:
+                    XX_block -= (np.multiply.outer(X1_block, xm) + np.multiply.outer(xm, X1_block))
+                    XX_block += np.multiply.outer(xm, xm) * G_sum
+                    XX_block /= np.multiply.outer(xs, xs)
+
+                X1_block -= G_sum * xm
+                X1_block /= xs
+
+        else: # X will already have been transformed, so
+              # we only have to undo it if transformed=False
+
+            # or, the reverse
+            # X'GX = SA'GAS + X'G1xm' + xm1'GX - xm1'G1xm'
+
+            if not transformed:
+                XX_block *= np.multiply.outer(xs, xs[columns])
+                X1_block *= xs
+                XX_block += (np.multiply.outer(X1_block, xm[columns]) + np.multiply.outer(xm, X1_block[columns]))
+                XX_block += np.multiply.outer(xm, xm[columns]) * G_sum
+                X1_block += G_sum * xm
+
         Q = np.zeros((XX_block.shape[0] + 1,
                       XX_block.shape[1] + 1))
         Q[1:,1:] = XX_block
@@ -160,9 +189,103 @@ class Design(LinearOperator):
         else:
             Q[0,1:] = X1_block
         Q[0,0] = G_sum
-        
+
         return Q
 
+    def scaled_to_raw(self, state):
+        """
+        Take a "scaled" (intercept, coef) (these are the params
+        used by glmnet) and return a (intercept, coef) on "raw" scale.
+        """
+        unscaled = self.unscaler_ @ state._stack
+        coef = unscaled[1:]
+        intercept = unscaled[0]
+        klass = state.__class__
+        return klass(coef=coef,
+                     intercept=intercept)
+
+    def raw_to_scaled(self, state):
+        """
+        Take a "raw" (intercept, coef) and return a (intercept, coef)
+        on "scaled" scale (i.e. the scale GLMnet uses in its objective).
+        """
+        unscaled = self.scaler_ @ state._stack
+        coef = unscaled[1:]
+        intercept = unscaled[0]
+        klass = state.__class__
+        return klass(coef=coef,
+                     intercept=intercept)
+
+@dataclass
+class UnscaleOperator(LinearOperator):
+
+    scaling : np.ndarray
+    centers: np.ndarray
+
+    def __post_init__(self):
+        ncoef = self.scaling.shape[0]
+        self.shape = (ncoef+1,)*2
+        self.dtype = float
+
+    # LinearOperator API
+    def _matvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[1:] = coef / self.scaling
+        result[0] = intercept - (result[1:] * self.centers).sum()
+
+        return result
+
+    def _rmatvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[0] = intercept
+        result[1:] = coef / self.scaling
+        result[1:] -= intercept * self.centers / self.scaling
+
+        return result
+
+@dataclass
+class ScaleOperator(LinearOperator):
+
+    scaling : np.ndarray
+    centers: np.ndarray
+
+    def __post_init__(self):
+        ncoef = self.scaling.shape[0]
+        self.shape = (ncoef+1,)*2
+        self.dtype = float
+
+    # LinearOperator API
+    def _matvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[1:] = coef * self.scaling
+        result[0] = intercept + (coef * self.centers).sum()
+
+        return result
+
+    def _rmatvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[0] = intercept
+        result[1:] = coef * self.scaling
+        result[1:] += intercept * self.centers
+
+        return result
+    
 @add_dataclass_docstring
 @dataclass
 class DiagonalOperator(LinearOperator):

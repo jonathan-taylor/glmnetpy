@@ -28,7 +28,6 @@ from ._utils import (_parent_dataclass_from_child,
                      _get_data)
 
 from .base import (Design,
-                   DiagonalOperator,
                    _get_design)
 
 from .scoring import (Scorer,
@@ -54,44 +53,23 @@ class GLMFamilySpec(object):
     base: sm_family.Family = field(default_factory=sm_family.Gaussian)
 
     def link(self,
-             mean_parameter):
-        mu = mean_parameter # shorthand
+             mu):
         return self.base.link(mu)
-    link.__doc__ = """
-Parameters
-----------
-{mean_parameter}
-
-Returns
--------
-{linear_predictor}
-""".format(**_docstrings).strip()
     
     def deviance(self,
                  y,
-                 mean_parameter,
-                 sample_weight=None):
+                 mu,
+                 sample_weight):
         if sample_weight is not None:
-            return self.base.deviance(y, mean_parameter, freq_weights=sample_weight)
+            return self.base.deviance(y, mu, freq_weights=sample_weight)
         else:
-            return self.base.deviance(y, mean_parameter)
-    deviance.__doc__ = '''
-Parameters
-----------
-
-{mean_parameter}
-{sample_weight}
-
-Returns
--------
-{deviance}
-    '''.format(**_docstrings).strip()
+            return self.base.deviance(y, mu)
 
     def null_fit(self,
                  y,
-                 fit_intercept=True,
-                 sample_weight=None,
-                 offset=None):
+                 sample_weight,
+                 offset,
+                 fit_intercept):
 
         sample_weight = np.asarray(sample_weight)
         y = np.asarray(y)
@@ -131,63 +109,41 @@ Returns
                              self,
                              offset,
                              None)
+
         else:
             state = GLMState(np.zeros(1), 0)
             state.link_parameter = offset
             state.mean_parameter = self.base.link.inverse(state.link_parameter)
         return state
-    null_fit.__doc__ = '''
-Parameters
-----------
-
-{mean_parameter}
-{fit_intercept}
-{sample_weight}
-{offset}
-    
-Returns
--------
-null_state: GLMState
-    Fitted null state of GLM.
-    '''.format(**_docstrings).strip()
 
     def get_null_deviance(self,
                           y,
-                          fit_intercept=True,
-                          sample_weight=None,
-                          offset=None):
+                          sample_weight,
+                          offset,
+                          fit_intercept):
         state0 = self.null_fit(y,
-                               fit_intercept=fit_intercept,
-                               sample_weight=sample_weight,
-                               offset=offset)
-        D = self.deviance(y,
-                          state0.mean_parameter,
-                          sample_weight=sample_weight)
+                               sample_weight,
+                               offset,
+                               fit_intercept)
+        D = self.deviance(y, state0.mean_parameter, sample_weight)
         return state0, D
 
-    get_null_deviance.__doc__ = '''
-Parameters
-----------
-
-{mean_parameter}
-{fit_intercept}
-{sample_weight}
-{offset}
+    def get_null_state(self,
+                       null_fit,
+                       nvars):
+        coefold = np.zeros(nvars)   # initial coefs = 0
+        state = GLMState(coef=coefold,
+                         intercept=null_fit.intercept)
+        state.mean_parameter = null_fit.mean_parameter
+        state.link_parameter = null_fit.link_parameter
+        return state
     
-Returns
--------
-null_state: GLMState
-    Fitted null state of GLM.
-{deviance}
-    '''.format(**_docstrings).strip()
-
     def get_response_and_weights(self,
                                  state,
-                                 response,
+                                 y,
                                  offset,
                                  sample_weight):
 
-        y = response # shorthand
         family = self.base
 
         # some checks for NAs/zeros
@@ -205,24 +161,28 @@ null_state: GLMState
 
         return pseudo_response, newton_weights
         
-    get_response_and_weights.__doc__ = '''
-Parameters
-----------
+    def _default_scorers(self):
 
-state: GLMState
-    State of GLM.
-{response}
-{offset}
-{sample_weight}
-    
-Returns
--------
-pseudo_response: np.ndarray
-    Pseudo-response for (quasi) Newton step.
-newton_weights: np.ndarray
-    Weights to be used for diagonal in Newton step.
-    
-    '''.format(**_docstrings).strip()
+        fam_name = self.base.__class__.__name__
+
+        def _dev(y, yhat, sample_weight):
+            return self.deviance(y, yhat, sample_weight) / y.shape[0]
+        dev_scorer = Scorer(name=f'{fam_name} Deviance',
+                            score=_dev,
+                            maximize=False)
+        
+        scorers_ = [dev_scorer,
+                    mse_scorer,
+                    mae_scorer,
+                    ungrouped_mse_scorer,
+                    ungrouped_mae_scorer]
+
+        if isinstance(self.base, sm_family.Binomial):
+            scorers_.extend([accuracy_scorer,
+                             auc_scorer,
+                             aucpr_scorer])
+
+        return scorers_
 
     def information(self,
                     state,
@@ -246,59 +206,24 @@ newton_weights: np.ndarray
         n = W.shape[0]
         W = W.reshape(-1)
         return DiagonalOperator(W)
-    information.__doc__ = '''
-Parameters
-----------
 
-state: GLMState
-    State of GLM.
-{sample_weight}
+@dataclass
+class DiagonalOperator(LinearOperator):
+
+    weights: np.ndarray
+
+    def __post_init__(self):
+        self.weights = np.asarray(self.weights).reshape(-1)
+        n = self.weights.shape[0]
+        self.shape = (n, n)
+
+    def _matvec(self, arg):
+        return self.weights * arg.reshape(-1)
+
+    def _adjoint(self, arg):
+        return self._matvec(arg)
     
-Returns
--------
-information: DiagonalOperator
-    Diagonal information matrix of the response vector for
-    `state.mean_pararmeter`.  
-    '''.format(**_docstrings).strip()
 
-    # Private methods
-
-    def _default_scorers(self):
-        """
-        Construct default scorers for GLM.
-        """
-
-        fam_name = self.base.__class__.__name__
-
-        def _dev(y, yhat, sample_weight):
-            return self.deviance(y, yhat, sample_weight) / y.shape[0]
-        dev_scorer = Scorer(name=f'{fam_name} Deviance',
-                            score=_dev,
-                            maximize=False)
-        
-        scorers_ = [dev_scorer,
-                    mse_scorer,
-                    mae_scorer,
-                    ungrouped_mse_scorer,
-                    ungrouped_mae_scorer]
-
-        if isinstance(self.base, sm_family.Binomial):
-            scorers_.extend([accuracy_scorer,
-                             auc_scorer,
-                             aucpr_scorer])
-
-        return scorers_
-
-    def _get_null_state(self,
-                        null_fit,
-                        nvars):
-        coefold = np.zeros(nvars)   # initial coefs = 0
-        state = GLMState(coef=coefold,
-                         intercept=null_fit.intercept)
-        state.mean_parameter = null_fit.mean_parameter
-        state.link_parameter = null_fit.link_parameter
-        return state
-    
 @add_dataclass_docstring
 @dataclass
 class GLMControl(object):
@@ -314,9 +239,9 @@ class GLMBaseSpec(object):
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     fit_intercept: bool = True
     control: GLMControl = field(default_factory=GLMControl)
-    response_id: Union[str,int] = None
-    weight_id: Union[str,int] = None
     offset_id: Union[str,int] = None
+    weight_id: Union[str,int] = None
+    response_id: Union[str,int] = None
     exclude: list = field(default_factory=list)
 
 add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
@@ -380,6 +305,7 @@ class GLMState(object):
         dmu_deta = family.link.inverse_deriv(self.link_parameter)
         
         # compute working residual
+        y = np.asarray(y).reshape(-1)
         r = (y - self.mu) 
         return sample_weight * r * dmu_deta / varmu 
 
@@ -459,7 +385,7 @@ class GLMBase(BaseEstimator,
               GLMBaseSpec):
 
     def _get_regularizer(self,
-                         X):
+                         nvars=None):
         return GLMRegularizer(fit_intercept=self.fit_intercept)
 
     # no standardization for GLM
@@ -478,7 +404,7 @@ class GLMBase(BaseEstimator,
         elif isinstance(self.family, GLMFamilySpec):
             return self.family
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
         return _get_data(self,
                          X,
                          y,
@@ -491,6 +417,7 @@ class GLMBase(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True,
             fit_null=True):
@@ -505,7 +432,7 @@ class GLMBase(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
 
-        X, y, response, offset, weight = self._check(X, y, check=check)
+        X, y, response, offset, weight = self.get_data_arrays(X, y, check=check)
 
         sample_weight = weight
         self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
@@ -530,9 +457,12 @@ class GLMBase(BaseEstimator,
         # the regularizer stores the warm start
 
         if regularizer is None:
-            regularizer = self._get_regularizer(X)
+            regularizer = self._get_regularizer(nvars=design.X.shape[1])
         self.regularizer_ = regularizer
 
+        if warm_state is not None:
+            self.regularizer_.warm_state = warm_state
+            
         if fit_null or not hasattr(self.regularizer_, 'warm_state'):
             (null_state,
              self.null_deviance_) = self._family.get_null_deviance(
@@ -613,6 +543,7 @@ class GLMBase(BaseEstimator,
         else:
             self.dispersion_ = dispersion
 
+        self.state_ = state
         return self
     fit.__doc__ = '''
 Fit a GLM.
@@ -622,18 +553,14 @@ Parameters
 
 {X}
 {y}
-{sample_weight}
-{regularizer}
-{dispersion}
-{check}
-fit_null: bool
-    Fit a null model if no warm state present in the regularizer.
-
+{weights}
+{summarize}
+    
 Returns
 -------
 
-self: GLMBase
-        Fitted GLM.
+self: object
+        GLM class instance.
         '''.format(**_docstrings)
     
     def predict(self, X, prediction_type='response'):
@@ -684,38 +611,31 @@ score: float
 '''.format(**_docstrings).strip()
 
     def _set_coef_intercept(self, state):
-        self.coef_ = state.coef.copy() # this makes a copy -- important to make this copy because `state.coef` is persistent
-        if hasattr(self, 'standardize') and self.standardize:
-            self.scaling_ = self.design_.scaling_
-            self.coef_ /= self.scaling_ 
-        self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()
+        raw_state = self.design_.scaled_to_raw(state)
+        self.coef_ = raw_state.coef
+        self.intercept_ = raw_state.intercept
 
 GLMBase.__doc__ = '''
 Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
 
 Parameters
 ----------
-{family}
 {fit_intercept}
+{summarize}
+{family}
 {control_glm}
-{response_id}
-{weight_id}
-{offset_id}
-{exclude}
 
 Attributes
-----------
-
+__________
 {coef_}
 {intercept_}
-{regularizer_}
+{summary_}
+{covariance_}
 {null_deviance_}
 {deviance_}
 {dispersion_}
-
+{regularizer_}
 '''.format(**_docstrings)
-
-
 
 @dataclass
 class GLM(GLMBase):
@@ -727,6 +647,7 @@ class GLM(GLMBase):
             y,
             sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 
@@ -734,17 +655,17 @@ class GLM(GLMBase):
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
+                    warm_state=warm_state,
                     dispersion=dispersion,
                     check=check)
 
-        weight = self._check(X, y, check=False)[-1]
+        weight = self.get_data_arrays(X, y, check=False)[-1]
             
         if self.summarize:
             self.covariance_, self.summary_ = self._summarize(self.exclude,
                                                               self.dispersion_,
                                                               weight,
                                                               X.shape)
-
 
         else:
             self.summary_ = self.covariance_ = None
@@ -760,7 +681,8 @@ class GLM(GLMBase):
         # IRLS used normalized weights,
         # this unnormalizes them...
 
-        unscaled_precision_ = self.design_.quadratic_form(self._information)
+        unscaled_precision_ = self.design_.quadratic_form(self._information,
+                                                          transformed=False)
         
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
@@ -796,36 +718,6 @@ class GLM(GLMBase):
                                     index=index)
         return covariance_, summary_
         
-GLM.__doc__ = '''
-Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
-
-Parameters
-----------
-{family}
-{fit_intercept}
-{control_glm}
-{response_id}
-{weight_id}
-{offset_id}
-{exclude}
-
-Notes
------
-
-This is a test
-
-Attributes
-----------
-
-{coef_}
-{intercept_}
-{regularizer_}
-{null_deviance_}
-{deviance_}
-{dispersion_}
-{summary_}
-{covariance_}
-'''.format(**_docstrings)
     
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
@@ -836,9 +728,9 @@ class BinomialGLM(ClassifierMixin, GLM):
 
     family: sm_family.Family = field(default_factory=sm_family.Binomial)
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
 
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = LabelEncoder()
         labels = np.asfortranarray(encoder.fit_transform(response))
         self.classes_ = encoder.classes_
@@ -851,6 +743,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             y,
             sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 
@@ -865,6 +758,7 @@ class BinomialGLM(ClassifierMixin, GLM):
                            y,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
+                           warm_state=warm_state,
                            dispersion=dispersion,
                            check=check)
 

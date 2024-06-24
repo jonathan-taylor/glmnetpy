@@ -25,7 +25,7 @@ from ..scoring import Scorer
 @dataclass
 class MultiClassFamily(object):
 
-    def default_scorers(self):
+    def _default_scorers(self):
         return [mse_scorer, mae_scorer]
 
 @dataclass
@@ -49,8 +49,13 @@ class MultiGaussNet(MultiFastNetMixin):
         self._fit['dev'] = self._fit['rsq']
         return super()._extract_fits(X_shape, response_shape)
 
-    def _check(self, X, y, check=True):
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
+        X, y, response, offset, weight = super().get_data_arrays(X,
+                                                                 y,
+                                                                 check=check)
         return X, y, np.asfortranarray(response), offset, weight
 
     def _wrapper_args(self,

@@ -66,10 +66,10 @@ add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
 class GLMNet(BaseEstimator,
              GLMNetSpec):
 
-    def _check(self,
-               X,
-               y,
-               check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
@@ -89,12 +89,13 @@ class GLMNet(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 3 options non sklearn API
+            warm_state=None,
             interpolation_grid=None):
 
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
 
-        X, y, response, offset, weight = self._check(X, y)
+        X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
@@ -124,7 +125,11 @@ class GLMNet(BaseEstimator,
                                exclude=self.exclude
                                )
 
-        self.reg_glm_est_.fit(X, y, None, fit_null=False) 
+        self.reg_glm_est_.fit(X,
+                              y,
+                              None,
+                              fit_null=False,
+                              warm_state=warm_state) 
         regularizer_ = self.reg_glm_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,
@@ -183,6 +188,8 @@ class GLMNet(BaseEstimator,
                                   regularizer=regularizer_,
                                   check=False,
                                   fit_null=False)
+
+            self.state_ = self.reg_glm_est_.state_
 
             coefs_.append(self.reg_glm_est_.coef_.copy())
             intercepts_.append(self.reg_glm_est_.intercept_)
@@ -308,7 +315,7 @@ class GLMNet(BaseEstimator,
         # truncate to the size we got
         predictions = predictions[:,:self.lambda_values_.shape[0]]
 
-        response, offset, weight = self._check(X, y, check=False)[2:]
+        response, offset, weight = self.get_data_arrays(X, y, check=False)[2:]
 
         # adjust for offset
         # because predictions are just X\beta
@@ -457,7 +464,7 @@ class GLMNet(BaseEstimator,
             intercept_ = glm.intercept_
         else:
             if self.fit_intercept:
-                response, offset, weight = self._check(X, y, check=False)[2:]
+                response, offset, weight = self.get_data_arrays(X, y, check=False)[2:]
                 state0 = self._family.null_fit(response,
                                                weight,
                                                offset,
@@ -468,5 +475,35 @@ class GLMNet(BaseEstimator,
                 intercept_ = 0
         return GLMState(coef_, intercept_), keep.astype(float)
 
+    def get_GLM(self):
+        return GLM(family=self.family,
+                   fit_intercept=self.fit_intercept,
+                   offset_id=self.offset_id,
+                   weight_id=self.weight_id,
+                   response_id=self.response_id)
 
+    def get_fixed_lambda(self,
+                         lambda_val):
 
+        check_is_fitted(self, ["coefs_", "feature_names_in_"])
+
+        estimator = self.regularized_estimator(
+                               lambda_val=lambda_val,
+                               family=self.family,
+                               alpha=self.alpha,
+                               penalty_factor=self.penalty_factor,
+                               lower_limits=self.lower_limits,
+                               upper_limits=self.upper_limits,
+                               fit_intercept=self.fit_intercept,
+                               standardize=self.standardize,
+                               control=self.control,
+                               offset_id=self.offset_id,
+                               weight_id=self.weight_id,            
+                               response_id=self.response_id,
+                               exclude=self.exclude
+                               )
+
+        coefs, intercepts = self.interpolate_coefs([lambda_val])
+        cls = self.state_.__class__
+        state = cls(coefs[0], intercepts[0])
+        return estimator, state
