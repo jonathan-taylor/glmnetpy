@@ -65,7 +65,7 @@ def run_inference(n,
     X = rng.standard_normal((n, p))
     D = np.linspace(1, p, p) / p + 0.2
     X *= D[None,:]
-    Y = rng.standard_normal(n) * 2
+    Y = rng.standard_normal(n) * np.fabs(1+np.random.standard_normal())
     beta = np.zeros(p)
     if alt:
         subs = rng.choice(p, s, replace=False)

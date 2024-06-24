@@ -160,14 +160,14 @@ def lasso_inference(glmnet_obj,
 
     # # quadratic approximation up to scaling and a factor of weight_sel.sum()
 
-    design_sel = _get_design(X_sel[:,active_set],
-                             weight_sel,
-                             standardize=glmnet_obj.standardize,
-                             intercept=glmnet_obj.fit_intercept)
-    P_sel = design_sel.quadratic_form(unreg_sel_GLM._information,
-                                      transformed=True)
+    D_sel = _get_design(X_sel[:,active_set],
+                        weight_sel,
+                        standardize=glmnet_obj.standardize,
+                        intercept=glmnet_obj.fit_intercept)
+    P_noisy = D_sel.quadratic_form(unreg_sel_GLM._information,
+                                   transformed=True)
 
-    Q_sel = np.linalg.inv(P_sel)
+    Q_noisy = np.linalg.inv(P_noisy)
 
     # fit unpenalized model on full data
 
@@ -187,7 +187,7 @@ def lasso_inference(glmnet_obj,
                     intercept=glmnet_obj.fit_intercept)
     P_full = D.quadratic_form(unreg_GLM._information,
                               transformed=True)
-    Q_full = np.linalg.inv(P_full)
+    Q_full = np.linalg.inv(P_full) 
     if not FL.fit_intercept:
         penfac = FL.penalty_factor[active_set]
         Q_full = Q_full[1:,1:]
@@ -273,15 +273,14 @@ def lasso_inference(glmnet_obj,
 
     for i in range(transform_to_raw.shape[0]):
         ## call selection_interval and return
-        L, U, mle, p = selection_interval(
+        L, U, mle, p = _split_interval(
             active_con=active_con,
-            Q_noisy=Q_sel,
-            Q_full=Q_full,
+            Q_noisy=Q_noisy * unreg_GLM.dispersion_,
+            Q_full=Q_full * unreg_GLM.dispersion_,
             noisy_observation=noisy_mle,
             observation=full_mle,
             direction_of_interest=transform_to_raw[i],
-            level=level,
-            dispersion=unreg_GLM.dispersion_
+            level=level
         )
         Ls[i] = L
         Us[i] = U
@@ -294,16 +293,15 @@ def lasso_inference(glmnet_obj,
     return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
 
 
-def selection_interval(active_con,
-                       Q_noisy,
-                       Q_full,
-                       noisy_observation,
-                       observation,
-                       direction_of_interest,
-                       tol = 1.e-4,
-                       level = 0.90,
-                       dispersion=1,
-                       UMAU=True):
+def _split_interval(active_con,
+                    Q_noisy,
+                    Q_full,
+                    noisy_observation,
+                    observation,
+                    direction_of_interest,
+                    tol = 1.e-4,
+                    level = 0.90,
+                    dispersion=1):
     """
     Given an affine in cone constraint $\{z:Az+b \leq 0\}$ (elementwise)
     specified with $A$ as `support_directions` and $b$ as
@@ -356,8 +354,8 @@ def selection_interval(active_con,
                                                     Q_full @ direction_of_interest / full_var,
                                                     tol=tol)
 
-    sigma = np.sqrt(full_var * dispersion)
-    smoothing_sigma = np.sqrt(max(noisy_var - full_var, 0) * dispersion)
+    sigma = np.sqrt(full_var)
+    smoothing_sigma = np.sqrt(max(noisy_var - full_var, 0))
 
     if smoothing_sigma > 1e-6 * sigma:
 
