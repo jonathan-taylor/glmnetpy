@@ -4,8 +4,6 @@ import numpy as np
 from copy import deepcopy
 
 # for Gaussian check below
-from statsmodels.genmod.families import family as sm_family
-from statsmodels.genmod.families import links as sm_links
 
 def quasi_newton_step(regularizer,
                       family,
@@ -138,12 +136,10 @@ def IRLS(regularizer,
         is_gaussian = False
         if hasattr(family, 'base'):
             base_family = family.base
-            is_gaussian = (isinstance(base_family, sm_family.Gaussian) and
-                           isinstance(base_family.link, sm_links.Identity))
 
         # test for convergence
         if ((np.fabs(state.obj_val - obj_val_old)/(0.1 + abs(state.obj_val)) < control.epsnr) or
-            is_gaussian):
+            family.is_gaussian):
             converged = True
             break
 

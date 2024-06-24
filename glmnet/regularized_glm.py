@@ -7,9 +7,6 @@ from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
                           RegressorMixin)
 
-from statsmodels.genmod.families import family as sm_family
-from statsmodels.genmod.families import links as sm_links
-
 from .base import _get_design, Penalty
 from .docstrings import (add_dataclass_docstring,
                          _docstrings)
@@ -18,6 +15,7 @@ from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
 from .glm import (GLMState,
+                  BinomFamilySpec,
                   GLMFamilySpec,
                   GLM)
 
@@ -34,7 +32,7 @@ class RegGLMControl(ElNetControl):
 @dataclass
 class RegGLMSpec(ElNetSpec):
 
-    family: sm_family.Family = field(default_factory=sm_family.Gaussian)
+    family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     control: RegGLMControl = field(default_factory=RegGLMControl)
 
 add_dataclass_docstring(RegGLMSpec, subs={'control':'control_glmnet'})
@@ -43,7 +41,7 @@ add_dataclass_docstring(RegGLMSpec, subs={'control':'control_glmnet'})
 @dataclass
 class RegGLMResult(object):
 
-    family: sm_family.Family
+    family: GLMFamilySpec
     offset: bool
     converged: bool
     boundary: bool
@@ -189,8 +187,7 @@ class GaussianRegGLM(RegressorMixin, RegGLM):
 
     def __post_init__(self):
 
-        if (not hasattr(self._family, 'base')
-            or not isinstance(self._family.base, sm_family.Gaussian)):
+        if self._family.is_gaussian:
             msg = f'{self.__class__.__name__} expects a Gaussian family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
@@ -198,12 +195,11 @@ class GaussianRegGLM(RegressorMixin, RegGLM):
 @dataclass
 class BinomialRegGLM(ClassifierMixin, RegGLM):
 
-    family: sm_family.Family = field(default_factory=lambda: GLMFamilySpec(family=sm_family.Binomial()))
+    family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
     def __post_init__(self):
 
-        if (not hasattr(self._family, 'base')
-            or not isinstance(self._family.base, sm_family.Binomial)):
+        if not self._family.is_binomial:
             msg = f'{self.__class__.__name__} expects a Binomial family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
@@ -235,18 +231,12 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
 
         if not hasattr(self.family, 'base'):
             raise ValueError(f'{self.__class__} expects to have a base family')
-        family = self.family.base
-        eta = X @ self.coef_ + self.intercept_
-        if prediction_type == 'link':
-            return eta
-        elif prediction_type == 'response':
-            return family.link.inverse(eta)
-        elif prediction_type == 'class':
-            pi_hat = family.link.inverse(eta)
-            _integer_classes = (pi_hat > 0.5).astype(int)
-            return self.classes_[_integer_classes]
-        else:
-            raise ValueError("prediction should be one of 'response', 'link' or 'class'")
+        linpred = X @ self.coef_ + self.intercept_ # often called eta
+        pred = self._family.predict(linpred,
+                                    prediction_type=prediction_type)
+        if prediction_type == 'class':
+            pred = self._classes[pred]
+
     predict.__doc__ = '''
 Predict outcome of corresponding family.
 
