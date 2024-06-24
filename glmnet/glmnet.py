@@ -168,10 +168,11 @@ class GLMNet(BaseEstimator,
         sample_weight_sum = sample_weight.sum()
         
         (null_fit,
-         self.null_deviance_) = self._family.get_null_deviance(response,
-                                                               sample_weight,
-                                                               offset,
-                                                               self.fit_intercept)
+         self.null_deviance_) = self._family.get_null_deviance(
+                                    response=response,
+                                    sample_weight=sample_weight,
+                                    offset=offset,
+                                    fit_intercept=self.fit_intercept)
 
         for l in self.lambda_values_:
 

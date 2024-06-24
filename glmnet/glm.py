@@ -152,15 +152,15 @@ null_state: GLMState
     '''.format(**_docstrings).strip()
 
     def get_null_deviance(self,
-                          y,
-                          fit_intercept=True,
+                          response,
                           sample_weight=None,
-                          offset=None):
-        state0 = self.null_fit(y,
+                          offset=None,
+                          fit_intercept=True):
+        state0 = self.null_fit(response,
                                fit_intercept=fit_intercept,
                                sample_weight=sample_weight,
                                offset=offset)
-        D = self.deviance(y,
+        D = self.deviance(response,
                           state0.mean_parameter,
                           sample_weight=sample_weight)
         return state0, D
@@ -536,18 +536,18 @@ class GLMBase(BaseEstimator,
         if fit_null or not hasattr(self.regularizer_, 'warm_state'):
             (null_state,
              self.null_deviance_) = self._family.get_null_deviance(
-                                        response,
-                                        sample_weight,
-                                        offset,
-                                        self.fit_intercept)
+                                        response=response,
+                                        sample_weight=sample_weight,
+                                        offset=offset,
+                                        fit_intercept=self.fit_intercept)
 
 
         if (hasattr(self.regularizer_, 'warm_state') and
             self.regularizer_.warm_state):
             state = self.regularizer_.warm_state
         else:
-            state = self._family.get_null_state(null_state,
-                                                nvar)
+            state = self._family._get_null_state(null_state,
+                                                 nvar)
 
         # for Cox, the state could have mu==eta so that this need not change
         def obj_function(response,
@@ -606,7 +606,7 @@ class GLMBase(BaseEstimator,
 
         self._set_coef_intercept(state)
 
-        if (hasattr(self._family, "base") and 
+        if dispersion is None and (hasattr(self._family, "base") and 
             isinstance(self._family.base, sm_family.Gaussian)): # GLM specific
             # usual estimate of sigma^2
             self.dispersion_ = self.deviance_ / (nobs-nvar-self.fit_intercept) 
