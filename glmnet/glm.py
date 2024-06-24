@@ -611,11 +611,9 @@ score: float
 '''.format(**_docstrings).strip()
 
     def _set_coef_intercept(self, state):
-        self.coef_ = state.coef.copy() # this makes a copy -- important to make this copy because `state.coef` is persistent
-        if hasattr(self, 'standardize') and self.standardize:
-            self.scaling_ = self.design_.scaling_
-            self.coef_ /= self.scaling_ 
-        self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()
+        raw_state = self.design_.scaled_to_raw(state)
+        self.coef_ = raw_state.coef
+        self.intercept_ = raw_state.intercept
 
 GLMBase.__doc__ = '''
 Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.

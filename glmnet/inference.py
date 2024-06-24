@@ -120,7 +120,6 @@ class AffineConstraint(object):
         else:
             lower_bound = -np.inf
 
-        print(lower_bound, upper_bound)
         return lower_bound, upper_bound
 
 def lasso_inference(glmnet_obj,
@@ -159,7 +158,7 @@ def lasso_inference(glmnet_obj,
                       Y_sel,
                       sample_weight=weight_sel)
 
-    # quadratic approximation up to scaling and a factor of weight_sel.sum()
+    # # quadratic approximation up to scaling and a factor of weight_sel.sum()
 
     design_sel = _get_design(X_sel[:,active_set],
                              weight_sel,
@@ -168,11 +167,8 @@ def lasso_inference(glmnet_obj,
     P_sel = design_sel.quadratic_form(unreg_sel_GLM._information,
                                       transformed=True)
 
-    scaling_sel = design_sel.scaling_
     Q_sel = np.linalg.inv(P_sel)
-    if not FL.fit_intercept:
-        Q_sel = Q_sel[1:,1:]
-        
+
     # fit unpenalized model on full data
 
     X_full, Y_full, weight_full = full_data
@@ -185,33 +181,32 @@ def lasso_inference(glmnet_obj,
 
     # quadratic approximation
 
-    design_full = _get_design(X_full[:,active_set],
-                              weight_full,
-                              standardize=glmnet_obj.standardize,
-                              intercept=glmnet_obj.fit_intercept)
-    scaling_full = design_full.scaling_
-    P_full = design_full.quadratic_form(unreg_GLM._information,
-                                        transformed=True)
+    D = _get_design(X_full[:,active_set],
+                    weight_full,
+                    standardize=glmnet_obj.standardize,
+                    intercept=glmnet_obj.fit_intercept)
+    P_full = D.quadratic_form(unreg_GLM._information,
+                              transformed=True)
     Q_full = np.linalg.inv(P_full)
     if not FL.fit_intercept:
-        Q_full = Q_full[1:,1:]
         penfac = FL.penalty_factor[active_set]
+        Q_full = Q_full[1:,1:]
+        Q_sel = Q_sel[1:,1:]
     else:
         penfac = np.ones(active_set.shape[0])
 
     signs = np.sign(FL.coef_[active_set])
 
+    noisy_mle = D.raw_to_scaled(unreg_sel_GLM.state_)
     if FL.fit_intercept:
-        # correct the scaling
         penfac = np.hstack([0, penfac])
         signs = np.hstack([0, signs])
         stacked = np.hstack([FL.state_.intercept,
                              FL.state_.coef[active_set]])
-        noisy_mle = np.hstack([unreg_sel_GLM.state_.intercept,
-                               unreg_sel_GLM.state_.coef])
+        noisy_mle = noisy_mle._stack
     else:
         stacked = FL.state_.coef[active_set]
-        noisy_mle = unreg_sel_GLM.state_.coef
+        noisy_mle = noisy_mle.coef
 
     # delta = lambda_val * penfac * signs
 
@@ -227,13 +222,11 @@ def lasso_inference(glmnet_obj,
 
     ## the GLM's coef and intercept are on the original scale
     ## we transform them here to the (typically) unitless "standardized" scale
+    full_mle = D.raw_to_scaled(unreg_GLM.state_)
     if FL.fit_intercept:
-        intercept = unreg_GLM.state_.intercept + (unreg_GLM.state_.coef * design_full.centers_).sum()
-        coef = unreg_GLM.state_.coef * scaling_full
-        full_mle = np.hstack([intercept,
-                              coef])
+        full_mle = full_mle._stack
     else:
-        full_mle = unreg_GLM.state_.coef * scaling_full
+        full_mle = full_mle.coef
 
     ## iterate over coordinates
     Ls = np.zeros_like(stacked)
@@ -241,11 +234,10 @@ def lasso_inference(glmnet_obj,
     mles = np.zeros_like(stacked)
     pvals = np.zeros_like(stacked)
 
-    if FL.fit_intercept:
-        transform_to_original = np.diag(np.hstack([1, 1/scaling_full]))
-        transform_to_original[0,1:] = -design_full.centers_/scaling_full
-    else:
-        transform_to_original = np.diag(1/scaling_full)
+    transform_to_raw = (D.unscaler_ @
+                        np.identity(D.shape[1]))
+    if not FL.fit_intercept:
+        transform_to_raw = transform_to_raw[1:,1:]
 
     linear = sel_P
     offset = np.zeros(sel_P.shape[0]) # -signs[penalized] * delta[penalized]
@@ -275,22 +267,11 @@ def lasso_inference(glmnet_obj,
         L = scipy.sparse.vstack([I, -I])
         O = np.ones(L.shape[0]) * lambda_val
 
-        # X'WX_E
-        # here, X is the effective matrix implied by scale / intercept choices
-        # P_inactive = FL.design_.quadratic_form(unreg_sel_GLM._information,
-        #                                        transformed=True,
-        #                                        columns=active_set)[1:]
-        # if not FL.fit_intercept:
-        #     P_inactive = P_inactive[:,1:]
-            
-        # # (\lambda_{-E})^{-1} X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
-        # I_inactive = (scale[:,None] * (P_inactive @ delta))[inactive_set] 
-
         inactive_con = AffineConstraint(linear=L,
                                         offset=O,
                                         observed=score_)
 
-    for i in range(transform_to_original.shape[0]):
+    for i in range(transform_to_raw.shape[0]):
         ## call selection_interval and return
         L, U, mle, p = selection_interval(
             active_con=active_con,
@@ -298,7 +279,7 @@ def lasso_inference(glmnet_obj,
             Q_full=Q_full,
             noisy_observation=noisy_mle,
             observation=full_mle,
-            direction_of_interest=transform_to_original[i],
+            direction_of_interest=transform_to_raw[i],
             level=level,
             dispersion=unreg_GLM.dispersion_
         )
@@ -366,20 +347,17 @@ def selection_interval(active_con,
     """
 
     noisy_var = direction_of_interest.T @ Q_noisy @ direction_of_interest
+    full_var = direction_of_interest.T @ Q_full @ direction_of_interest
     noisy_estimate = (direction_of_interest * noisy_observation).sum()
     estimate = (direction_of_interest * observation).sum()
 
     (lower_bound,
      upper_bound) = active_con.interval_constraints(noisy_estimate,
-                                                    Q_noisy @ direction_of_interest / noisy_var,
+                                                    Q_full @ direction_of_interest / full_var,
                                                     tol=tol)
 
-    ## lars path lockhart tibs^2 taylor paper
-    sigma = np.sqrt(direction_of_interest.T @ Q_full @ direction_of_interest * dispersion)
-    ## sqrt(alpha) is just sigma_noisy - sigma_full
-    noisy_sigma = np.sqrt(noisy_var * dispersion)
-    smoothing_sigma = np.sqrt(max(noisy_sigma**2 - sigma**2, 0))
-    
+    sigma = np.sqrt(full_var * dispersion)
+    smoothing_sigma = np.sqrt(max(noisy_var - full_var, 0) * dispersion)
 
     if smoothing_sigma > 1e-6 * sigma:
 
@@ -472,8 +450,15 @@ def norm_interval(lower, upper):
     """
     #cdf = normal_dbn.cdf
     cdf = mp.ncdf
-    if lower > 0 and upper > 0:
-        return cdf(-lower) - cdf(-upper)
+    if lower > 0:
+        if lower < 4:
+            return cdf(-lower) - cdf(-upper)
+        else:
+            return np.exp(-np.fabs(lower*(upper-lower)))
+    elif upper < 0:
+        if upper < -4:
+            return np.exp(-np.fabs(upper*(upper-lower)))
+    
     else:
         return cdf(upper) - cdf(lower)
 

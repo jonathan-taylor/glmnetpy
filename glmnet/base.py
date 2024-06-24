@@ -100,7 +100,6 @@ class Design(LinearOperator):
     def quadratic_form(self,
                        G=None,
                        columns=None,
-                       intercept=True,
                        transformed=False):
         '''
         if transformed is False: compute
