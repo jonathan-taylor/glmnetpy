@@ -55,6 +55,10 @@ class Design(LinearOperator):
             self.X = (self.X - self.centers_[None,:]) / self.scaling_[None,:]
             self.X = np.asfortranarray(self.X)
 
+        self.unscaler_ = UnscaleOperator(centers=self.centers_,
+                                         scaling=self.scaling_)
+        self.scaler_ = ScaleOperator(centers=self.centers_,
+                                     scaling=self.scaling_)
     # LinearOperator API
 
     def _matvec(self, x):
@@ -96,6 +100,7 @@ class Design(LinearOperator):
     def quadratic_form(self,
                        G=None,
                        columns=None,
+                       intercept=True,
                        transformed=False):
         '''
         if transformed is False: compute
@@ -188,6 +193,88 @@ class Design(LinearOperator):
 
         return Q
 
+    def scaled_to_raw(self, state):
+        """
+        Take a "scaled" (intercept, coef) (these are the params
+        used by glmnet) and return a (intercept, coef) on "raw" scale.
+        """
+        unscaled = self.unscaler_ @ state._stack
+        coef = unscaled[1:]
+        intercept = unscaled[0]
+        klass = state.__class__
+        return klass(coef=coef,
+                     intercept=intercept)
+
+@dataclass
+class UnscaleOperator(LinearOperator):
+
+    scaling : np.ndarray
+    centers: np.ndarray
+
+    def __post_init__(self):
+        ncoef = self.scaling.shape[0]
+        self.shape = (ncoef+1,)*2
+        self.dtype = float
+
+    # LinearOperator API
+    def _matvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[1:] = coef / self.scaling
+        result[0] = intercept - (result[1:] * self.centers).sum()
+
+        return result
+
+    def _rmatvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[0] = intercept
+        result[1:] = coef / self.scaling
+        result[1:] -= intercept * self.centers / self.scaling
+
+        return result
+
+@dataclass
+class ScaleOperator(LinearOperator):
+
+    scaling : np.ndarray
+    centers: np.ndarray
+
+    def __post_init__(self):
+        ncoef = self.scaling.shape[0]
+        self.shape = (ncoef+1,)*2
+        self.dtype = float
+
+    # LinearOperator API
+    def _matvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[1:] = coef * self.scaling
+        result[0] = intercept + (coef * self.centers).sum()
+
+        return result
+
+    def _rmatvec(self, stacked):
+
+        intercept = float(stacked[0])
+        coef = np.squeeze(stacked[1:])
+
+        result = np.zeros(stacked.shape[0])
+        result[0] = intercept
+        result[1:] = coef * self.scaling
+        result[1:] += intercept * self.centers
+
+        return result
+    
 @add_dataclass_docstring
 @dataclass
 class DiagonalOperator(LinearOperator):

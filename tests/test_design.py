@@ -141,4 +141,37 @@ def test_quadratic_form(X, weights, standardize, intercept, gls):
 
     assert np.allclose(Q_s, Q) # sparse and dense agree
 
-        
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_unscaler(intercept,
+                  standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    M = D.unscaler_ @ np.identity(6)
+    MT = D.unscaler_.T @ np.identity(6) 
+    assert np.allclose(MT, M.T)
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_scaler(intercept,
+                  standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    M = D.scaler_ @ np.identity(6)
+    MT = D.scaler_.T @ np.identity(6) 
+    assert np.allclose(MT, M.T)
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('intercept', [True, False])
+def test_scaler_unscaler_inv(intercept,
+                             standardize):
+
+    X = np.random.standard_normal((20,5))
+    D = Design(X, intercept=True, standardize=True)
+    M = D.unscaler_ @ np.identity(6)
+    MI = D.scaler_ @ np.identity(6) 
+    assert np.allclose(M @ MI, np.identity(6))
+    
