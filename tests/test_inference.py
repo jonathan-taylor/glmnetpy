@@ -5,7 +5,8 @@ import pandas as pd
 import statsmodels.api as sm
 
 from glmnet import GLMNet
-from glmnet.inference import lasso_inference
+from glmnet.inference import (lasso_inference,
+                              _truncated_inference)
 
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('fit_intercept', [True, False])
@@ -43,11 +44,9 @@ def test_Auto():
     m = int(prop*n)
 
     df = lasso_inference(GN,
-                         GN.lambda_values_[min(10, GN.lambda_values_.shape[0]-1)],
+                         2 / n, # GN.lambda_values_[min(10, GN.lambda_values_.shape[0]-1)],
                          (X[:m], Df.iloc[:m], None),
                          (X, Df, None))
-    print(df)
-
 
 def run_inference(n,
                   p,
@@ -58,20 +57,25 @@ def run_inference(n,
                   s=3,
                   prop=0.75,
                   penalty_facs=True,
-                  family='gaussian'):
+                  family='gaussian',
+                  orthogonal=False,
+                  cv=False):
 
     if rng is None:
         rng = np.random.default_rng(0)
-    X = rng.standard_normal((n, p))
-    D = np.linspace(1, p, p) / p + 0.2
-    X *= D[None,:]
-    Y = rng.standard_normal(n) * np.fabs(1+np.random.standard_normal())
     beta = np.zeros(p)
-    if alt:
-        subs = rng.choice(p, s, replace=False)
-        beta[subs] = rng.standard_normal(s) 
-    mu = X @ beta
-    Y += mu
+    subs = rng.choice(p, s, replace=False)
+
+    if not orthogonal:
+        X = rng.standard_normal((n, p))
+        D = np.linspace(1, p, p) / p + 0.2
+        X *= D[None,:]
+        Y = rng.standard_normal(n) * np.fabs(1+np.random.standard_normal())
+        if alt:
+            beta[subs] = rng.uniform(3, 5) * rng.choice([-1,1], size=s, replace=True) / np.sqrt(n)
+
+        mu = X @ beta
+        Y += mu
 
     if family == 'gaussian':
         fam = sm.families.Gaussian()
@@ -82,80 +86,97 @@ def run_inference(n,
         raise ValueError('only testing "gaussian" and "probit"')
     
     if penalty_facs:
-        penalty_factor = np.ones(X.shape[1])
+        penalty_factor = np.ones(p)
         penalty_factor[:10] = 0.5
     else:
         penalty_factor = None
 
-    GN = GLMNet(response_id='response',
-                family=fam,
-                fit_intercept=fit_intercept,
-                standardize=standardize,
-                penalty_factor=penalty_factor)
+    if not orthogonal:
+        
+        GN = GLMNet(response_id='response',
+                    fit_intercept=fit_intercept,
+                    standardize=standardize,
+                    family=fam,
+                    penalty_factor=penalty_factor)
 
-    Df = pd.DataFrame({'response':Y})
+        m = int(prop*n)
+        
+        Df = pd.DataFrame({'response':Y})
+        GN.fit(X[:m], Df.iloc[:m]) 
+        if cv:
+            GN.cross_validation_path(X[:m], Df.iloc[:m])
+            lamval = GN.index_best_['Mean Squared Error']
+        else:
+            eps = rng.standard_normal((X.shape[0], 1000))
+            lamval = 1.2 * np.fabs(X.T @ eps).max() / X.shape[0]
+        df = lasso_inference(GN, 
+                             lamval,
+                             (X[:m], Df.iloc[:m], None),
+                             (X, Df, None))
 
-    GN.fit(X, Df)
-    m = int(prop*n)
+        if df is not None:
+            if fit_intercept:
+                active_set = np.array(df.index[1:]).astype(int)
+            else:
+                active_set = np.array(df.index).astype(int)
+            X_sel = X[:,active_set]
 
-    df = lasso_inference(GN, 
-                         GN.lambda_values_[min(10, GN.lambda_values_.shape[0]-1)],
-                         (X[:m], Df.iloc[:m], None),
-                         (X, Df, None))
-    if fit_intercept:
-        active_set = np.array(df.index[1:]).astype(int)
+            if fit_intercept:
+                X_sel = np.column_stack([np.ones(X_sel.shape[0]), X_sel])
+            targets = np.linalg.pinv(X_sel) @ mu
+
+            df['target'] = targets
+
     else:
-        active_set = np.array(df.index).astype(int)
-    X_sel = X[:,active_set]
 
-    if fit_intercept:
-        X_sel = np.column_stack([np.ones(X_sel.shape[0]), X_sel])
-    targets = np.linalg.pinv(X_sel) @ mu
+        X = np.identity(p)
+        Y = rng.standard_normal(p) 
+        Df = pd.DataFrame({'response':Y})
+        if alt:
+            beta[subs] = rng.standard_normal(s) * 2
+        mu = X @ beta
+        Y += mu
+        
+        GN = GLMNet(response_id='response',
+                    family=fam,
+                    fit_intercept=False,
+                    standardize=False,
+                    penalty_factor=penalty_factor)
 
-    df['target'] = targets
-    if alt:
+
+        lamval = 2
+        Y_sel = Y + np.sqrt((1 - prop) / prop) * rng.standard_normal(Y.shape)
+
+        active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
+        Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
+        X_sel = np.sqrt(prop) * X
+        GN.fit(X, Df)
+        if active_naive.shape[0] > 0:
+            df = lasso_inference(GN, 
+                                 prop * lamval / p,
+                                 (X_sel, Df_sel, None),
+                                 (X, Df, None),
+                                 dispersion=1)
+            df['target'] = mu[df.index]
+        else:
+            return None
+    if alt and df is not None:
         if family == 'probit' and not set(subs).issubset(active_set):
             df['target'] *= np.nan
             
     return df
 
 
-def main_null(fit_intercept=True,
-              standardize=True,
-              n=500,
-              p=75,
-              ntrial=500,
-              rng=None,
-              family='gaussian'):
-
-    ncover = 0
-    nsel = 0
-
-    dfs = []
-
-    rng = np.random.default_rng(0)
-    for i in range(ntrial):
-        df = run_inference(n,
-                           p,
-                           fit_intercept,
-                           standardize,
-                           rng=rng,
-                           family=family)
-        dfs.append(df)
-        all_df = pd.concat(dfs)
-        ncover += ((all_df['lower'] < 0) & (all_df['upper'] > 0)).sum()
-        nsel += all_df.shape[0]
-
-        print('cover:', ncover / nsel, 'typeI:', (all_df['pval'] < 0.05).mean())
-
-
-def main_alt(fit_intercept=True,
-              standardize=True,
-              n=1000,
-              p=75,
-              ntrial=500,
-              rng=None,
-              family='gaussian'):
+def main(fit_intercept=True,
+         standardize=True,
+         n=500,
+         p=75,
+         ntrial=500,
+         rng=None,
+         family='gaussian',
+         alt=False,
+         cv=False,
+         orthogonal=False):
 
     ncover = 0
     nsel = 0
@@ -170,13 +191,52 @@ def main_alt(fit_intercept=True,
                            standardize,
                            rng=rng,
                            family=family,
-                           alt=True)
-        dfs.append(df)
-        all_df = pd.concat(dfs).dropna()
-        ncover += ((all_df['lower'] < all_df['target']) & (all_df['upper'] > all_df['target'])).sum()
-        nsel += all_df.shape[0]
+                           alt=alt,
+                           cv=cv,
+                           orthogonal=orthogonal)
+        if df is not None:
+            dfs.append(df)
+        if len(dfs) > 0:
+            all_df = pd.concat(dfs)
+            ncover += ((all_df['lower'] < 0) & (all_df['upper'] > 0)).sum()
+            nsel += all_df.shape[0]
 
-        print('cover:', ncover / nsel)
-    return all_df
+            print('cover:', ncover / nsel, 'power:', (all_df['pval'] < 0.05).mean())
+
 
         
+def test_truncated_inference(B=1000,
+                             noisy_sigma=0.5,
+                             sigma=1,
+                             upper_bound=5,
+                             lower_bound=2,
+                             alt=False):
+
+    pvals = []
+    cover = []
+
+    rng = np.random.default_rng(0)
+    
+    for _ in range(B):
+        mu = rng.standard_normal() + 3
+        lower_bound = rng.uniform(0, 2)
+        upper_bound = lower_bound + rng.uniform(3, 5)
+        while True:
+            Z = rng.standard_normal() * sigma
+            if alt:
+                Z += mu
+            Z_noisy = Z + rng.standard_normal() * noisy_sigma
+            if (Z_noisy > lower_bound) and (Z_noisy < upper_bound):
+                L, U, _, pval, D = _truncated_inference(Z,
+                                                        sigma,
+                                                        noisy_sigma,
+                                                        lower_bound,
+                                                        upper_bound,
+                                                        basept=Z,
+                                                        level=0.90)
+                cover.append((L<mu) * (U>mu))
+                pvals.append(pval)
+                print(np.mean(cover), np.mean(np.array(pvals) < 0.05))
+                break
+            
+    return D

@@ -126,7 +126,8 @@ def lasso_inference(glmnet_obj,
                     lambda_val,
                     selection_data,
                     full_data,
-                    level=.9):
+                    level=.9,
+                    dispersion=None):
 
     fixed_lambda, warm_state = glmnet_obj.get_fixed_lambda(lambda_val)
     X_sel, Y_sel, weight_sel = selection_data
@@ -147,151 +148,161 @@ def lasso_inference(glmnet_obj,
         raise NotImplementedError('upper/lower limits coming soon')
 
     active_set = np.nonzero(FL.coef_ != 0)[0]
-    inactive_set = np.nonzero(FL.coef_ == 0)[0]
+    if active_set.shape[0] != 0:
+        inactive_set = np.nonzero(FL.coef_ == 0)[0]
 
-    # fit unpenalized model on selection data
+        # fit unpenalized model on selection data
 
-    unreg_sel_GLM = glmnet_obj.get_GLM()
+        unreg_sel_GLM = glmnet_obj.get_GLM()
 
-    unreg_sel_GLM.summarize = True
-    unreg_sel_GLM.fit(X_sel[:,active_set],
-                      Y_sel,
-                      sample_weight=weight_sel)
+        unreg_sel_GLM.summarize = True
+        unreg_sel_GLM.fit(X_sel[:,active_set],
+                          Y_sel,
+                          sample_weight=weight_sel,
+                          dispersion=dispersion)
 
-    # # quadratic approximation up to scaling and a factor of weight_sel.sum()
+        # # quadratic approximation up to scaling and a factor of weight_sel.sum()
 
-    D_sel = _get_design(X_sel[:,active_set],
-                        weight_sel,
+        D_sel = _get_design(X_sel[:,active_set],
+                            weight_sel,
+                            standardize=glmnet_obj.standardize,
+                            intercept=glmnet_obj.fit_intercept)
+        P_noisy = D_sel.quadratic_form(unreg_sel_GLM._information,
+                                       transformed=True)
+
+        # fit unpenalized model on full data
+
+        X_full, Y_full, weight_full = full_data
+        if weight_full is None:
+            weight_full = np.ones(X_full.shape[0])
+
+        unreg_GLM = glmnet_obj.get_GLM()
+        unreg_GLM.summarize = True
+        unreg_GLM.fit(X_full[:,active_set],
+                      Y_full,
+                      sample_weight=weight_full,
+                      dispersion=dispersion)
+
+        # quadratic approximation
+
+        D = _get_design(X_full[:,active_set],
+                        weight_full,
                         standardize=glmnet_obj.standardize,
                         intercept=glmnet_obj.fit_intercept)
-    P_noisy = D_sel.quadratic_form(unreg_sel_GLM._information,
-                                   transformed=True)
+        P_full = D.quadratic_form(unreg_GLM._information,
+                                  transformed=True)
+        if not FL.fit_intercept:
+            if FL.penalty_factor is not None:
+                penfac = FL.penalty_factor[active_set]
+            else:
+                penfac = np.ones_like(active_set)
+            P_full = P_full[1:,1:]
+            P_noisy = P_noisy[1:,1:]
+        else:
+            penfac = np.ones(active_set.shape[0])
 
-    Q_noisy = np.linalg.inv(P_noisy)
+        Q_full = np.linalg.inv(P_full) 
+        Q_noisy = np.linalg.inv(P_noisy)
 
-    # fit unpenalized model on full data
+        signs = np.sign(FL.coef_[active_set])
 
-    X_full, Y_full, weight_full = full_data
-    if weight_full is None:
-        weight_full = np.ones(X_full.shape[0])
-        
-    unreg_GLM = glmnet_obj.get_GLM()
-    unreg_GLM.summarize = True
-    unreg_GLM.fit(X_full[:,active_set], Y_full, sample_weight=weight_full)
+        noisy_mle = D.raw_to_scaled(unreg_sel_GLM.state_)
 
-    # quadratic approximation
+        if FL.fit_intercept:
+            penfac = np.hstack([0, penfac])
+            signs = np.hstack([0, signs])
+            stacked = np.hstack([FL.state_.intercept,
+                                 FL.state_.coef[active_set]])
+            noisy_mle = noisy_mle._stack
+        else:
+            stacked = FL.state_.coef[active_set]
+            noisy_mle = noisy_mle.coef
 
-    D = _get_design(X_full[:,active_set],
-                    weight_full,
-                    standardize=glmnet_obj.standardize,
-                    intercept=glmnet_obj.fit_intercept)
-    P_full = D.quadratic_form(unreg_GLM._information,
-                              transformed=True)
-    Q_full = np.linalg.inv(P_full) 
-    if not FL.fit_intercept:
-        penfac = FL.penalty_factor[active_set]
-        Q_full = Q_full[1:,1:]
-        Q_sel = Q_sel[1:,1:]
+        # delta = lambda_val * penfac * signs
+
+        # # remember loss of glmnet is normalized by sum of weights
+        # # when taking newton step adjust by weight_sel.sum()
+
+        # delta = Q_sel @ delta * weight_sel.sum() 
+        # noisy_mle = stacked + delta # unitless scale
+
+        penalized = penfac > 0
+        sel_P = -np.diag(signs[penalized]) @ np.eye(Q_full.shape[0])[penalized]
+
+        ## the GLM's coef and intercept are on the original scale
+        ## we transform them here to the (typically) unitless "standardized" scale
+        full_mle = D.raw_to_scaled(unreg_GLM.state_)
+        if FL.fit_intercept:
+            full_mle = full_mle._stack
+        else:
+            full_mle = full_mle.coef
+
+        ## iterate over coordinates
+        Ls = np.zeros_like(stacked)
+        Us = np.zeros_like(stacked)
+        mles = np.zeros_like(stacked)
+        pvals = np.zeros_like(stacked)
+
+        transform_to_raw = (D.unscaler_ @
+                            np.identity(D.shape[1]))
+        if not FL.fit_intercept:
+            transform_to_raw = transform_to_raw[1:,1:]
+
+        linear = sel_P
+        offset = np.zeros(sel_P.shape[0]) # -signs[penalized] * delta[penalized]
+        active_con = AffineConstraint(linear=linear,
+                                      offset=offset,
+                                      observed=stacked)
+        inactive = True
+        if inactive:
+            pf = FL.regularizer_.penalty_factor
+            scale = 1 / (pf + (pf <= 0))
+
+            logl_score = FL.state_.logl_score(FL._family,
+                                              Y_sel,
+                                              weight_sel / weight_sel.sum())
+
+            # X_{-E}'(Y-X\hat{\beta}_E) -- \hat{\beta}_E is the LASSO soln, not GLM !
+            # this is (2nd order Taylor series sense) equivalent to
+            # X_{-E}'(Y-X\bar{\beta}_E) + X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
+            # with \bar{\beta}_E the GLM soln
+
+            score_ = (FL.design_.T @ logl_score)[1:]
+            score_ *= scale
+            score_ = score_[inactive_set]
+            # we now know that `score_` is bounded by \pm lambda_val
+
+            I = scipy.sparse.eye(score_.shape[0])
+            L = scipy.sparse.vstack([I, -I])
+            O = np.ones(L.shape[0]) * lambda_val
+
+            inactive_con = AffineConstraint(linear=L,
+                                            offset=O,
+                                            observed=score_)
+
+        for i in range(transform_to_raw.shape[0]):
+            ## call selection_interval and return
+            L, U, mle, pval, _ = _split_interval(
+                active_con=active_con,
+                Q_noisy=Q_noisy * unreg_GLM.dispersion_,
+                Q_full=Q_full * unreg_GLM.dispersion_,
+                noisy_observation=noisy_mle, # these must be same scale / shift as glmnet
+                observation=full_mle, # these must be same scale / shift as glmnet
+                direction_of_interest=transform_to_raw[i], # this matrix describes the map from glmnet("transform") coords to raw("original") scale
+                level=level
+            )
+            Ls[i] = L
+            Us[i] = U
+            mles[i] = mle
+            pvals[i] = pval
+
+        idx = active_set.tolist()
+        if FL.fit_intercept:
+            idx = ['intercept'] + idx
+
+        return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
     else:
-        penfac = np.ones(active_set.shape[0])
-
-    signs = np.sign(FL.coef_[active_set])
-
-    noisy_mle = D.raw_to_scaled(unreg_sel_GLM.state_)
-    if FL.fit_intercept:
-        penfac = np.hstack([0, penfac])
-        signs = np.hstack([0, signs])
-        stacked = np.hstack([FL.state_.intercept,
-                             FL.state_.coef[active_set]])
-        noisy_mle = noisy_mle._stack
-    else:
-        stacked = FL.state_.coef[active_set]
-        noisy_mle = noisy_mle.coef
-
-    # delta = lambda_val * penfac * signs
-
-    # # remember loss of glmnet is normalized by sum of weights
-    # # when taking newton step adjust by weight_sel.sum()
-    
-    # delta = Q_sel @ delta * weight_sel.sum() 
-    # noisy_mle = stacked + delta # unitless scale
-
-    penalized = penfac > 0
-    sel_P = -np.diag(signs[penalized]) @ np.eye(Q_full.shape[0])[penalized]
-#    assert (np.all(sel_P @ noisy_mle < -signs[penalized] * delta[penalized]))
-
-    ## the GLM's coef and intercept are on the original scale
-    ## we transform them here to the (typically) unitless "standardized" scale
-    full_mle = D.raw_to_scaled(unreg_GLM.state_)
-    if FL.fit_intercept:
-        full_mle = full_mle._stack
-    else:
-        full_mle = full_mle.coef
-
-    ## iterate over coordinates
-    Ls = np.zeros_like(stacked)
-    Us = np.zeros_like(stacked)
-    mles = np.zeros_like(stacked)
-    pvals = np.zeros_like(stacked)
-
-    transform_to_raw = (D.unscaler_ @
-                        np.identity(D.shape[1]))
-    if not FL.fit_intercept:
-        transform_to_raw = transform_to_raw[1:,1:]
-
-    linear = sel_P
-    offset = np.zeros(sel_P.shape[0]) # -signs[penalized] * delta[penalized]
-    active_con = AffineConstraint(linear=linear,
-                                  offset=offset,
-                                  observed=stacked)
-    inactive = True
-    if inactive:
-        pf = FL.regularizer_.penalty_factor
-        scale = 1 / (pf + (pf <= 0))
-
-        logl_score = FL.state_.logl_score(FL._family,
-                                          Y_sel,
-                                          weight_sel / weight_sel.sum())
-
-        # X_{-E}'(Y-X\hat{\beta}_E) -- \hat{\beta}_E is the LASSO soln, not GLM !
-        # this is (2nd order Taylor series sense) equivalent to
-        # X_{-E}'(Y-X\bar{\beta}_E) + X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
-        # with \bar{\beta}_E the GLM soln
-        
-        score_ = (FL.design_.T @ logl_score)[1:]
-        score_ *= scale
-        score_ = score_[inactive_set]
-        # we now know that `score_` is bounded by \pm lambda_val
-
-        I = scipy.sparse.eye(score_.shape[0])
-        L = scipy.sparse.vstack([I, -I])
-        O = np.ones(L.shape[0]) * lambda_val
-
-        inactive_con = AffineConstraint(linear=L,
-                                        offset=O,
-                                        observed=score_)
-
-    for i in range(transform_to_raw.shape[0]):
-        ## call selection_interval and return
-        L, U, mle, p = _split_interval(
-            active_con=active_con,
-            Q_noisy=Q_noisy * unreg_GLM.dispersion_,
-            Q_full=Q_full * unreg_GLM.dispersion_,
-            noisy_observation=noisy_mle,
-            observation=full_mle,
-            direction_of_interest=transform_to_raw[i],
-            level=level
-        )
-        Ls[i] = L
-        Us[i] = U
-        mles[i] = mle
-        pvals[i] = p
-    
-    idx = (active_set).tolist()
-    if FL.fit_intercept:
-        idx = ['intercept'] + idx
-    return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
-
+        return None
 
 def _split_interval(active_con,
                     Q_noisy,
@@ -349,84 +360,23 @@ def _split_interval(active_con,
     noisy_estimate = (direction_of_interest * noisy_observation).sum()
     estimate = (direction_of_interest * observation).sum()
 
+    slice_dir = Q_full @ direction_of_interest / full_var
     (lower_bound,
      upper_bound) = active_con.interval_constraints(noisy_estimate,
-                                                    Q_full @ direction_of_interest / full_var,
+                                                    slice_dir,
                                                     tol=tol)
 
     sigma = np.sqrt(full_var)
     smoothing_sigma = np.sqrt(max(noisy_var - full_var, 0))
 
-    if smoothing_sigma > 1e-6 * sigma:
+    print(lower_bound, upper_bound, sigma, smoothing_sigma**2)
 
-        grid = np.linspace(estimate - 10 * sigma, estimate + 10 * sigma, 2001)
-        weight = (
-            normal_dbn.cdf(
-                (upper_bound - grid) / (smoothing_sigma)
-            ) - normal_dbn.cdf(
-                (lower_bound - grid) / (smoothing_sigma)
-            )
-        )
-        weight *= normal_dbn.pdf((grid - estimate) / sigma)
-
-        sel_distr = discrete_family(grid, weight)
-        L, U = sel_distr.equal_tailed_interval(estimate,
-                                               alpha=1-level)
-        mle, _, _ = sel_distr.MLE(estimate)
-        mle *= sigma**2; mle += estimate
-        pval = sel_distr.cdf(-estimate / sigma**2, estimate)
-        pval = 2 * min(pval, 1-pval)
-        L *= sigma**2; L += estimate
-        U *= sigma**2; U += estimate
-    else:
-        warnings.warn('assuming data for selection is same as for inference -- using hard selection')
-        
-        lb = estimate - 20 * sigma
-        ub = estimate + 20 * sigma
-
-        if estimate < lower_bound or estimate > upper_bound:
-            warn('Constraints not satisfied: returning [-np.inf, np.inf]')
-            return -np.inf, np.inf, np.nan, np.nan
-        
-        def F(theta):
-            
-            Z = (estimate - theta) / sigma
-            Z_L = (lower_bound - theta) / sigma
-            Z_U = (upper_bound - theta) / sigma
-            num = norm_interval(Z_L, Z)
-            den = norm_interval(Z_L, Z_U)
-            if Z_L > 0 and den < 1e-10:
-                C = np.fabs(Z_L)
-                D = Z-Z_L
-                cdf = 1-np.exp(-C*D)
-            elif Z_U < 0 and den < 1e-10:
-                C = np.fabs(Z_U)
-                D = Z_U-Z
-                if C*D < 0:
-                    raise ValueError
-                cdf = np.exp(-C*D)
-            else:
-                cdf = num / den
-            return cdf
-            
-        
-        pval = F(0)
-        pval = 2 * min(pval, 1-pval)
-
-        lb = lower_bound - 20 * sigma
-        ub = upper_bound + 20 * sigma
-
-        alpha = 0.5 * (1 - level)
-        L = find_root(F, 1.0 - 0.5 * alpha, lb, ub)
-        if np.isnan(L):
-            L = -np.inf
-        U = find_root(F, 0.5 * alpha, lb, ub)
-        if np.isnan(U):
-            U = np.inf
-
-        mle = np.nan
-
-    return L, U, mle, pval
+    return _truncated_inference(estimate,
+                                sigma,
+                                smoothing_sigma,
+                                lower_bound,
+                                upper_bound,
+                                level=level)
 
 def norm_interval(lower, upper):
     r"""
@@ -456,7 +406,8 @@ def norm_interval(lower, upper):
     elif upper < 0:
         if upper < -4:
             return np.exp(-np.fabs(upper*(upper-lower)))
-    
+        else:
+            return cdf(-lower) - cdf(-upper)
     else:
         return cdf(upper) - cdf(lower)
 
@@ -552,7 +503,7 @@ class discrete_family(object):
     def theta(self, _theta):
         if _theta != self._theta:
             _thetaX = _theta * self.sufficient_stat + self._lw
-            _largest = _thetaX.max() - 5 # try to avoid over/under flow, 5 seems arbitrary
+            _largest = _thetaX.max() - 15 # try to avoid over/under flow, 5 seems arbitrary
             _exp_thetaX = np.exp(_thetaX - _largest)
             _prod = _exp_thetaX
             self._partition = np.sum(_prod)
@@ -909,3 +860,91 @@ class discrete_family(object):
 
         return cur_est, 1. / hessian, grad
 
+def _truncated_inference(estimate,
+                         sigma,
+                         smoothing_sigma,
+                         lower_bound,
+                         upper_bound,
+                         basept=None,
+                         level=0.9):
+
+    if basept is None:
+        basept = estimate
+
+    if smoothing_sigma > 1e-6 * sigma:
+
+        grid = np.linspace(basept - 10 * sigma, basept + 10 * sigma, 2001)
+
+        weight = (normal_dbn.cdf((upper_bound - grid) / smoothing_sigma)
+                  - normal_dbn.cdf((lower_bound - grid) / smoothing_sigma))
+
+        weight *= normal_dbn.pdf((grid - basept) / sigma)
+
+        sel_distr = discrete_family(grid, weight)
+
+        use_sample = True
+        if use_sample:
+            rng = np.random.default_rng(0)
+            sample = rng.standard_normal(2000) * sigma + basept
+            weight_s = (normal_dbn.cdf((upper_bound - sample) / smoothing_sigma)
+                      - normal_dbn.cdf((lower_bound - sample) / smoothing_sigma))
+            sel_distr =  discrete_family(sample, weight_s)
+
+        L, U = sel_distr.equal_tailed_interval(estimate,
+                                               alpha=1-level)
+        mle, _, _ = sel_distr.MLE(estimate)
+        mle *= sigma**2; mle += estimate
+        pval = sel_distr.cdf(-basept / sigma**2, estimate)
+        pval = 2 * min(pval, 1-pval)
+        L *= sigma**2; L += basept
+        U *= sigma**2; U += basept
+
+    else:
+        warnings.warn('assuming data for selection is same as for inference -- using hard selection')
+        
+        lb = estimate - 20 * sigma
+        ub = estimate + 20 * sigma
+
+        if estimate < lower_bound or estimate > upper_bound:
+            warn('Constraints not satisfied: returning [-np.inf, np.inf]')
+            return -np.inf, np.inf, np.nan, np.nan
+        
+        def F(theta):
+            
+            Z = (estimate - theta) / sigma
+            Z_L = (lower_bound - theta) / sigma
+            Z_U = (upper_bound - theta) / sigma
+            num = norm_interval(Z_L, Z)
+            den = norm_interval(Z_L, Z_U)
+            if Z_L > 0 and den < 1e-10:
+                C = np.fabs(Z_L)
+                D = Z-Z_L
+                cdf = 1-np.exp(-C*D)
+            elif Z_U < 0 and den < 1e-10:
+                C = np.fabs(Z_U)
+                D = Z_U-Z
+                if C*D < 0:
+                    raise ValueError
+                cdf = np.exp(-C*D)
+            else:
+                cdf = num / den
+            return cdf
+            
+        
+        pval = F(0)
+        pval = 2 * min(pval, 1-pval)
+
+        lb = lower_bound - 20 * sigma
+        ub = upper_bound + 20 * sigma
+
+        alpha = 0.5 * (1 - level)
+        L = find_root(F, 1.0 - 0.5 * alpha, lb, ub)
+        if np.isnan(L):
+            L = -np.inf
+        U = find_root(F, 0.5 * alpha, lb, ub)
+        if np.isnan(U):
+            U = np.inf
+
+        mle = np.nan
+        
+    return L, U, mle, pval, sel_distr
