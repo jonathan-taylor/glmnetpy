@@ -6,7 +6,7 @@ import statsmodels.api as sm
 
 from glmnet import GLMNet
 from glmnet.inference import (lasso_inference,
-                              _truncated_inference)
+                              TruncatedGaussian)
 
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('fit_intercept', [True, False])
@@ -131,11 +131,11 @@ def run_inference(n,
 
         X = np.identity(p)
         Y = rng.standard_normal(p) 
-        Df = pd.DataFrame({'response':Y})
         if alt:
-            beta[subs] = rng.standard_normal(s) * 2
-        mu = X @ beta
+            beta[subs] = rng.standard_normal(s) * 2 + 3 * rng.choice([1,-1])
+        mu = beta
         Y += mu
+        Df = pd.DataFrame({'response':Y})
         
         GN = GLMNet(response_id='response',
                     family=fam,
@@ -143,11 +143,10 @@ def run_inference(n,
                     standardize=False,
                     penalty_factor=penalty_factor)
 
-
         lamval = 2
         Y_sel = Y + np.sqrt((1 - prop) / prop) * rng.standard_normal(Y.shape)
-
         active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
+
         Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
         X_sel = np.sqrt(prop) * X
         GN.fit(X, Df)
@@ -158,6 +157,37 @@ def run_inference(n,
                                  (X, Df, None),
                                  dispersion=1)
             df['target'] = mu[df.index]
+
+            pivots = []
+            signs = np.sign(Y_sel[df.index])
+            assert np.all(Y_sel[df.index] * signs >= lamval * penalty_factor[df.index])
+
+            for j, s in zip(df.index, signs):
+                if s == 1:
+                    upper_bound = np.inf
+                    if penalty_factor is not None:
+                        lower_bound = lamval * penalty_factor[j]
+                    else:
+                        lower_bound = lamval
+                else:
+                    if penalty_factor is not None:
+                        upper_bound = -lamval * penalty_factor[j]
+                    else:
+                        upper_bound = -lamval
+                    lower_bound = -np.inf
+                    
+                tg = df.loc[j,'TG']
+
+                TG = TruncatedGaussian(estimate=Y[j],
+                                       sigma=1,
+                                       smoothing_sigma=np.sqrt((1 - prop) / prop),
+                                       lower_bound=lower_bound,
+                                       upper_bound=upper_bound,
+                                       level=0.90)
+                pval = TG.pvalue()
+                pivots.append(TG.pvalue(null_value=df.loc[j,'target']))
+                assert np.allclose(pval, df.loc[j]['pval'])
+            df['pivot'] = pivots
         else:
             return None
     if alt and df is not None:
@@ -176,7 +206,8 @@ def main(fit_intercept=True,
          family='gaussian',
          alt=False,
          cv=False,
-         orthogonal=False):
+         orthogonal=False,
+         penalty_facs=False):
 
     ncover = 0
     nsel = 0
@@ -193,24 +224,29 @@ def main(fit_intercept=True,
                            family=family,
                            alt=alt,
                            cv=cv,
-                           orthogonal=orthogonal)
+                           orthogonal=orthogonal,
+                           penalty_facs=penalty_facs)
         if df is not None:
             dfs.append(df)
         if len(dfs) > 0:
             all_df = pd.concat(dfs)
-            ncover += ((all_df['lower'] < 0) & (all_df['upper'] > 0)).sum()
+            ncover += ((all_df['lower'] < all_df['target']) & (all_df['upper'] > all_df['target'])).sum()
             nsel += all_df.shape[0]
 
-            print('cover:', ncover / nsel, 'power:', (all_df['pval'] < 0.05).mean())
+            print('cover:',
+                  ncover / nsel, 'power:',
+                  (all_df['pval'] < 0.05).mean(),
+                  (all_df['pivot'] < 0.05).mean(), all_df['pivot'].std())
 
 
         
 def test_truncated_inference(B=1000,
-                             noisy_sigma=0.5,
+                             smoothing_sigma=np.sqrt(1/3),
                              sigma=1,
-                             upper_bound=5,
-                             lower_bound=2,
-                             alt=False):
+                             upper_bound=None,
+                             lower_bound=None,
+                             alt=False,
+                             level=0.9):
 
     pvals = []
     cover = []
@@ -219,24 +255,27 @@ def test_truncated_inference(B=1000,
     
     for _ in range(B):
         mu = rng.standard_normal() + 3
-        lower_bound = rng.uniform(0, 2)
-        upper_bound = lower_bound + rng.uniform(3, 5)
+        if not alt:
+            mu *= 0
+        if lower_bound is None or upper_bound is None:
+            lower_bound = rng.uniform(0, 2)
+            upper_bound = lower_bound + rng.uniform(3, 5)
         while True:
             Z = rng.standard_normal() * sigma
-            if alt:
-                Z += mu
-            Z_noisy = Z + rng.standard_normal() * noisy_sigma
+            Z += mu
+            Z_noisy = Z + rng.standard_normal() * smoothing_sigma
             if (Z_noisy > lower_bound) and (Z_noisy < upper_bound):
-                L, U, _, pval, D = _truncated_inference(Z,
-                                                        sigma,
-                                                        noisy_sigma,
-                                                        lower_bound,
-                                                        upper_bound,
-                                                        basept=Z,
-                                                        level=0.90)
+                TG = TruncatedGaussian(estimate=Z,
+                                       sigma=sigma,
+                                       smoothing_sigma=smoothing_sigma,
+                                       lower_bound=lower_bound,
+                                       upper_bound=upper_bound,
+                                       level=level)
+                
+                (L, U), mle, pval = (TG.interval(), TG.MLE(), TG.pvalue())
+
                 cover.append((L<mu) * (U>mu))
                 pvals.append(pval)
                 print(np.mean(cover), np.mean(np.array(pvals) < 0.05))
                 break
             
-    return D

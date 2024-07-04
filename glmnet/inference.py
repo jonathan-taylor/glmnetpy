@@ -23,6 +23,94 @@ from dataclasses import dataclass
 from typing import Optional
 
 @dataclass
+class TruncatedGaussian(object):
+    
+    estimate: float
+    sigma: float
+    smoothing_sigma: float
+    lower_bound: float
+    upper_bound: float
+    level: Optional[float] = 0.9
+    num_sd: Optional[float] = 10
+    num_grid: Optional[float] = 4000
+    use_sample: Optional[bool] = False
+    seed: Optional[int] = 0
+
+    def _get_family(self,
+                    basept=None):
+   
+        if basept is None:
+            basept = self.estimate
+            
+        self._rng = np.random.default_rng(self.seed)
+        
+        if not self.use_sample:
+            grid = np.linspace(basept - self.num_sd * self.sigma,
+                               basept + self.num_sd * self.sigma, self.num_grid)
+
+            weight = (normal_dbn.cdf((self.upper_bound - grid) / self.smoothing_sigma)
+                      - normal_dbn.cdf((self.lower_bound - grid) / self.smoothing_sigma))
+
+            weight *= normal_dbn.pdf((grid - basept) / self.sigma)
+
+            return discrete_family(grid, weight)
+
+        else:
+            sample = self._rng.standard_normal(self.num_grid) * self.sigma + basept
+            weight = (normal_dbn.cdf((self.upper_bound - sample) / self.smoothing_sigma)
+                      - normal_dbn.cdf((self.lower_bound - sample) / self.smoothing_sigma))
+            return discrete_family(sample, weight)
+
+    def pvalue(self,
+               null_value=0,
+               alternative='twosided',
+               basept=None):
+
+        if basept is None:
+            basept = null_value
+
+        if alternative not in ['twosided', 'greater', 'less']:
+            raise ValueError("alternative should be one of ['twosided', 'greater', 'less']")
+        _family = self._get_family(basept=basept)
+        tilt = (null_value - basept) / self.sigma**2
+        if alternative in ['less', 'twosided']:
+            _cdf = _family.cdf(tilt, x=self.estimate)
+            if alternative == 'less':
+                pvalue = _cdf
+            else:
+                pvalue = 2 * min(_cdf, 1 - _cdf)
+        else:
+            pvalue = _family.sf(tilt, x=self.estimate)
+        return pvalue
+
+    def interval(self,
+                 basept=None):
+                 
+        if basept is None:
+            basept = self.estimate
+            
+        _family = self._get_family(basept=basept)
+
+        L, U = _family.equal_tailed_interval(self.estimate,
+                                             alpha=1-self.level)
+        L *= self.sigma**2; L += basept
+        U *= self.sigma**2; U += basept
+
+        return L, U
+
+    def MLE(self,
+            basept=None):
+
+        if basept is None:
+            basept = self.estimate
+            
+        _family = self._get_family(basept=basept)
+
+        mle, _, _ = _family.MLE(self.estimate)
+        mle *= self.sigma**2; mle += basept
+        return mle
+    
+@dataclass
 class AffineConstraint(object):
 
     linear: np.ndarray
@@ -242,7 +330,8 @@ def lasso_inference(glmnet_obj,
         Us = np.zeros_like(stacked)
         mles = np.zeros_like(stacked)
         pvals = np.zeros_like(stacked)
-
+        TGs = []
+        
         transform_to_raw = (D.unscaler_ @
                             np.identity(D.shape[1]))
         if not FL.fit_intercept:
@@ -282,25 +371,27 @@ def lasso_inference(glmnet_obj,
 
         for i in range(transform_to_raw.shape[0]):
             ## call selection_interval and return
-            L, U, mle, pval, _ = _split_interval(
-                active_con=active_con,
-                Q_noisy=Q_noisy * unreg_GLM.dispersion_,
-                Q_full=Q_full * unreg_GLM.dispersion_,
-                noisy_observation=noisy_mle, # these must be same scale / shift as glmnet
-                observation=full_mle, # these must be same scale / shift as glmnet
-                direction_of_interest=transform_to_raw[i], # this matrix describes the map from glmnet("transform") coords to raw("original") scale
-                level=level
-            )
+            TG = _split_interval(active_con=active_con,
+                                 Q_noisy=Q_noisy * unreg_GLM.dispersion_,
+                                 Q_full=Q_full * unreg_GLM.dispersion_,
+                                 noisy_observation=noisy_mle, # these must be same scale / shift as glmnet
+                                 observation=full_mle, # these must be same scale / shift as glmnet
+                                 direction_of_interest=transform_to_raw[i], # this matrix describes the map from glmnet("transform") coords to raw("original") scale
+                                 level=level)
+
+            (L, U), mle, pval = (TG.interval(), TG.MLE(), TG.pvalue())
+
             Ls[i] = L
             Us[i] = U
             mles[i] = mle
             pvals[i] = pval
-
+            TGs.append(TG)
+            
         idx = active_set.tolist()
         if FL.fit_intercept:
             idx = ['intercept'] + idx
 
-        return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx)
+        return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us, 'TG':TGs}, index=idx)
     else:
         return None
 
@@ -369,16 +460,14 @@ def _split_interval(active_con,
     sigma = np.sqrt(full_var)
     smoothing_sigma = np.sqrt(max(noisy_var - full_var, 0))
 
-    print(lower_bound, upper_bound, sigma, smoothing_sigma**2)
-
-    return _truncated_inference(estimate,
-                                sigma,
-                                smoothing_sigma,
-                                lower_bound,
-                                upper_bound,
-                                level=level)
-
-def norm_interval(lower, upper):
+    return TruncatedGaussian(estimate=estimate,
+                             sigma=sigma,
+                             smoothing_sigma=smoothing_sigma,
+                             lower_bound=lower_bound,
+                             upper_bound=upper_bound,
+                             level=level)
+    
+def _norm_interval(lower, upper):
     r"""
     A multiprecision evaluation of
 
@@ -870,6 +959,7 @@ def _truncated_inference(estimate,
 
     if basept is None:
         basept = estimate
+    noisy_sigma = np.sqrt(smoothing_sigma**2 + sigma**2)
 
     if smoothing_sigma > 1e-6 * sigma:
 
@@ -882,7 +972,7 @@ def _truncated_inference(estimate,
 
         sel_distr = discrete_family(grid, weight)
 
-        use_sample = True
+        use_sample = False
         if use_sample:
             rng = np.random.default_rng(0)
             sample = rng.standard_normal(2000) * sigma + basept
@@ -914,8 +1004,8 @@ def _truncated_inference(estimate,
             Z = (estimate - theta) / sigma
             Z_L = (lower_bound - theta) / sigma
             Z_U = (upper_bound - theta) / sigma
-            num = norm_interval(Z_L, Z)
-            den = norm_interval(Z_L, Z_U)
+            num = _norm_interval(Z_L, Z)
+            den = _norm_interval(Z_L, Z_U)
             if Z_L > 0 and den < 1e-10:
                 C = np.fabs(Z_L)
                 D = Z-Z_L
