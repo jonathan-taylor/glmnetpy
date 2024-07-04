@@ -161,39 +161,41 @@ def run_inference(n,
             pivots = []
             signs = np.sign(Y_sel[df.index])
             assert np.all(Y_sel[df.index] * signs >= lamval * penalty_factor[df.index])
-
-            for j, s in zip(df.index, signs):
-                if s == 1:
-                    upper_bound = np.inf
-                    if penalty_factor is not None:
-                        lower_bound = lamval * penalty_factor[j]
-                    else:
-                        lower_bound = lamval
-                else:
-                    if penalty_factor is not None:
-                        upper_bound = -lamval * penalty_factor[j]
-                    else:
-                        upper_bound = -lamval
-                    lower_bound = -np.inf
-                    
-                tg = df.loc[j,'TG']
-
-                TG = TruncatedGaussian(estimate=Y[j],
-                                       sigma=1,
-                                       smoothing_sigma=np.sqrt((1 - prop) / prop),
-                                       lower_bound=lower_bound,
-                                       upper_bound=upper_bound,
-                                       level=0.90)
-                pval = TG.pvalue()
-                pivots.append(TG.pvalue(null_value=df.loc[j,'target']))
-                assert np.allclose(pval, df.loc[j]['pval'])
-            df['pivot'] = pivots
         else:
             return None
     if alt and df is not None:
         if family == 'probit' and not set(subs).issubset(active_set):
             df['target'] *= np.nan
             
+    if df is not None:
+        df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
+        # for j, s in zip(df.index, signs):
+        #     if s == 1:
+        #         upper_bound = np.inf
+        #         if penalty_factor is not None:
+        #             lower_bound = lamval * penalty_factor[j]
+        #         else:
+        #             lower_bound = lamval
+        #     else:
+        #         if penalty_factor is not None:
+        #             upper_bound = -lamval * penalty_factor[j]
+        #         else:
+        #             upper_bound = -lamval
+        #         lower_bound = -np.inf
+
+        #     tg = df.loc[j,'TG']
+
+        #     TG = TruncatedGaussian(estimate=Y[j],
+        #                            sigma=1,
+        #                            smoothing_sigma=np.sqrt((1 - prop) / prop),
+        #                            lower_bound=lower_bound,
+        #                            upper_bound=upper_bound,
+        #                            level=0.90)
+        #     pval = TG.pvalue()
+        #     pivots.append(TG.pvalue(null_value=df.loc[j,'target']))
+        #     assert np.allclose(pval, df.loc[j]['pval'])
+        # df['pivot'] = pivots
+        
     return df
 
 
