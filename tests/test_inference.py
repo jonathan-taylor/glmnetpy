@@ -8,23 +8,6 @@ from glmnet import GLMNet
 from glmnet.inference import (lasso_inference,
                               TruncatedGaussian)
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('p', [103])
-@pytest.mark.parametrize('n', [500])
-def test_inference(n,
-                   p,
-                   fit_intercept,
-                   standardize,
-                   ntrial=10):
-    # run a few times to be sure KKT conditions not violated
-
-    for _ in range(ntrial):
-        run_inference(n,
-                      p,
-                      fit_intercept,
-                      standardize)
-
 def test_Auto():
 
     df = sm.datasets.get_rdataset('Auto', package='ISLR').data
@@ -48,161 +31,195 @@ def test_Auto():
                          (X[:m], Df.iloc[:m], None),
                          (X, Df, None))
 
-def run_inference(n,
-                  p,
-                  fit_intercept,
-                  standardize,
-                  rng=None,
-                  alt=False,
-                  s=3,
-                  prop=0.75,
-                  penalty_facs=True,
-                  family='gaussian',
-                  orthogonal=False,
-                  cv=False):
+def sample_orthogonal(rng=None,
+                      p=50,
+                      s=5,
+                      penalty_facs=False,
+                      alt=True,
+                      prop=0.8):
+    if rng is None:
+        rng = np.random.default_rng(0)
+    beta = np.zeros(p)
+    subs = rng.choice(p, s, replace=False)
+
+    X = np.identity(p)
+    Y = rng.standard_normal(p) 
+    if alt:
+        beta[subs] = rng.standard_normal(s) * 2 + 3 * rng.choice([1,-1])
+    mu = beta
+    Y += mu
+    Df = pd.DataFrame({'response':Y})
+
+    penalty_factor = np.ones(p)
+    if penalty_facs:
+        penalty_factor[:p//10] = 0.5
+        penalty_factor[p//10:2*p//10] = 0
+        
+    penalty_factor *= p / penalty_factor.sum()
+
+    GN = GLMNet(response_id='response',
+                fit_intercept=False,
+                standardize=False,
+                penalty_factor=penalty_factor)
+
+    lamval = 2
+    Y_sel = Y + np.sqrt((1 - prop) / prop) * rng.standard_normal(Y.shape)
+    active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
+
+    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
+    X_sel = np.sqrt(prop) * X
+    GN.fit(X, Df)
+    active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
+
+    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
+    X_sel = np.sqrt(prop) * X
+    pivots = []
+    test_pvals = []
+
+    if active_naive.shape[0] > 0:
+        df = lasso_inference(GN, 
+                             prop * lamval / p,
+                             (X_sel, Df_sel, None),
+                             (X, Df, None),
+                             dispersion=1)
+        df['target'] = mu[df.index]
+
+        signs = np.sign(Y_sel[df.index])
+        assert np.all(Y_sel[df.index] * signs >= lamval * GN.penalty_factor[df.index])
+    else:
+        return None
+
+    if df is not None:
+        for j, s in zip(df.index, signs):
+            if s == 1:
+                upper_bound = np.inf
+                if penalty_factor is not None:
+                    lower_bound = lamval * penalty_factor[j]
+                else:
+                    lower_bound = lamval
+            else:
+                if penalty_factor is not None:
+                    upper_bound = -lamval * penalty_factor[j]
+                else:
+                    upper_bound = -lamval
+                lower_bound = -np.inf
+
+            tg = df.loc[j,'TG']
+
+            TG = TruncatedGaussian(estimate=Y[j],
+                                   sigma=1,
+                                   smoothing_sigma=np.sqrt((1 - prop) / prop),
+                                   lower_bound=lower_bound,
+                                   upper_bound=upper_bound,
+                                   level=0.90)
+            pval = TG.pvalue()
+            pivots.append(TG.pvalue(null_value=df.loc[j,'target']))
+            test_pvals.append(TG.pvalue(null_value=0))
+            assert np.allclose(pval, df.loc[j]['pval'])
+        df['pivot'] = pivots
+        df['pval_byhand'] = test_pvals
+        assert np.allclose(df['pval'], df['pval_byhand'])
+
+    return df
+
+def sample_gaussian(n,
+                    p,
+                    fit_intercept,
+                    standardize,
+                    rng=None,
+                    alt=False,
+                    s=10,
+                    prop=0.8,
+                    penalty_facs=False,
+                    cv=True):
 
     if rng is None:
         rng = np.random.default_rng(0)
     beta = np.zeros(p)
     subs = rng.choice(p, s, replace=False)
 
-    if not orthogonal:
-        X = rng.standard_normal((n, p))
-        D = np.linspace(1, p, p) / p + 0.2
-        X *= D[None,:]
-        Y = rng.standard_normal(n) * np.fabs(1+np.random.standard_normal())
-        if alt:
-            beta[subs] = rng.uniform(3, 5) * rng.choice([-1,1], size=s, replace=True) / np.sqrt(n)
+    X = rng.standard_normal((n, p))
+    D = np.linspace(1, p, p) / p + 0.2
+    X *= D[None,:]
+    Y = rng.standard_normal(n) * np.fabs(1+np.random.standard_normal())
+    if alt:
+        beta[subs] = rng.uniform(3, 5) * rng.choice([-1,1], size=s, replace=True) / np.sqrt(n)
 
-        mu = X @ beta
-        Y += mu
+    mu = X @ beta
+    Y += mu
 
-    if family == 'gaussian':
-        fam = sm.families.Gaussian()
-    elif family == 'probit':
-        fam = sm.families.Binomial(link=sm.families.links.Probit())
-        Y = (mu + rng.standard_normal(n)) > 0
-    else:
-        raise ValueError('only testing "gaussian" and "probit"')
-    
     if penalty_facs:
         penalty_factor = np.ones(p)
         penalty_factor[:10] = 0.5
     else:
         penalty_factor = None
 
-    if not orthogonal:
-        
-        GN = GLMNet(response_id='response',
-                    fit_intercept=fit_intercept,
-                    standardize=standardize,
-                    family=fam,
-                    penalty_factor=penalty_factor)
+    GN = GLMNet(response_id='response',
+                fit_intercept=fit_intercept,
+                standardize=standardize,
+                penalty_factor=penalty_factor)
 
-        m = int(prop*n)
-        
-        Df = pd.DataFrame({'response':Y})
-        GN.fit(X[:m], Df.iloc[:m]) 
-        if cv:
-            GN.cross_validation_path(X[:m], Df.iloc[:m])
-            lamval = GN.index_best_['Mean Squared Error']
-        else:
-            eps = rng.standard_normal((X.shape[0], 1000))
-            lamval = 1.2 * np.fabs(X.T @ eps).max() / X.shape[0]
-        df = lasso_inference(GN, 
-                             lamval,
-                             (X[:m], Df.iloc[:m], None),
-                             (X, Df, None))
+    m = int(prop*n)
 
-        if df is not None:
-            if fit_intercept:
-                active_set = np.array(df.index[1:]).astype(int)
-            else:
-                active_set = np.array(df.index).astype(int)
-            X_sel = X[:,active_set]
-
-            if fit_intercept:
-                X_sel = np.column_stack([np.ones(X_sel.shape[0]), X_sel])
-            targets = np.linalg.pinv(X_sel) @ mu
-
-            df['target'] = targets
-
+    Df = pd.DataFrame({'response':Y})
+    GN.fit(X[:m], Df.iloc[:m]) 
+    cv = True
+    if cv:
+        GN.cross_validation_path(X[:m], Df.iloc[:m])
+        lamval = GN.index_best_['Mean Squared Error']
     else:
+        eps = rng.standard_normal((X.shape[0], 1000))
+        lamval = 1.2 * np.fabs(X.T @ eps).max() / X.shape[0]
+    df = lasso_inference(GN, 
+                         lamval,
+                         (X[:m], Df.iloc[:m], None),
+                         (X, Df, None))
 
-        X = np.identity(p)
-        Y = rng.standard_normal(p) 
-        if alt:
-            beta[subs] = rng.standard_normal(s) * 2 + 3 * rng.choice([1,-1])
-        mu = beta
-        Y += mu
-        Df = pd.DataFrame({'response':Y})
-        
-        GN = GLMNet(response_id='response',
-                    family=fam,
-                    fit_intercept=False,
-                    standardize=False,
-                    penalty_factor=penalty_factor)
-
-        lamval = 2
-        Y_sel = Y + np.sqrt((1 - prop) / prop) * rng.standard_normal(Y.shape)
-        active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
-
-        Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
-        X_sel = np.sqrt(prop) * X
-        GN.fit(X, Df)
-        if active_naive.shape[0] > 0:
-            df = lasso_inference(GN, 
-                                 prop * lamval / p,
-                                 (X_sel, Df_sel, None),
-                                 (X, Df, None),
-                                 dispersion=1)
-            df['target'] = mu[df.index]
-
-            pivots = []
-            signs = np.sign(Y_sel[df.index])
-            assert np.all(Y_sel[df.index] * signs >= lamval * penalty_factor[df.index])
+    if df is not None:
+        if fit_intercept:
+            active_set = np.array(df.index[1:]).astype(int)
         else:
-            return None
-    if alt and df is not None:
-        if family == 'probit' and not set(subs).issubset(active_set):
-            df['target'] *= np.nan
+            active_set = np.array(df.index).astype(int)
+        X_sel = X[:,active_set]
+
+        if fit_intercept:
+            X_sel = np.column_stack([np.ones(X_sel.shape[0]), X_sel])
+        targets = np.linalg.pinv(X_sel) @ mu
+
+        df['target'] = targets
             
     if df is not None:
         df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
-        # for j, s in zip(df.index, signs):
-        #     if s == 1:
-        #         upper_bound = np.inf
-        #         if penalty_factor is not None:
-        #             lower_bound = lamval * penalty_factor[j]
-        #         else:
-        #             lower_bound = lamval
-        #     else:
-        #         if penalty_factor is not None:
-        #             upper_bound = -lamval * penalty_factor[j]
-        #         else:
-        #             upper_bound = -lamval
-        #         lower_bound = -np.inf
-
-        #     tg = df.loc[j,'TG']
-
-        #     TG = TruncatedGaussian(estimate=Y[j],
-        #                            sigma=1,
-        #                            smoothing_sigma=np.sqrt((1 - prop) / prop),
-        #                            lower_bound=lower_bound,
-        #                            upper_bound=upper_bound,
-        #                            level=0.90)
-        #     pval = TG.pvalue()
-        #     pivots.append(TG.pvalue(null_value=df.loc[j,'target']))
-        #     assert np.allclose(pval, df.loc[j]['pval'])
-        # df['pivot'] = pivots
         
     return df
+
+@pytest.mark.parametrize('standardize', [True, False])
+@pytest.mark.parametrize('penalty_facs', [True, False])
+@pytest.mark.parametrize('fit_intercept', [True, False])
+@pytest.mark.parametrize('p', [103])
+@pytest.mark.parametrize('n', [500])
+def test_gaussian(n,
+                  p,
+                  standardize,
+                  fit_intercept,
+                  penalty_facs):
+
+    for _ in range(5):
+        df = None
+        while df is None: # make sure it is run
+            df = sample_gaussian(n=n,
+                                 p=p,
+                                 standardize=standardize,
+                                 fit_intercept=fit_intercept,
+                                 penalty_facs=penalty_facs,
+                                 cv=False)
 
 
 def main(fit_intercept=True,
          standardize=True,
          n=500,
          p=75,
+         s=5,
          ntrial=500,
          rng=None,
          family='gaussian',
@@ -222,6 +239,7 @@ def main(fit_intercept=True,
                            p,
                            fit_intercept,
                            standardize,
+                           s=s,
                            rng=rng,
                            family=family,
                            alt=alt,

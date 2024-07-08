@@ -277,6 +277,20 @@ def lasso_inference(glmnet_obj,
                         weight_full,
                         standardize=glmnet_obj.standardize,
                         intercept=glmnet_obj.fit_intercept)
+
+        if np.asarray(FL.upper_limits).shape == ():
+            upper_limits = np.ones(D_sel.shape[1] - 1) * FL.upper_limits
+        else:
+            upper_limits = FL.upper_limits[active_set]
+            
+        if np.asarray(FL.lower_limits).shape == ():
+            lower_limits = np.ones(D_sel.shape[1] - 1) * FL.lower_limits
+        else:
+            lower_limits = FL.lower_limits[active_set]
+            
+        upper_limits = (D_sel.scaler_ @ np.hstack([0, upper_limits]))[1:]
+        lower_limits = (D_sel.scaler_ @ np.hstack([0, lower_limits]))[1:]
+
         P_full = D.quadratic_form(unreg_GLM._information,
                                   transformed=True)
         if not FL.fit_intercept:
@@ -315,7 +329,17 @@ def lasso_inference(glmnet_obj,
         # noisy_mle = stacked + delta # unitless scale
 
         penalized = penfac > 0
-        sel_P = -np.diag(signs[penalized]) @ np.eye(Q_full.shape[0])[penalized]
+        n_penalized = penalized.sum()
+        n_coef = penalized.shape[0]
+        row_idx = np.arange(n_penalized)
+        col_idx = np.nonzero(penalized)[0]
+        data = -signs[penalized]
+        sel_P = scipy.sparse.coo_matrix((data, (row_idx, col_idx)), shape=(n_penalized, n_coef))
+
+        if FL.fit_intercept:
+            sel_U = sel_L = scipy.sparse.dia_array((np.ones((1, n_coef)), [1]), shape=(n_coef-1, n_coef))
+        else:
+            sel_U = sel_L = scipy.sparse.eye(n_coef)
 
         ## the GLM's coef and intercept are on the original scale
         ## we transform them here to the (typically) unitless "standardized" scale
@@ -337,15 +361,14 @@ def lasso_inference(glmnet_obj,
         if not FL.fit_intercept:
             transform_to_raw = transform_to_raw[1:,1:]
 
-        linear = sel_P
-        offset = np.zeros(sel_P.shape[0]) # -signs[penalized] * delta[penalized]
+        linear = scipy.sparse.vstack([sel_P, sel_U, -sel_L])
+        offset = np.hstack([np.zeros(sel_P.shape[0]), upper_limits, -lower_limits]) 
         active_con = AffineConstraint(linear=linear,
                                       offset=offset,
                                       observed=stacked)
         inactive = True
         if inactive:
             pf = FL.regularizer_.penalty_factor
-            scale = 1 / (pf + (pf <= 0))
 
             logl_score = FL.state_.logl_score(FL._family,
                                               Y_sel,
@@ -357,16 +380,18 @@ def lasso_inference(glmnet_obj,
             # with \bar{\beta}_E the GLM soln
 
             score_ = (FL.design_.T @ logl_score)[1:]
-            score_ *= scale
             score_ = score_[inactive_set]
             # we now know that `score_` is bounded by \pm lambda_val
 
             I = scipy.sparse.eye(score_.shape[0])
             L = scipy.sparse.vstack([I, -I])
-            O = np.ones(L.shape[0]) * lambda_val
+            O = (np.ones(L.shape[0]) * lambda_val *
+                 np.hstack([pf[inactive_set],
+                            pf[inactive_set]]))
 
+            fudge_factor = 0.02 # allow 2% relative error on inactive gradient
             inactive_con = AffineConstraint(linear=L,
-                                            offset=O,
+                                            offset=O * (1 + fudge_factor),
                                             observed=score_)
 
         for i in range(transform_to_raw.shape[0]):
