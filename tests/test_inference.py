@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
+import scipy.sparse
+
 from glmnet import GLMNet
 from glmnet.inference import (lasso_inference,
                               TruncatedGaussian)
@@ -71,8 +73,6 @@ def sample_orthogonal(rng=None,
     GN.fit(X, Df)
     active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
 
-    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
-    X_sel = np.sqrt(prop) * X
     pivots = []
     test_pvals = []
 
@@ -86,8 +86,6 @@ def sample_orthogonal(rng=None,
 
         signs = np.sign(Y_sel[df.index])
         assert np.all(Y_sel[df.index] * signs >= lamval * GN.penalty_factor[df.index])
-    else:
-        return None
 
     if df is not None:
         for j, s in zip(df.index, signs):
@@ -116,22 +114,99 @@ def sample_orthogonal(rng=None,
             pivots.append(TG.pvalue(null_value=df.loc[j,'target']))
             test_pvals.append(TG.pvalue(null_value=0))
             assert np.allclose(pval, df.loc[j]['pval'])
-        df['pivot'] = pivots
+        df['pivot_byhand'] = pivots
         df['pval_byhand'] = test_pvals
         assert np.allclose(df['pval'], df['pval_byhand'])
 
+    if df is not None:
+        df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
+        assert np.allclose(df['pivot'], df['pivot_byhand'])        
+
     return df
 
-def sample_gaussian(n,
-                    p,
-                    fit_intercept,
-                    standardize,
-                    rng=None,
-                    alt=False,
-                    s=10,
-                    prop=0.8,
-                    penalty_facs=False,
-                    cv=True):
+def sample_AR1(rho=0.6,               
+               rng=None,
+               p=100,
+               s=5,
+               alt=True,
+               prop=0.8,
+               dispersion=2):
+
+    D = np.fabs(np.subtract.outer(np.arange(p), np.arange(p)))
+    dispersion = 2
+    S = (rho**D) * dispersion
+
+    return sample_cov(S,
+                      rng=rng,
+                      p=p,
+                      s=s,
+                      alt=alt,
+                      prop=prop)
+
+def sample_cov(S,
+               rng=None,
+               p=100,
+               s=5,
+               alt=True,
+               prop=0.8):
+
+    if rng is None:
+        rng = np.random.default_rng(0)
+    beta = np.zeros(p)
+    subs = rng.choice(p, s, replace=False)
+
+    S_sqrt = X = np.linalg.cholesky(S).T  # X.T @ X = S
+
+    noise = X.T @ rng.standard_normal(p) 
+    if alt:
+        beta[subs] = rng.standard_normal(s) * 2 + 3 * rng.choice([1,-1])
+    mu = S @ beta
+
+    Z = mu + noise
+    Y = scipy.linalg.solve_triangular(S_sqrt.T, Z, lower=True)
+    Df = pd.DataFrame({'response':Y})
+    GN = GLMNet(response_id='response',
+                fit_intercept=False,
+                standardize=False)
+
+    lamval = 3
+    Z_sel = Z + np.sqrt((1 - prop) / prop) * X.T @ rng.standard_normal(p)
+    Y_sel = scipy.linalg.solve_triangular(S_sqrt.T, Z_sel, lower=True)
+    test_sel = np.linalg.inv(X.T) @ Z_sel
+    assert np.allclose(Y_sel, test_sel)
+    
+    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
+    X_sel = np.sqrt(prop) * X
+    GN.fit(X, Df)
+    pivots = []
+
+    assert np.allclose(X.T @ Y_sel, Z_sel)
+
+    df = lasso_inference(GN, 
+                         prop * lamval / p,
+                         (X_sel, Df_sel, None),
+                         (X, Df, None),
+                         dispersion=1)
+    if df is not None:
+        active = list(df.index)
+        df['target'] = np.linalg.inv(S[active][:,active]) @ mu[active]
+
+    if df is not None:
+        df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
+        
+    return df
+
+def sample_randomX(n,
+                   p,
+                   fit_intercept,
+                   standardize,
+                   rng=None,
+                   alt=False,
+                   s=10,
+                   prop=0.8,
+                   penalty_facs=False,
+                   cv=True,
+                   upper_limits=np.inf):
 
     if rng is None:
         rng = np.random.default_rng(0)
@@ -157,7 +232,8 @@ def sample_gaussian(n,
     GN = GLMNet(response_id='response',
                 fit_intercept=fit_intercept,
                 standardize=standardize,
-                penalty_factor=penalty_factor)
+                penalty_factor=penalty_factor,
+                upper_limits=upper_limits)
 
     m = int(prop*n)
 
@@ -196,37 +272,55 @@ def sample_gaussian(n,
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('penalty_facs', [True, False])
 @pytest.mark.parametrize('fit_intercept', [True, False])
+#@pytest.mark.parametrize('upper_limits', [np.inf, 0.1])
 @pytest.mark.parametrize('p', [103])
 @pytest.mark.parametrize('n', [500])
-def test_gaussian(n,
-                  p,
-                  standardize,
-                  fit_intercept,
-                  penalty_facs):
+def test_randomX(n,
+                 p,
+                 standardize,
+                 fit_intercept,
+                 penalty_facs,
+                 upper_limits=np.inf):
 
     for _ in range(5):
         df = None
         while df is None: # make sure it is run
-            df = sample_gaussian(n=n,
-                                 p=p,
-                                 standardize=standardize,
-                                 fit_intercept=fit_intercept,
-                                 penalty_facs=penalty_facs,
-                                 cv=False)
+            kwargs = dict(n=n,
+                          p=p,
+                          standardize=standardize,
+                          fit_intercept=fit_intercept,
+                          penalty_facs=penalty_facs,
+                          cv=False,
+                          upper_limits=upper_limits)
+
+            df = main(sample_randomX,
+                      kwargs,
+                      ntrial=1)
+
+def test_orthogonal(p=100):
+
+    for _ in range(5):
+        df = None
+        while df is None: # make sure it is run
+            df = main(sample_orthogonal,
+                      {'p':p},
+                      ntrial=1)
 
 
-def main(fit_intercept=True,
-         standardize=True,
-         n=500,
-         p=75,
-         s=5,
-         ntrial=500,
-         rng=None,
-         family='gaussian',
-         alt=False,
-         cv=False,
-         orthogonal=False,
-         penalty_facs=False):
+def test_AR1(p=100,
+             rho=0.6):
+
+    for _ in range(5):
+        df = None
+        while df is None: # make sure it is run
+            df = sample_AR1(p=p,
+                            rho=rho)
+
+            
+
+def main(sampler,
+         kwargs,
+         ntrial=500):
 
     ncover = 0
     nsel = 0
@@ -234,18 +328,10 @@ def main(fit_intercept=True,
     dfs = []
 
     rng = np.random.default_rng(0)
+    kwargs.update(rng=rng)
+    
     for i in range(ntrial):
-        df = run_inference(n,
-                           p,
-                           fit_intercept,
-                           standardize,
-                           s=s,
-                           rng=rng,
-                           family=family,
-                           alt=alt,
-                           cv=cv,
-                           orthogonal=orthogonal,
-                           penalty_facs=penalty_facs)
+        df = sampler(**kwargs)
         if df is not None:
             dfs.append(df)
         if len(dfs) > 0:
@@ -258,7 +344,8 @@ def main(fit_intercept=True,
                   (all_df['pval'] < 0.05).mean(),
                   (all_df['pivot'] < 0.05).mean(), all_df['pivot'].std())
 
-
+    if len(dfs) > 0:
+        return all_df
         
 def test_truncated_inference(B=1000,
                              smoothing_sigma=np.sqrt(1/3),
