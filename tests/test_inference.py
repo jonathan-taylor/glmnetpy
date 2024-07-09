@@ -180,6 +180,51 @@ def sample_AR1(rho=0.6,
                       alt=alt,
                       prop=prop)
 
+def resample_AR1(rng=None,
+                 p=50,
+                 rho=0.6,
+                 s=5,
+                 alt=True,
+                 prop=0.8,
+                 standardize=True,
+                 B=2000):
+
+    # when standardize is True, coverage will be fine but pivot won't be
+    # this is because the TruncatedGaussian instance is not corrected for scale
+
+    D = np.fabs(np.subtract.outer(np.arange(p), np.arange(p)))
+    dispersion = 2
+    S_init = (rho**D) * dispersion
+    S = np.linalg.inv(S_init)
+    
+    if rng is None:
+        rng = np.random.default_rng(0)
+    beta = np.zeros(p)
+    subs = rng.choice(p, s, replace=False)
+    if alt:
+        beta[subs] = rng.standard_normal(s) * 2 + 3 * rng.choice([1,-1])
+
+    S_sqrt = np.linalg.cholesky(S)
+    beta_hat = beta + S_sqrt @ rng.standard_normal(p) 
+    bootstrap_noise = rng.standard_normal((B, p)) @ S_sqrt.T
+    sample = bootstrap_noise + beta_hat[None,:]
+
+    S_i = np.linalg.inv(S)
+    mu = S_i @ beta
+
+    df = resampler_inference(sample,
+                             prop=prop,
+                             standardize=standardize)
+    if df is not None:
+        prec_E = S_i[df.index][:,df.index]
+        df['target'] = np.linalg.inv(prec_E) @ mu[df.index]
+        if not standardize:
+            df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j,'target']) for j in df.index]
+        else:
+            # scaling transformation not taken into account so cannot reuse TruncatedGaussian object
+            df['pivot'] = np.nan * df['pval']
+        return df
+
 def sample_cov(S,
                rng=None,
                p=100,
@@ -374,10 +419,10 @@ def main(sampler,
             ncover += ((all_df['lower'] < all_df['target']) & (all_df['upper'] > all_df['target'])).sum()
             nsel += all_df.shape[0]
 
-            print('cover:',
-                  ncover / nsel, 'power:',
-                  (all_df['pval'] < 0.05).mean(),
-                  (all_df['pivot'] < 0.05).mean(), all_df['pivot'].std())
+            print('cover:', ncover / nsel,
+                  'power:', (all_df['pval'] < 0.05).mean(),
+                  'pivot<0.05:', (all_df['pivot'] < 0.05).mean(),
+                  'std(pivot):', all_df['pivot'].std())
 
     if len(dfs) > 0:
         return all_df
