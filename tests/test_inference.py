@@ -8,6 +8,8 @@ import scipy.sparse
 
 from glmnet import GLMNet
 from glmnet.inference import (lasso_inference,
+                              score_inference,
+                              resampler_inference,
                               TruncatedGaussian)
 
 def test_Auto():
@@ -124,6 +126,41 @@ def sample_orthogonal(rng=None,
 
     return df
 
+def resample_orthogonal(rng=None,
+                        p=50,
+                        s=5,
+                        alt=True,
+                        prop=0.8,
+                        standardize=True,
+                        B=2000):
+
+    # when standardize is True, coverage will be fine but pivot won't be
+    # this is because the TruncatedGaussian instance is not corrected for scale
+
+    if rng is None:
+        rng = np.random.default_rng(0)
+    beta = np.zeros(p)
+    subs = rng.choice(p, s, replace=False)
+    if alt:
+        beta[subs] = rng.standard_normal(s) * 2 + 3 * rng.choice([1,-1])
+
+    scale = np.linspace(1, 3, p)
+    beta_hat = beta + rng.standard_normal(p) * scale
+    bootstrap_noise = rng.standard_normal((B, p)) * scale[None,:]
+    sample = bootstrap_noise + beta_hat[None,:]
+
+    df = resampler_inference(sample,
+                             prop=prop,
+                             standardize=standardize)
+    if df is not None:
+        df['target'] = beta[df.index]
+        if not standardize:
+            df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j,'target']) for j in df.index]
+        else:
+            # scaling transformation not taken into account so cannot reuse TruncatedGaussian object
+            df['pivot'] = np.nan * df['pval']
+        return df
+
 def sample_AR1(rho=0.6,               
                rng=None,
                p=100,
@@ -148,7 +185,8 @@ def sample_cov(S,
                p=100,
                s=5,
                alt=True,
-               prop=0.8):
+               prop=0.8,
+               lamval=3):
 
     if rng is None:
         rng = np.random.default_rng(0)
@@ -163,30 +201,12 @@ def sample_cov(S,
     mu = S @ beta
 
     Z = mu + noise
-    Y = scipy.linalg.solve_triangular(S_sqrt.T, Z, lower=True)
-    Df = pd.DataFrame({'response':Y})
-    GN = GLMNet(response_id='response',
-                fit_intercept=False,
-                standardize=False)
 
-    lamval = 3
-    Z_sel = Z + np.sqrt((1 - prop) / prop) * X.T @ rng.standard_normal(p)
-    Y_sel = scipy.linalg.solve_triangular(S_sqrt.T, Z_sel, lower=True)
-    test_sel = np.linalg.inv(X.T) @ Z_sel
-    assert np.allclose(Y_sel, test_sel)
-    
-    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
-    X_sel = np.sqrt(prop) * X
-    GN.fit(X, Df)
-    pivots = []
-
-    assert np.allclose(X.T @ Y_sel, Z_sel)
-
-    df = lasso_inference(GN, 
-                         prop * lamval / p,
-                         (X_sel, Df_sel, None),
-                         (X, Df, None),
-                         dispersion=1)
+    df = score_inference(score=Z,
+                         cov_score=S,
+                         lamval=lamval,
+                         prop=prop,
+                         chol_cov=S_sqrt)
     if df is not None:
         active = list(df.index)
         df['target'] = np.linalg.inv(S[active][:,active]) @ mu[active]
@@ -203,6 +223,7 @@ def sample_randomX(n,
                    rng=None,
                    alt=False,
                    s=10,
+                   snr=1,
                    prop=0.8,
                    penalty_facs=False,
                    cv=True,
@@ -214,11 +235,12 @@ def sample_randomX(n,
     subs = rng.choice(p, s, replace=False)
 
     X = rng.standard_normal((n, p))
-    D = np.linspace(1, p, p) / p + 0.2
+    D = np.ones(p) # np.linspace(1, p, p) / p + 1
     X *= D[None,:]
-    Y = rng.standard_normal(n) * np.fabs(1+np.random.standard_normal())
+    sd = np.fabs(1+np.random.standard_normal())
+    Y = rng.standard_normal(n) * sd
     if alt:
-        beta[subs] = rng.uniform(3, 5) * rng.choice([-1,1], size=s, replace=True) / np.sqrt(n)
+        beta[subs] = snr * (rng.uniform(3, 5) * rng.choice([-1,1], size=s, replace=True) / np.sqrt(n))
 
     mu = X @ beta
     Y += mu
@@ -239,13 +261,15 @@ def sample_randomX(n,
 
     Df = pd.DataFrame({'response':Y})
     GN.fit(X[:m], Df.iloc[:m]) 
-    cv = True
+
     if cv:
         GN.cross_validation_path(X[:m], Df.iloc[:m])
         lamval = GN.index_best_['Mean Squared Error']
     else:
-        eps = rng.standard_normal((X.shape[0], 1000))
-        lamval = 1.2 * np.fabs(X.T @ eps).max() / X.shape[0]
+        eps = rng.standard_normal((X.shape[0], 1000)) * sd
+        noise_score = X.T @ eps
+        lamval = 1.2 * np.median(np.fabs(noise_score).max(0)) / X.shape[0]
+        
     df = lasso_inference(GN, 
                          lamval,
                          (X[:m], Df.iloc[:m], None),
@@ -296,6 +320,17 @@ def test_randomX(n,
             df = main(sample_randomX,
                       kwargs,
                       ntrial=1)
+
+def test_resampler(p=50,
+                   standardize=True):
+
+    for _ in range(5):
+        df = None
+        while df is None: # make sure it is run
+            df = main(resample_orthogonal,
+                      {'p':p},
+                      ntrial=1)
+
 
 def test_orthogonal(p=100):
 

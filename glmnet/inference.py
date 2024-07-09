@@ -18,8 +18,9 @@ import mpmath as mp
 mp.dps = 80
 
 from .base import _get_design
+from .glmnet import GLMNet
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional
 
 @dataclass
@@ -236,6 +237,7 @@ def lasso_inference(glmnet_obj,
         raise NotImplementedError('upper/lower limits coming soon')
 
     active_set = np.nonzero(FL.coef_ != 0)[0]
+
     if active_set.shape[0] != 0:
         inactive_set = np.nonzero(FL.coef_ == 0)[0]
 
@@ -288,8 +290,8 @@ def lasso_inference(glmnet_obj,
         else:
             lower_limits = FL.lower_limits[active_set]
             
-        upper_limits = (D_sel.scaler_ @ np.hstack([0, upper_limits]))[1:]
-        lower_limits = (D_sel.scaler_ @ np.hstack([0, lower_limits]))[1:]
+        upper_limits = D_sel.scaling_ * upper_limits
+        lower_limits = D_sel.scaling_ * lower_limits
 
         P_full = D.quadratic_form(unreg_GLM._information,
                                   transformed=True)
@@ -309,7 +311,7 @@ def lasso_inference(glmnet_obj,
         signs = np.sign(FL.coef_[active_set])
 
         noisy_mle = D.raw_to_scaled(unreg_sel_GLM.state_)
-
+        
         if FL.fit_intercept:
             penfac = np.hstack([0, penfac])
             signs = np.hstack([0, signs])
@@ -343,7 +345,9 @@ def lasso_inference(glmnet_obj,
 
         ## the GLM's coef and intercept are on the original scale
         ## we transform them here to the (typically) unitless "standardized" scale
+
         full_mle = D.raw_to_scaled(unreg_GLM.state_)
+
         if FL.fit_intercept:
             full_mle = full_mle._stack
         else:
@@ -1063,3 +1067,117 @@ def _truncated_inference(estimate,
         mle = np.nan
         
     return L, U, mle, pval, sel_distr
+
+def score_inference(score,
+                    cov_score,
+                    lamval,
+                    prop=0.8,
+                    chol_cov=None,
+                    perturbation=None,
+                    rng=None):
+
+    # perturbation should be N(0, cov_score) roughly
+
+    # this is the X for the LASSO problem
+    # X.T @ X = S = cov_score
+
+    if chol_cov is None:
+        chol_cov = X = np.linalg.cholesky(cov_score).T 
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    # shorthand
+    Z = score # X.T @ Y in OLS case
+    X = chol_cov 
+    p = X.shape[1]
+    
+    if perturbation is None:
+        perturbation = X.T @ rng.standard_normal(p) # X is square here...
+
+    # this is the Y of the LASSO problem
+
+    Y = scipy.linalg.solve_triangular(chol_cov.T, Z, lower=True)
+    Df = pd.DataFrame({'response':Y})
+
+    GN = GLMNet(response_id='response',
+                fit_intercept=False,
+                standardize=False)
+    GN.fit(X, Df)
+    
+    Z_sel = Z + np.sqrt((1 - prop) / prop) * perturbation
+    Y_sel = scipy.linalg.solve_triangular(chol_cov.T, Z_sel, lower=True)
+    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
+    X_sel = np.sqrt(prop) * X
+
+    return lasso_inference(GN, 
+                           prop * lamval / p,
+                           (X_sel, Df_sel, None),
+                           (X, Df, None),
+                           dispersion=1)
+
+def resampler_inference(sample,
+                        lamval=None,
+                        lam_frac=1,
+                        prop=0.8,
+                        random_idx=None,
+                        rng=None,
+                        estimate=None,
+                        standardize=True):
+
+    if estimate is None:
+        estimate = sample.mean(0)
+
+    centered = sample - estimate[None,:]
+    B, p = centered.shape
+
+    if random_idx is None:
+        if rng is None:
+            rng = np.random.default_rng()
+        random_idx = rng.choice(B, 1)
+        
+    prec_score = centered.T @ centered / B
+    cov_score = np.linalg.inv(prec_score)
+
+    centered_scores = centered @ cov_score
+    scaling = centered_scores.std(0)
+    score = cov_score @ estimate
+
+    if standardize:
+        centered_scores /= scaling[None,:]
+        cov_score /= np.multiply.outer(scaling, scaling)
+        score /= scaling
+        
+    # pick a lam
+    if lamval is None:
+        max_scores = np.fabs(centered_scores).max(1)
+        lamval = lam_frac * np.median(max_scores)
+
+    # pick a pseudo-Gaussian perturbation
+    perturbation = centered_scores[random_idx].reshape((p,))
+    
+    df = score_inference(score=score,
+                         cov_score=cov_score,
+                         lamval=lamval,
+                         prop=prop,
+                         perturbation=perturbation)
+
+    if df is not None:
+        if standardize:
+            for col in ['mle', 'upper', 'lower']:
+                df[col].values[:] = df[col] / scaling[df.index]
+
+            for j in df.index:
+                df.loc[j,'TG'] = None
+                # XX try to correct this!!
+                # tg = df.loc[j, 'TG']
+                # tg_params = asdict(tg)
+                # tg_params.update(estimate=tg.estimate * scaling[j],
+                #                  sigma=tg.sigma * scaling[j],
+                #                  smoothing_sigma=tg.smoothing_sigma * scaling[j],
+                #                  lower_bound=tg.lower_bound * scaling[j],
+                #                  upper_bound=tg.upper_bound * scaling[j])
+                # df.loc[j,'TG'] = TruncatedGaussian(**tg_params)
+
+    return df
+
