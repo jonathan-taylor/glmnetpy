@@ -12,6 +12,10 @@ lambda_min_ratio: float
 #     Data class containing GLMNet control parameters.
 #     ''',
 
+    'ridge_coef':'''
+Ridge coefficeint for a GLM. Added to objective **after** having divided by the sum of the weights.
+    ''',
+
     'intercept':'''
 intercept:
     For a Design, is there an intercept?

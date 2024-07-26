@@ -18,7 +18,7 @@ from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
                           RegressorMixin)
 from sklearn.metrics import mean_absolute_error
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import (LinearRegression, Ridge)
 from sklearn.preprocessing import LabelEncoder
 
 from statsmodels.genmod.families import family as sm_family
@@ -238,6 +238,7 @@ class GLMBaseSpec(object):
 
     family: sm_family.Family = field(default_factory=sm_family.Gaussian)
     fit_intercept: bool = True
+    standardize: bool = False
     control: GLMControl = field(default_factory=GLMControl)
     offset_id: Union[str,int] = None
     weight_id: Union[str,int] = None
@@ -313,7 +314,9 @@ class GLMState(object):
 class GLMRegularizer(object):
 
     fit_intercept: bool = False
+    standardize: bool = False
     warm_state: dict = field(default_factory=dict)
+    ridge_coef: float = 0
 
     def half_step(self,
                   state,
@@ -342,29 +345,57 @@ class GLMRegularizer(object):
         z = pseudo_response
         w = sample_weight
 
+        D = np.ones(design.X.shape[1] + 1)
+        D[0] = 0
+
+        # this will produce coefficients on the raw scale
+
         if scipy.sparse.issparse(design.X):
-            lm = LinearRegression(fit_intercept=self.fit_intercept)
+            if self.standardize:
+                raise ValueError('sklearn Ridge cannot fit without using raw standardized matrix')
+            if self.ridge_coef == 0:
+                lm = LinearRegression(fit_intercept=self.fit_intercept)
+            else:
+                lm = Ridge(fit_intercept=self.fit_intercept,
+                           alpha=self.ridge_coef)
             lm.fit(design.X, z, sample_weight=w)
             coefnew = lm.coef_
             intnew = lm.intercept_
 
         else:
             sqrt_w = np.sqrt(w)
-            XW = design.X * sqrt_w[:, None]
+
+            if not self.standardize:
+                XW = design.X * sqrt_w[:, None]
+            else:
+                X = design @ (np.identity(design.shape[1])[:,1:])
+                XW = X * sqrt_w[:, None]
+                
             if self.fit_intercept:
+                D = np.diag(D)
                 Wz = sqrt_w * z
                 XW = np.concatenate([sqrt_w.reshape((-1,1)), XW], axis=1)
                 Q = XW.T @ XW
+                if self.ridge_coef != 0:
+                    Q += self.ridge_coef * D
                 V = XW.T @ Wz
                 try:
                     beta = np.linalg.solve(Q, V)
                 except LinAlgError as e:
                     if self.control.logging: logging.debug("Error in solve: possible singular matrix, trying pseudo-inverse")
+                    if self.ridge_coef != 0:
+                        XW = np.vstack([XW, np.sqrt(self.ridge_coef) * D])
+                        Wz = np.hstack([Wz, np.zeros(Q.shape[0])])
                     beta = np.linalg.pinv(XW) @ Wz
                 coefnew = beta[1:]
                 intnew = beta[0]
 
             else:
+                if self.ridge_coef != 0:
+                    D = np.diag(D[1:])
+                    XW = np.vstack([XW, np.sqrt(self.ridge_coef) * D])
+                    z = np.hstack([z, np.zeros(D.shape[0])])
+                    sqrt_w = np.hstack([sqrt_w, np.zeros(D.shape[0])])
                 coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
                 intnew = 0
 
@@ -394,7 +425,7 @@ class GLMBase(BaseEstimator,
                     sample_weight):
         return _get_design(X,
                            sample_weight,
-                           standardize=False,
+                           standardize=self.standardize,
                            intercept=self.fit_intercept)
 
     def _get_family_spec(self,
@@ -641,6 +672,12 @@ __________
 class GLM(GLMBase):
 
     summarize: bool = False
+    ridge_coef: float = 0
+
+    def _get_regularizer(self,
+                         nvars=None):
+        return GLMRegularizer(fit_intercept=self.fit_intercept,
+                              ridge_coef=self.ridge_coef)
 
     def fit(self,
             X,
@@ -678,11 +715,18 @@ class GLM(GLMBase):
                    sample_weight,
                    X_shape):
 
+        if self.ridge_coef != 0:
+            warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
+
         # IRLS used normalized weights,
         # this unnormalizes them...
 
         unscaled_precision_ = self.design_.quadratic_form(self._information,
                                                           transformed=False)
+        if self.ridge_coef != 0:
+            D = np.ones(unscaled_precision_.shape[0])
+            D[0] = 0
+            unscaled_precision_ += self.ridge_coef * np.diag(D)
         
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:

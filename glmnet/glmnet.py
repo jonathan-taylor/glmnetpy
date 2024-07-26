@@ -475,9 +475,12 @@ class GLMNet(BaseEstimator,
                 intercept_ = 0
         return GLMState(coef_, intercept_), keep.astype(float)
 
-    def get_GLM(self):
+    def get_GLM(self,
+                ridge_coef=0):
         return GLM(family=self.family,
                    fit_intercept=self.fit_intercept,
+                   standardize=self.standardize,
+                   ridge_coef=ridge_coef,
                    offset_id=self.offset_id,
                    weight_id=self.weight_id,
                    response_id=self.response_id)
