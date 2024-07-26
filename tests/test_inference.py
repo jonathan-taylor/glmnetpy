@@ -124,7 +124,7 @@ def sample_orthogonal(rng=None,
         df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
         assert np.allclose(df['pivot'], df['pivot_byhand'])        
 
-    return df
+    return df, None
 
 def resample_orthogonal(rng=None,
                         p=50,
@@ -223,7 +223,7 @@ def resample_AR1(rng=None,
         else:
             # scaling transformation not taken into account so cannot reuse TruncatedGaussian object
             df['pivot'] = np.nan * df['pval']
-        return df
+        return df, None
 
 def sample_cov(S,
                rng=None,
@@ -246,12 +246,14 @@ def sample_cov(S,
     mu = S @ beta
 
     Z = mu + noise
-
+    perturbation = X.T @ rng.standard_normal(p)
+    
     df = score_inference(score=Z,
                          cov_score=S,
                          lamval=lamval,
                          prop=prop,
-                         chol_cov=S_sqrt)
+                         chol_cov=S_sqrt,
+                         perturbation=perturbation)
     if df is not None:
         active = list(df.index)
         df['target'] = np.linalg.inv(S[active][:,active]) @ mu[active]
@@ -259,7 +261,7 @@ def sample_cov(S,
     if df is not None:
         df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
         
-    return df
+    return df, {'score':Z,'cov_score':S, 'lamval':lamval, 'prop':prop, 'chol_cov':S_sqrt, 'perturbation':perturbation}
 
 def sample_randomX(n,
                    p,
@@ -336,7 +338,7 @@ def sample_randomX(n,
     if df is not None:
         df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
         
-    return df
+    return df, None
 
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('penalty_facs', [True, False])
@@ -411,7 +413,9 @@ def main(sampler,
     kwargs.update(rng=rng)
     
     for i in range(ntrial):
-        df = sampler(**kwargs)
+        df, _ = sampler(**kwargs)
+        print(kwargs)
+        print(rng.standard_normal())
         if df is not None:
             dfs.append(df)
         if len(dfs) > 0:
