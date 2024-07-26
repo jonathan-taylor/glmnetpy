@@ -682,7 +682,7 @@ class GLM(GLMBase):
     def fit(self,
             X,
             y,
-            sample_weight=None,
+            sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
             warm_state=None,
             dispersion=1,
@@ -703,7 +703,6 @@ class GLM(GLMBase):
                                                               self.dispersion_,
                                                               weight,
                                                               X.shape)
-
         else:
             self.summary_ = self.covariance_ = None
             

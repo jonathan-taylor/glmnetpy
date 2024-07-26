@@ -32,8 +32,8 @@ def test_Auto():
 
     df = lasso_inference(GN,
                          2 / n, # GN.lambda_values_[min(10, GN.lambda_values_.shape[0]-1)],
-                         (X[:m], Df.iloc[:m], None),
-                         (X, Df, None),
+                         (X[:m], Df.iloc[:m]),
+                         (X, Df),
                          proportion=prop)
 
 def sample_orthogonal(rng=None,
@@ -82,8 +82,8 @@ def sample_orthogonal(rng=None,
     if active_naive.shape[0] > 0:
         df = lasso_inference(GN, 
                              prop * lamval / p,
-                             (X_sel, Df_sel, None),
-                             (X, Df, None),
+                             (X_sel, Df_sel),
+                             (X, Df),
                              proportion=prop,
                              dispersion=1)
         df['target'] = mu[df.index]
@@ -319,8 +319,8 @@ def sample_randomX(n,
         
     df = lasso_inference(GN, 
                          lamval,
-                         (X[:m], Df.iloc[:m], None),
-                         (X, Df, None),
+                         (X[:m], Df.iloc[:m]),
+                         (X, Df),
                          proportion=prop)
 
     if df is not None:

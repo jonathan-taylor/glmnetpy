@@ -189,8 +189,8 @@ class AffineConstraint(object):
         
         # Inequalities are now U + V @ target <= 0
         
-        print(f'target: {target}')
-        print(f'gamma: {gamma}')
+#        print(f'target: {target}')
+#        print(f'gamma: {gamma}')
 
         # adding the zero_coords in the denominator ensures that
         # there are no divide-by-zero errors in RHS
@@ -311,15 +311,14 @@ def lasso_inference(glmnet_obj,
                     dispersion=None):
 
     fixed_lambda, warm_state = glmnet_obj.get_fixed_lambda(lambda_val)
-    X_sel, Y_sel, weight_sel = selection_data
-    X_sel, Y_sel, _, _, weight_sel = fixed_lambda.get_data_arrays(X_sel,
-                                                                  Y_sel)
+    X_sel, Df_sel = selection_data
+    _, _, Y_sel, _, weight_sel = fixed_lambda.get_data_arrays(X_sel,
+                                                              Df_sel)
     if weight_sel is None:
         weight_sel = np.ones(X_sel.shape[0])
 
     fixed_lambda.fit(X_sel,
-                     Y_sel,
-                     sample_weight=weight_sel,
+                     Df_sel,
                      warm_state=warm_state)
 
     FL = fixed_lambda # shorthand
@@ -341,8 +340,7 @@ def lasso_inference(glmnet_obj,
 
         unreg_sel_GLM.summarize = True
         unreg_sel_GLM.fit(X_sel[:,active_set],
-                          Y_sel,
-                          sample_weight=weight_sel,
+                          Df_sel,
                           dispersion=dispersion)
 
         # # quadratic approximation up to scaling and a factor of weight_sel.sum()
@@ -359,16 +357,15 @@ def lasso_inference(glmnet_obj,
 
         # fit unpenalized model on full data
 
-        X_full, Y_full, weight_full = full_data
-        if weight_full is None:
-            weight_full = np.ones(X_full.shape[0])
+        X_full, Df_full = full_data
 
         unreg_GLM = glmnet_obj.get_GLM()
         unreg_GLM.summarize = True
         unreg_GLM.fit(X_full[:,active_set],
-                      Y_full,
-                      sample_weight=weight_full,
+                      Df_full,
                       dispersion=dispersion)
+        _, _, Y_full, _, weight_full = fixed_lambda.get_data_arrays(X_full,
+                                                                    Df_full)
 
         # quadratic approximation
 
@@ -516,7 +513,7 @@ def lasso_inference(glmnet_obj,
         for i in range(transform_to_raw.shape[0]):
             ## call selection_interval and return
 
-            print('old')
+#            print('old')
             TG_old = _split_interval(active_con=active_con,
                                      Q_noisy=Q_noisy * unreg_GLM.dispersion_,
                                      Q_full=Q_full * unreg_GLM.dispersion_,
@@ -527,7 +524,7 @@ def lasso_inference(glmnet_obj,
 
             estimate = (transform_to_raw[i] * full_mle).sum()
             unscaled_covariance = Q_full @ transform_to_raw[i]
-            print('new')
+#            print('new')
             TG_new = active_con.compute_target(estimate,
                                                unreg_GLM.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum(),
                                                unreg_GLM.dispersion_ * unscaled_covariance,
@@ -546,7 +543,11 @@ def lasso_inference(glmnet_obj,
         if FL.fit_intercept:
             idx = ['intercept'] + idx
 
-        return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us, 'TG':TGs}, index=idx)
+        TG_df = pd.concat([pd.Series(asdict(tg)) for tg in TGs], axis=1).T
+        TG_df.index = idx
+        df = pd.concat([pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx), TG_df], axis=1)
+        df['TG'] = TGs
+        return df
     else:
         return None
 
@@ -1224,24 +1225,25 @@ def score_inference(score,
     # this is the Y of the LASSO problem
 
     Y = scipy.linalg.solve_triangular(chol_cov.T, Z, lower=True)
-    Df = pd.DataFrame({'response':Y})
     W = np.ones(X.shape[0])
+    Df = pd.DataFrame({'response':Y, 'weight':W})
     
     GN = GLMNet(response_id='response',
+                weight_id='weight',
                 fit_intercept=False,
                 standardize=False)
-    GN.fit(X, Df)
     
     Z_sel = Z + np.sqrt((1 - prop) / prop) * perturbation
     Y_sel = scipy.linalg.solve_triangular(chol_cov.T, Z_sel, lower=True)
-    Df_sel = pd.DataFrame({'response':Y_sel})
     X_sel = X
     W_sel = np.ones(X.shape[0]) * prop
+    Df_sel = pd.DataFrame({'response':Y_sel, 'weight':W_sel})
+    GN.fit(X_sel, Df_sel)
     
     return lasso_inference(GN, 
                            lamval / p,
-                           (X_sel, Df_sel, W_sel),
-                           (X, Df, W),
+                           (X_sel, Df_sel),
+                           (X, Df),
                            proportion=prop,
                            dispersion=1)
 
