@@ -420,7 +420,11 @@ def lasso_inference(glmnet_obj,
         if FL.fit_intercept:
             idx = ['intercept'] + idx
 
-        return pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us, 'TG':TGs}, index=idx)
+        TG_df = pd.concat([pd.Series(asdict(tg)) for tg in TGs], axis=1).T
+        TG_df.index = idx
+        df = pd.concat([pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx), TG_df], axis=1)
+        df['TG'] = TGs
+        return df
     else:
         return None
 
@@ -1076,7 +1080,7 @@ def score_inference(score,
                     perturbation=None,
                     rng=None):
 
-    # perturbation should be N(0, cov_score) roughly
+    # perturbation should be N(0, cov_score) roughly -- shouldn't have a multiplier for the proportion!
 
     # this is the X for the LASSO problem
     # X.T @ X = S = cov_score
