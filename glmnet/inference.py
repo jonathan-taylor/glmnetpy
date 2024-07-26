@@ -21,7 +21,7 @@ from .base import _get_design
 from .glmnet import GLMNet
 
 from dataclasses import dataclass, asdict
-from typing import Optional
+from typing import Optional, Callable
 
 @dataclass
 class TruncatedGaussian(object):
@@ -189,6 +189,9 @@ class AffineConstraint(object):
         
         # Inequalities are now U + V @ target <= 0
         
+        print(f'target: {target}')
+        print(f'gamma: {gamma}')
+
         # adding the zero_coords in the denominator ensures that
         # there are no divide-by-zero errors in RHS
         # these coords are never used in upper_bound or lower_bound
@@ -211,10 +214,99 @@ class AffineConstraint(object):
 
         return lower_bound, upper_bound
 
+@dataclass
+class QAffineConstraint(AffineConstraint):
+    r"""
+    An affine constraint with a solver for  quadratic form
+    denoting the variance of noise (conditional on the data)
+    implicated in the constraint.
+
+    The implicit assumption here is that noise added to the LASSO
+    has precision proportional to the quadratic part of the LASSO.
+
+    So, for active constraints and some ridge, this variance is $(X_E'WX_E+ (1-\alpha)*\lambda*I)^{-1}$. The
+    variance of the ridge estimator with parameter (1-\alpha)*\lambda
+    """
+
+    solver: Callable
+    scale: float
+
+    def compute_target(self,
+                       estimate,
+                       variance,
+                       covariance,
+                       tol = 1.e-4,
+                       level = 0.90):
+        r"""
+        Given an affine in cone constraint $\{z:Az+b \leq 0\}$ (elementwise)
+        specified with $A$ as `support_directions` and $b$ as
+        `support_offset`, a new direction of interest $\eta$, and
+        `noisy_observation` is Gaussian vector $Z \sim N(\mu,\Sigma)$ 
+        with `covariance` matrix $\Sigma$, this
+        function returns a confidence interval
+        for $\eta^T\mu$.
+
+        Parameters
+        ----------
+
+        support_directions : np.float
+             Matrix specifying constraint, $A$.
+
+        support_offset : np.float
+             Offset in constraint, $b$.
+
+        covariance : np.float
+             Covariance matrix of `observed_data`.
+
+        noisy_observation : np.float
+             Observations.
+
+        observation : np.float
+             Observations.
+
+        direction_of_interest : np.float
+             Direction in which we're interested for the
+             contrast.
+
+        tol : float
+             Relative tolerance parameter for deciding 
+             sign of $Az-b$.
+
+        Returns
+        -------
+
+        confidence_interval : (float, float)
+
+        """
+
+        soln = self.solver(covariance)
+        num = (covariance * soln).sum()
+        sigma = np.sqrt(variance)
+        den = self.scale * variance + num
+        ratio = num / den
+
+        smoothing_variance = variance * (ratio - ratio**2)
+        slice_dir = covariance / (variance**2 * ratio) # this needs to be checked in latex and units
+        regression_estimate = (soln * self.observed).sum() / den
+        
+        (lower_bound,
+         upper_bound) = self.interval_constraints(regression_estimate,
+                                                  slice_dir,
+                                                  tol=tol)
+
+        return TruncatedGaussian(estimate=estimate,
+                                 sigma=sigma,
+                                 smoothing_sigma=np.sqrt(smoothing_variance),
+                                 lower_bound=lower_bound,
+                                 upper_bound=upper_bound,
+                                 level=level)
+
+
 def lasso_inference(glmnet_obj,
                     lambda_val,
                     selection_data,
                     full_data,
+                    proportion, # proportion used in selection
                     level=.9,
                     dispersion=None):
 
@@ -242,8 +334,10 @@ def lasso_inference(glmnet_obj,
         inactive_set = np.nonzero(FL.coef_ == 0)[0]
 
         # fit unpenalized model on selection data
-
-        unreg_sel_GLM = glmnet_obj.get_GLM()
+        # here, unpenalized refers only to the LASSO penalty
+        # we include the ridge term in the unregularized fit
+        
+        unreg_sel_GLM = glmnet_obj.get_GLM(ridge_coef=(1 - FL.alpha) * FL.lambda_val)
 
         unreg_sel_GLM.summarize = True
         unreg_sel_GLM.fit(X_sel[:,active_set],
@@ -259,6 +353,9 @@ def lasso_inference(glmnet_obj,
                             intercept=glmnet_obj.fit_intercept)
         P_noisy = D_sel.quadratic_form(unreg_sel_GLM._information,
                                        transformed=True)
+        D0 = np.ones(P_noisy.shape[0])
+        D0[0] = 0
+        D_noisy = np.diag(D0) * (1 - FL.alpha) * FL.lambda_val * weight_sel.sum()
 
         # fit unpenalized model on full data
 
@@ -295,6 +392,24 @@ def lasso_inference(glmnet_obj,
 
         P_full = D.quadratic_form(unreg_GLM._information,
                                   transformed=True)
+        # our proportion factor on the assumption that
+        # P_noisy represents (up to dispersion) the posterior precision of the
+        # non-LASSO penalized estimator represented by the selection data
+
+        # that is, P_noisy = proportion * P_full
+        # the quadratic from from D above is only the likelihood contribution
+        # this is the diagonal contribution and so we add what we added to P_noisy
+        # which should be inflated by 1 / proportion
+
+        # in cases where the selection data is a subset of the full data
+        # this factor will be captured by weight_full.sum()
+
+        # XXX make sure the coef/score based methods address this correctly
+        # by setting weights properly -- they should use weights proportion * np.ones() for the
+        # selection data.
+
+        D_full = np.diag(D0) * (1 - FL.alpha) * FL.lambda_val * weight_full.sum()
+
         if not FL.fit_intercept:
             if FL.penalty_factor is not None:
                 penfac = FL.penalty_factor[active_set]
@@ -302,11 +417,13 @@ def lasso_inference(glmnet_obj,
                 penfac = np.ones_like(active_set)
             P_full = P_full[1:,1:]
             P_noisy = P_noisy[1:,1:]
+            D_full = D_full[1:,1:]
+            D_noisy = D_noisy[1:,1:]
         else:
             penfac = np.ones(active_set.shape[0])
 
-        Q_full = np.linalg.inv(P_full) 
-        Q_noisy = np.linalg.inv(P_noisy)
+        Q_full = np.linalg.inv(P_full + D_full) 
+        Q_noisy = np.linalg.inv(P_noisy + D_noisy)
 
         signs = np.sign(FL.coef_[active_set])
 
@@ -322,13 +439,7 @@ def lasso_inference(glmnet_obj,
             stacked = FL.state_.coef[active_set]
             noisy_mle = noisy_mle.coef
 
-        # delta = lambda_val * penfac * signs
-
-        # # remember loss of glmnet is normalized by sum of weights
-        # # when taking newton step adjust by weight_sel.sum()
-
-        # delta = Q_sel @ delta * weight_sel.sum() 
-        # noisy_mle = stacked + delta # unitless scale
+        # now set up the constraints
 
         penalized = penfac > 0
         n_penalized = penalized.sum()
@@ -367,9 +478,13 @@ def lasso_inference(glmnet_obj,
 
         linear = scipy.sparse.vstack([sel_P, sel_U, -sel_L])
         offset = np.hstack([np.zeros(sel_P.shape[0]), upper_limits, -lower_limits]) 
-        active_con = AffineConstraint(linear=linear,
-                                      offset=offset,
-                                      observed=stacked)
+        # up to the scalar alpha, this should be the precision of the noise added
+        active_solver = lambda v: (P_full + D_full) @ v / unreg_GLM.dispersion_
+        active_con = QAffineConstraint(linear=linear,
+                                       offset=offset,
+                                       observed=stacked,
+                                       scale=(1-proportion)/proportion,
+                                       solver=active_solver)
         inactive = True
         if inactive:
             pf = FL.regularizer_.penalty_factor
@@ -400,13 +515,24 @@ def lasso_inference(glmnet_obj,
 
         for i in range(transform_to_raw.shape[0]):
             ## call selection_interval and return
-            TG = _split_interval(active_con=active_con,
-                                 Q_noisy=Q_noisy * unreg_GLM.dispersion_,
-                                 Q_full=Q_full * unreg_GLM.dispersion_,
-                                 noisy_observation=noisy_mle, # these must be same scale / shift as glmnet
-                                 observation=full_mle, # these must be same scale / shift as glmnet
-                                 direction_of_interest=transform_to_raw[i], # this matrix describes the map from glmnet("transform") coords to raw("original") scale
-                                 level=level)
+
+            print('old')
+            TG_old = _split_interval(active_con=active_con,
+                                     Q_noisy=Q_noisy * unreg_GLM.dispersion_,
+                                     Q_full=Q_full * unreg_GLM.dispersion_,
+                                     noisy_observation=noisy_mle, # these must be same scale / shift as glmnet
+                                     observation=full_mle, # these must be same scale / shift as glmnet
+                                     direction_of_interest=transform_to_raw[i], # this matrix describes the map from glmnet("transform") coords to raw("original") scale
+                                     level=level)
+
+            estimate = (transform_to_raw[i] * full_mle).sum()
+            unscaled_covariance = Q_full @ transform_to_raw[i]
+            print('new')
+            TG_new = active_con.compute_target(estimate,
+                                               unreg_GLM.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum(),
+                                               unreg_GLM.dispersion_ * unscaled_covariance,
+                                               level=level)
+            TG = TG_old
 
             (L, U), mle, pval = (TG.interval(), TG.MLE(), TG.pvalue())
 
@@ -433,7 +559,7 @@ def _split_interval(active_con,
                     tol = 1.e-4,
                     level = 0.90,
                     dispersion=1):
-    """
+    r"""
     Given an affine in cone constraint $\{z:Az+b \leq 0\}$ (elementwise)
     specified with $A$ as `support_directions` and $b$ as
     `support_offset`, a new direction of interest $\eta$, and
@@ -1099,7 +1225,8 @@ def score_inference(score,
 
     Y = scipy.linalg.solve_triangular(chol_cov.T, Z, lower=True)
     Df = pd.DataFrame({'response':Y})
-
+    W = np.ones(X.shape[0])
+    
     GN = GLMNet(response_id='response',
                 fit_intercept=False,
                 standardize=False)
@@ -1107,13 +1234,15 @@ def score_inference(score,
     
     Z_sel = Z + np.sqrt((1 - prop) / prop) * perturbation
     Y_sel = scipy.linalg.solve_triangular(chol_cov.T, Z_sel, lower=True)
-    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
-    X_sel = np.sqrt(prop) * X
-
+    Df_sel = pd.DataFrame({'response':Y_sel})
+    X_sel = X
+    W_sel = np.ones(X.shape[0]) * prop
+    
     return lasso_inference(GN, 
-                           prop * lamval / p,
-                           (X_sel, Df_sel, None),
-                           (X, Df, None),
+                           lamval / p,
+                           (X_sel, Df_sel, W_sel),
+                           (X, Df, W),
+                           proportion=prop,
                            dispersion=1)
 
 def resampler_inference(sample,
