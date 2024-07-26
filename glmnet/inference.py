@@ -31,6 +31,8 @@ class TruncatedGaussian(object):
     smoothing_sigma: float
     lower_bound: float
     upper_bound: float
+    noisy_estimate: float
+    slice_dir: np.ndarray
     level: Optional[float] = 0.9
     num_sd: Optional[float] = 10
     num_grid: Optional[float] = 4000
@@ -189,8 +191,8 @@ class AffineConstraint(object):
         
         # Inequalities are now U + V @ target <= 0
         
-#        print(f'target: {target}')
-#        print(f'gamma: {gamma}')
+        print(f'target: {target}')
+        print(f'gamma: {gamma}')
 
         # adding the zero_coords in the denominator ensures that
         # there are no divide-by-zero errors in RHS
@@ -238,56 +240,21 @@ class QAffineConstraint(AffineConstraint):
                        tol = 1.e-4,
                        level = 0.90):
         r"""
-        Given an affine in cone constraint $\{z:Az+b \leq 0\}$ (elementwise)
-        specified with $A$ as `support_directions` and $b$ as
-        `support_offset`, a new direction of interest $\eta$, and
-        `noisy_observation` is Gaussian vector $Z \sim N(\mu,\Sigma)$ 
-        with `covariance` matrix $\Sigma$, this
-        function returns a confidence interval
-        for $\eta^T\mu$.
-
-        Parameters
-        ----------
-
-        support_directions : np.float
-             Matrix specifying constraint, $A$.
-
-        support_offset : np.float
-             Offset in constraint, $b$.
-
-        covariance : np.float
-             Covariance matrix of `observed_data`.
-
-        noisy_observation : np.float
-             Observations.
-
-        observation : np.float
-             Observations.
-
-        direction_of_interest : np.float
-             Direction in which we're interested for the
-             contrast.
-
-        tol : float
-             Relative tolerance parameter for deciding 
-             sign of $Az-b$.
-
-        Returns
-        -------
-
-        confidence_interval : (float, float)
 
         """
 
         soln = self.solver(covariance)
-        num = (covariance * soln).sum()
+        num = (covariance * soln).sum()  # C' \Sigma^{-1} C where \Sigma is the (unscaled) covariance, i.e. not scaled by alpha/scale
         sigma = np.sqrt(variance)
-        den = self.scale * variance + num
-        ratio = num / den
+        den = self.scale + num / variance # scale + C' \Sigma^{-1} C / sigma^2
+        ratio = num / den # this is variance of the regression estimate given N
 
-        smoothing_variance = variance * (ratio - ratio**2)
-        slice_dir = covariance / (variance**2 * ratio) # this needs to be checked in latex and units
+        smoothing_variance = (ratio - ratio**2 / variance)
+        slice_dir = covariance / ratio # this needs to be checked in latex and units
         regression_estimate = (soln * self.observed).sum() / den
+        
+        print(ratio, 'variance of regression estimate')
+        print(smoothing_variance, 'smoothing variance')
         
         (lower_bound,
          upper_bound) = self.interval_constraints(regression_estimate,
@@ -299,7 +266,9 @@ class QAffineConstraint(AffineConstraint):
                                  smoothing_sigma=np.sqrt(smoothing_variance),
                                  lower_bound=lower_bound,
                                  upper_bound=upper_bound,
-                                 level=level)
+                                 level=level,
+                                 noisy_estimate=regression_estimate,
+                                 slice_dir=slice_dir)
 
 
 def lasso_inference(glmnet_obj,
@@ -513,7 +482,7 @@ def lasso_inference(glmnet_obj,
         for i in range(transform_to_raw.shape[0]):
             ## call selection_interval and return
 
-#            print('old')
+            print('old')
             TG_old = _split_interval(active_con=active_con,
                                      Q_noisy=Q_noisy * unreg_GLM.dispersion_,
                                      Q_full=Q_full * unreg_GLM.dispersion_,
@@ -523,14 +492,21 @@ def lasso_inference(glmnet_obj,
                                      level=level)
 
             estimate = (transform_to_raw[i] * full_mle).sum()
+            
             unscaled_covariance = Q_full @ transform_to_raw[i]
-#            print('new')
+            variance = unreg_GLM.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum()
+            covariance = unreg_GLM.dispersion_ * unscaled_covariance
+            print('new')
             TG_new = active_con.compute_target(estimate,
-                                               unreg_GLM.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum(),
-                                               unreg_GLM.dispersion_ * unscaled_covariance,
+                                               variance,
+                                               covariance,
                                                level=level)
             TG = TG_old
-
+#            print(TG_new.estimate, TG_old.estimate, 'estimate checks out')
+            print(TG_new.sigma**2, TG_old.sigma**2, 'sigma^2 checks out')
+            print(TG_new.slice_dir / TG_old.slice_dir, 'slice direction')
+            print(TG_new.noisy_estimate / TG_old.noisy_estimate, 'noisy estimate')
+            print(active_con.scale)
             (L, U), mle, pval = (TG.interval(), TG.MLE(), TG.pvalue())
 
             Ls[i] = L
@@ -538,6 +514,8 @@ def lasso_inference(glmnet_obj,
             mles[i] = mle
             pvals[i] = pval
             TGs.append(TG)
+            if i > 2:
+                stop
             
         idx = active_set.tolist()
         if FL.fit_intercept:
@@ -621,7 +599,9 @@ def _split_interval(active_con,
                              smoothing_sigma=smoothing_sigma,
                              lower_bound=lower_bound,
                              upper_bound=upper_bound,
-                             level=level)
+                             level=level,
+                             noisy_estimate=noisy_estimate,
+                             slice_dir=slice_dir)
     
 def _norm_interval(lower, upper):
     r"""
