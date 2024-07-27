@@ -380,11 +380,6 @@ def lasso_inference(glmnet_obj,
         data = -signs[penalized]
         sel_P = scipy.sparse.coo_matrix((data, (row_idx, col_idx)), shape=(n_penalized, n_coef))
 
-        if FL.fit_intercept:
-            sel_U = sel_L = scipy.sparse.dia_array((np.ones((1, n_coef)), [1]), shape=(n_coef-1, n_coef))
-        else:
-            sel_U = sel_L = scipy.sparse.eye(n_coef)
-
         ## the GLM's coef and intercept are on the original scale
         ## we transform them here to the (typically) unitless "standardized" scale
 
@@ -407,8 +402,8 @@ def lasso_inference(glmnet_obj,
         if not FL.fit_intercept:
             transform_to_raw = transform_to_raw[1:,1:]
 
-        linear = sel_P # scipy.sparse.vstack([sel_P, sel_U, -sel_L])
-        offset = np.zeros(sel_P.shape[0]) # np.hstack([np.zeros(sel_P.shape[0]), upper_limits, -lower_limits]) 
+        linear = sel_P
+        offset = np.zeros(sel_P.shape[0]) 
 
         # up to the scalar alpha, this should be the precision of the noise added
         active_solver = lambda v: (P_full + D_full) @ v / unreg_GLM.dispersion_
