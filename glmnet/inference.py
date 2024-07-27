@@ -191,8 +191,8 @@ class AffineConstraint(object):
         
         # Inequalities are now U + V @ target <= 0
         
-        print(f'target: {target}')
-        print(f'gamma: {gamma}')
+        # print(f'target: {target}')
+        # print(f'gamma: {gamma}')
 
         # adding the zero_coords in the denominator ensures that
         # there are no divide-by-zero errors in RHS
@@ -256,9 +256,9 @@ class QAffineConstraint(AffineConstraint):
 
         unbiased_estimate = variance * (soln * (self.observed - self.bias)).sum() / num
         unbiased_slice_dir = covariance / variance
-        print(unbiased_estimate, self.bias, 'huh')
-        print(regression_variance, 'variance of regression estimate')
-        print(smoothing_variance, 'smoothing variance')
+        # print(unbiased_estimate, self.bias, 'huh')
+        # print(regression_variance, 'variance of regression estimate')
+        # print(smoothing_variance, 'smoothing variance')
         
 
         (lower_bound,
@@ -297,39 +297,20 @@ def lasso_inference(glmnet_obj,
 
     FL = fixed_lambda # shorthand
 
+    # the upper / lower limits introduce "inactive constraints" -- need to
     if (not np.all(FL.upper_limits >= FL.control.big) or
         not np.all(FL.lower_limits <= -FL.control.big)):
         raise NotImplementedError('upper/lower limits coming soon')
 
+    # with upper / lower limits this must check which constraints are tight
+    
     active_set = np.nonzero(FL.coef_ != 0)[0]
 
     if active_set.shape[0] != 0:
-        inactive_set = np.nonzero(FL.coef_ == 0)[0]
+        inactive_set = ~ active_set
 
-        # fit unpenalized model on selection data
-        # here, unpenalized refers only to the LASSO penalty
-        # we include the ridge term in the unregularized fit
-        
-        unreg_sel_GLM = glmnet_obj.get_GLM(ridge_coef=(1 - FL.alpha) * FL.lambda_val)
-
-        unreg_sel_GLM.summarize = True
-        unreg_sel_GLM.fit(X_sel[:,active_set],
-                          Df_sel,
-                          dispersion=dispersion)
-
-        # # quadratic approximation up to scaling and a factor of weight_sel.sum()
-
-        D_sel = _get_design(X_sel[:,active_set],
-                            weight_sel,
-                            standardize=glmnet_obj.standardize,
-                            intercept=glmnet_obj.fit_intercept)
-        P_noisy = D_sel.quadratic_form(unreg_sel_GLM._information,
-                                       transformed=True)
-        D0 = np.ones(P_noisy.shape[0])
-        D0[0] = 0
-        D_noisy = np.diag(D0) * (1 - FL.alpha) * FL.lambda_val * weight_sel.sum()
-
-        # fit unpenalized model on full data
+        # fit unpenalized model on full data -- this determines
+        # the baseline quadratic form used in the LASSO
 
         X_full, Df_full = full_data
 
@@ -347,22 +328,12 @@ def lasso_inference(glmnet_obj,
                         weight_full,
                         standardize=glmnet_obj.standardize,
                         intercept=glmnet_obj.fit_intercept)
-
-        if np.asarray(FL.upper_limits).shape == ():
-            upper_limits = np.ones(D_sel.shape[1] - 1) * FL.upper_limits
-        else:
-            upper_limits = FL.upper_limits[active_set]
-            
-        if np.asarray(FL.lower_limits).shape == ():
-            lower_limits = np.ones(D_sel.shape[1] - 1) * FL.lower_limits
-        else:
-            lower_limits = FL.lower_limits[active_set]
-            
-        upper_limits = D_sel.scaling_ * upper_limits
-        lower_limits = D_sel.scaling_ * lower_limits
+        D0 = np.ones(D.shape[1])
+        D0[0] = 0
 
         P_full = D.quadratic_form(unreg_GLM._information,
                                   transformed=True)
+
         # our proportion factor on the assumption that
         # P_noisy represents (up to dispersion) the posterior precision of the
         # non-LASSO penalized estimator represented by the selection data
@@ -375,10 +346,6 @@ def lasso_inference(glmnet_obj,
         # in cases where the selection data is a subset of the full data
         # this factor will be captured by weight_full.sum()
 
-        # XXX make sure the coef/score based methods address this correctly
-        # by setting weights properly -- they should use weights proportion * np.ones() for the
-        # selection data.
-
         D_full = np.diag(D0) * (1 - FL.alpha) * FL.lambda_val * weight_full.sum()
 
         if not FL.fit_intercept:
@@ -387,28 +354,21 @@ def lasso_inference(glmnet_obj,
             else:
                 penfac = np.ones_like(active_set)
             P_full = P_full[1:,1:]
-            P_noisy = P_noisy[1:,1:]
             D_full = D_full[1:,1:]
-            D_noisy = D_noisy[1:,1:]
         else:
             penfac = np.ones(active_set.shape[0])
 
         Q_full = np.linalg.inv(P_full + D_full) 
-        Q_noisy = np.linalg.inv(P_noisy + D_noisy)
 
         signs = np.sign(FL.coef_[active_set])
 
-        noisy_mle = D.raw_to_scaled(unreg_sel_GLM.state_)
-        
         if FL.fit_intercept:
             penfac = np.hstack([0, penfac])
             signs = np.hstack([0, signs])
             stacked = np.hstack([FL.state_.intercept,
                                  FL.state_.coef[active_set]])
-            noisy_mle = noisy_mle._stack
         else:
             stacked = FL.state_.coef[active_set]
-            noisy_mle = noisy_mle.coef
 
         # now set up the constraints
 
@@ -447,8 +407,9 @@ def lasso_inference(glmnet_obj,
         if not FL.fit_intercept:
             transform_to_raw = transform_to_raw[1:,1:]
 
-        linear = scipy.sparse.vstack([sel_P, sel_U, -sel_L])
-        offset = np.hstack([np.zeros(sel_P.shape[0]), upper_limits, -lower_limits]) 
+        linear = sel_P # scipy.sparse.vstack([sel_P, sel_U, -sel_L])
+        offset = np.zeros(sel_P.shape[0]) # np.hstack([np.zeros(sel_P.shape[0]), upper_limits, -lower_limits]) 
+
         # up to the scalar alpha, this should be the precision of the noise added
         active_solver = lambda v: (P_full + D_full) @ v / unreg_GLM.dispersion_
         active_con = QAffineConstraint(linear=linear,
@@ -488,33 +449,16 @@ def lasso_inference(glmnet_obj,
                                             observed=score_)
 
         for i in range(transform_to_raw.shape[0]):
-            ## call selection_interval and return
-
-            print('old')
-            TG_old = _split_interval(active_con=active_con,
-                                     Q_noisy=Q_noisy * unreg_GLM.dispersion_,
-                                     Q_full=Q_full * unreg_GLM.dispersion_,
-                                     noisy_observation=noisy_mle, # these must be same scale / shift as glmnet
-                                     observation=full_mle, # these must be same scale / shift as glmnet
-                                     direction_of_interest=transform_to_raw[i], # this matrix describes the map from glmnet("transform") coords to raw("original") scale
-                                     level=level)
 
             estimate = (transform_to_raw[i] * full_mle).sum()
             
             unscaled_covariance = Q_full @ transform_to_raw[i]
             variance = unreg_GLM.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum()
             covariance = unreg_GLM.dispersion_ * unscaled_covariance
-            print('new')
-            TG_new = active_con.compute_target(estimate,
-                                               variance,
-                                               covariance,
-                                               level=level)
-            TG = TG_old
-#            print(TG_new.estimate, TG_old.estimate, 'estimate checks out')
-            print(TG_new.sigma**2, TG_old.sigma**2, 'sigma^2 checks out')
-            print(TG_new.slice_dir / TG_old.slice_dir, 'slice direction')
-            print(TG_new.noisy_estimate / TG_old.noisy_estimate, 'noisy estimate')
-            print(active_con.scale)
+            TG = active_con.compute_target(estimate,
+                                           variance,
+                                           covariance,
+                                           level=level)
             (L, U), mle, pval = (TG.interval(), TG.MLE(), TG.pvalue())
 
             Ls[i] = L
