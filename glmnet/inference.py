@@ -216,20 +216,6 @@ class AffineConstraint(object):
 
         return lower_bound, upper_bound
 
-@dataclass
-class QAffineConstraint(AffineConstraint):
-    r"""
-    An affine constraint with a solver for  quadratic form
-    denoting the variance of noise (conditional on the data)
-    implicated in the constraint.
-
-    The implicit assumption here is that noise added to the LASSO
-    has precision proportional to the quadratic part of the LASSO.
-
-    So, for active constraints and some ridge, this variance is $(X_E'WX_E+ (1-\alpha)*\lambda*I)^{-1}$. The
-    variance of the ridge estimator with parameter (1-\alpha)*\lambda
-    """
-
     solver: Callable
     scale: float
     bias: np.ndarray 
@@ -274,6 +260,21 @@ class QAffineConstraint(AffineConstraint):
                                  level=level,
                                  noisy_estimate=unbiased_estimate,
                                  slice_dir=unbiased_slice_dir)
+
+# @dataclass
+# class QAffineConstraint(AffineConstraint):
+#     r"""
+#     An affine constraint with a solver for  quadratic form
+#     denoting the variance of noise (conditional on the data)
+#     implicated in the constraint.
+
+#     The implicit assumption here is that noise added to the LASSO
+#     has precision proportional to the quadratic part of the LASSO.
+
+#     So, for active constraints and some ridge, this variance is $(X_E'WX_E+ (1-\alpha)*\lambda*I)^{-1}$. The
+#     variance of the ridge estimator with parameter (1-\alpha)*\lambda
+#     """
+
 
 
 def lasso_inference(glmnet_obj,
@@ -407,15 +408,16 @@ def lasso_inference(glmnet_obj,
 
         # up to the scalar alpha, this should be the precision of the noise added
         active_solver = lambda v: (P_full + D_full) @ v / unreg_GLM.dispersion_
-        active_con = QAffineConstraint(linear=linear,
-                                       offset=offset,
-                                       observed=stacked,
-                                       scale=(1-proportion)/proportion,
-                                       solver=active_solver,
-                                       # the bias subtracted from the unpenalized MLE -- needed to get
-                                       # a (marginally) unbiased estimate of each target of interest
-                                       bias=-Q_full @ (penfac * lambda_val * signs) * weight_full.sum()) 
-        inactive = True
+        active_con = AffineConstraint(linear=linear,
+                                      offset=offset,
+                                      observed=stacked,
+                                      scale=(1-proportion)/proportion,
+                                      solver=active_solver,
+                                      # the bias subtracted from the unpenalized MLE -- needed to get
+                                      # a (marginally) unbiased estimate of each target of interest
+                                      bias=-Q_full @ (penfac * lambda_val * signs) * weight_full.sum()) 
+
+        inactive = False
         if inactive:
             pf = FL.regularizer_.penalty_factor
 
@@ -473,80 +475,6 @@ def lasso_inference(glmnet_obj,
         return df
     else:
         return None
-
-def _split_interval(active_con,
-                    Q_noisy,
-                    Q_full,
-                    noisy_observation,
-                    observation,
-                    direction_of_interest,
-                    tol = 1.e-4,
-                    level = 0.90,
-                    dispersion=1):
-    r"""
-    Given an affine in cone constraint $\{z:Az+b \leq 0\}$ (elementwise)
-    specified with $A$ as `support_directions` and $b$ as
-    `support_offset`, a new direction of interest $\eta$, and
-    `noisy_observation` is Gaussian vector $Z \sim N(\mu,\Sigma)$ 
-    with `covariance` matrix $\Sigma$, this
-    function returns a confidence interval
-    for $\eta^T\mu$.
-
-    Parameters
-    ----------
-
-    support_directions : np.float
-         Matrix specifying constraint, $A$.
-
-    support_offset : np.float
-         Offset in constraint, $b$.
-
-    covariance : np.float
-         Covariance matrix of `observed_data`.
-
-    noisy_observation : np.float
-         Observations.
-
-    observation : np.float
-         Observations.
-
-    direction_of_interest : np.float
-         Direction in which we're interested for the
-         contrast.
-
-    tol : float
-         Relative tolerance parameter for deciding 
-         sign of $Az-b$.
-
-    Returns
-    -------
-
-    confidence_interval : (float, float)
-
-    """
-
-    noisy_var = direction_of_interest.T @ Q_noisy @ direction_of_interest
-    full_var = direction_of_interest.T @ Q_full @ direction_of_interest
-    noisy_estimate = (direction_of_interest * noisy_observation).sum()
-    estimate = (direction_of_interest * observation).sum()
-
-    slice_dir = Q_full @ direction_of_interest / full_var
-    (lower_bound,
-     upper_bound) = active_con.interval_constraints(noisy_estimate,
-                                                    slice_dir,
-                                                    tol=tol)
-
-    sigma = np.sqrt(full_var)
-    smoothing_sigma = np.sqrt(max(noisy_var - full_var, 0))
-
-    return TruncatedGaussian(estimate=estimate,
-                             sigma=sigma,
-                             smoothing_sigma=smoothing_sigma,
-                             lower_bound=lower_bound,
-                             upper_bound=upper_bound,
-                             level=level,
-                             noisy_estimate=noisy_estimate,
-                             slice_dir=slice_dir)
     
 def _norm_interval(lower, upper):
     r"""
