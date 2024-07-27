@@ -106,7 +106,7 @@ def sample_orthogonal(rng=None,
                     upper_bound = -lamval
                 lower_bound = -np.inf
 
-            tg = df.loc[j,'TG']
+            tg = df.loc[j,'WG']
 
             TG = TruncatedGaussian(estimate=Y[j],
                                    sigma=1,
@@ -157,7 +157,7 @@ def resample_orthogonal(rng=None,
     if df is not None:
         df['target'] = beta[df.index]
         if not standardize:
-            df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j,'target']) for j in df.index]
+            df['pivot'] = [df.loc[j,'WG'].pvalue(df.loc[j,'target']) for j in df.index]
         else:
             # scaling transformation not taken into account so cannot reuse TruncatedGaussian object
             df['pivot'] = np.nan * df['pval']
@@ -221,7 +221,7 @@ def resample_AR1(rng=None,
         prec_E = S_i[df.index][:,df.index]
         df['target'] = np.linalg.inv(prec_E) @ mu[df.index]
         if not standardize:
-            df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j,'target']) for j in df.index]
+            df['pivot'] = [df.loc[j,'WG'].pvalue(df.loc[j,'target']) for j in df.index]
         else:
             # scaling transformation not taken into account so cannot reuse TruncatedGaussian object
             df['pivot'] = np.nan * df['pval']
@@ -259,7 +259,7 @@ def sample_cov(S,
         df['target'] = np.linalg.inv(S[active][:,active]) @ mu[active]
 
     if df is not None:
-        df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
+        df['pivot'] = [df.loc[j,'WG'].pvalue(df.loc[j, 'target']) for j in df.index]
         
     return df
 
@@ -337,7 +337,7 @@ def sample_randomX(n,
         df['target'] = targets
             
     if df is not None:
-        df['pivot'] = [df.loc[j,'TG'].pvalue(df.loc[j, 'target']) for j in df.index]
+        df['pivot'] = [df.loc[j,'WG'].pvalue(df.loc[j, 'target']) for j in df.index]
         
     return df
 

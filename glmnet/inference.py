@@ -33,7 +33,20 @@ class TruncatedGaussian(object):
     upper_bound: float
     noisy_estimate: float
     slice_dir: np.ndarray
-    level: Optional[float] = 0.9
+    factor: float = 1.
+
+    def weight(self,
+               x):
+        t = x * self.factor
+        return (normal_dbn.cdf((self.upper_bound - t) / self.smoothing_sigma)
+                - normal_dbn.cdf((self.lower_bound - t) / self.smoothing_sigma))
+    
+@dataclass
+class WeightedGaussianFamily(object):
+
+    estimate: float
+    sigma: float
+    weight_fns: list
     num_sd: Optional[float] = 10
     num_grid: Optional[float] = 4000
     use_sample: Optional[bool] = False
@@ -51,8 +64,9 @@ class TruncatedGaussian(object):
             grid = np.linspace(basept - self.num_sd * self.sigma,
                                basept + self.num_sd * self.sigma, self.num_grid)
 
-            weight = (normal_dbn.cdf((self.upper_bound - grid) / self.smoothing_sigma)
-                      - normal_dbn.cdf((self.lower_bound - grid) / self.smoothing_sigma))
+            log_weight = np.sum([np.log(w(grid)) for w in self.weight_fns], 0)
+            log_weight -= log_weight.max() + 10
+            weight = np.exp(log_weight)
 
             weight *= normal_dbn.pdf((grid - basept) / self.sigma)
 
@@ -60,8 +74,11 @@ class TruncatedGaussian(object):
 
         else:
             sample = self._rng.standard_normal(self.num_grid) * self.sigma + basept
-            weight = (normal_dbn.cdf((self.upper_bound - sample) / self.smoothing_sigma)
-                      - normal_dbn.cdf((self.lower_bound - sample) / self.smoothing_sigma))
+
+            log_weight = np.sum([np.log(w(sample)) for w in self.weight_fns])
+            log_weight -= log_weight.max() + 10
+            weight = np.exp(log_weight)
+
             return discrete_family(sample, weight)
 
     def pvalue(self,
@@ -87,7 +104,8 @@ class TruncatedGaussian(object):
         return pvalue
 
     def interval(self,
-                 basept=None):
+                 basept=None,
+                 level=0.9):
                  
         if basept is None:
             basept = self.estimate
@@ -95,7 +113,7 @@ class TruncatedGaussian(object):
         _family = self._get_family(basept=basept)
 
         L, U = _family.equal_tailed_interval(self.estimate,
-                                             alpha=1-self.level)
+                                             alpha=1-level)
         L *= self.sigma**2; L += basept
         U *= self.sigma**2; U += basept
 
@@ -112,7 +130,7 @@ class TruncatedGaussian(object):
         mle, _, _ = _family.MLE(self.estimate)
         mle *= self.sigma**2; mle += basept
         return mle
-    
+
 @dataclass
 class AffineConstraint(object):
 
@@ -224,8 +242,7 @@ class AffineConstraint(object):
                        estimate,
                        variance,
                        covariance,
-                       tol = 1.e-4,
-                       level = 0.90):
+                       tol = 1.e-4):
         r"""
 
         """
@@ -257,7 +274,6 @@ class AffineConstraint(object):
                                  smoothing_sigma=np.sqrt(smoothing_variance),
                                  lower_bound=lower_bound,
                                  upper_bound=upper_bound,
-                                 level=level,
                                  noisy_estimate=unbiased_estimate,
                                  slice_dir=unbiased_slice_dir)
 
@@ -283,7 +299,11 @@ def lasso_inference(glmnet_obj,
                     full_data,
                     proportion, # proportion used in selection
                     level=.9,
-                    dispersion=None):
+                    dispersion=None,
+                    seed=0,
+                    num_sd=10,
+                    num_grid=4000,
+                    use_sample=False):
 
     fixed_lambda, warm_state = glmnet_obj.get_fixed_lambda(lambda_val)
     X_sel, Df_sel = selection_data
@@ -397,7 +417,7 @@ def lasso_inference(glmnet_obj,
         mles = np.zeros_like(stacked)
         pvals = np.zeros_like(stacked)
         TGs = []
-        
+        WGs = []
         transform_to_raw = (D.unscaler_ @
                             np.identity(D.shape[1]))
         if not FL.fit_intercept:
@@ -454,24 +474,37 @@ def lasso_inference(glmnet_obj,
             covariance = unreg_GLM.dispersion_ * unscaled_covariance
             TG = active_con.compute_target(estimate,
                                            variance,
-                                           covariance,
-                                           level=level)
-            (L, U), mle, pval = (TG.interval(), TG.MLE(), TG.pvalue())
+                                           covariance)
+
+            _fam_opts = dict(seed=seed,
+                             num_sd=num_sd,
+                             num_grid=num_grid,
+                             use_sample=use_sample)
+
+            WG = WeightedGaussianFamily(estimate=TG.estimate,
+                                        sigma=TG.sigma,
+                                        weight_fns=[TG.weight])
+            (L, U), mle, pval = (WG.interval(level=level), WG.MLE(), WG.pvalue())
 
             Ls[i] = L
             Us[i] = U
             mles[i] = mle
             pvals[i] = pval
             TGs.append(TG)
+            WGs.append(WG)
             
         idx = active_set.tolist()
         if FL.fit_intercept:
             idx = ['intercept'] + idx
 
+        WG_df = pd.concat([pd.Series(asdict(wg)) for wg in WGs], axis=1).T
+        WG_df.index = idx
         TG_df = pd.concat([pd.Series(asdict(tg)) for tg in TGs], axis=1).T
         TG_df.index = idx
-        df = pd.concat([pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx), TG_df], axis=1)
+        df = pd.concat([pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx), WG_df, TG_df], axis=1)
+        df['WG'] = WGs
         df['TG'] = TGs
+
         return df
     else:
         return None
