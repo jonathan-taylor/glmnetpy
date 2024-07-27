@@ -232,6 +232,7 @@ class QAffineConstraint(AffineConstraint):
 
     solver: Callable
     scale: float
+    bias: np.ndarray 
 
     def compute_target(self,
                        estimate,
@@ -247,18 +248,22 @@ class QAffineConstraint(AffineConstraint):
         num = (covariance * soln).sum()  # C' \Sigma^{-1} C where \Sigma is the (unscaled) covariance, i.e. not scaled by alpha/scale
         sigma = np.sqrt(variance)
         den = self.scale + num / variance # scale + C' \Sigma^{-1} C / sigma^2
-        ratio = num / den # this is variance of the regression estimate given N
+        regression_variance = num / den # this is variance of the regression estimate given N
 
-        smoothing_variance = (ratio - ratio**2 / variance)
-        slice_dir = covariance / ratio # this needs to be checked in latex and units
+        smoothing_variance = self.scale * variance**2 / num 
+        regression_slice_dir = covariance / regression_variance # this needs to be checked in latex and units
         regression_estimate = (soln * self.observed).sum() / den
-        
-        print(ratio, 'variance of regression estimate')
+
+        unbiased_estimate = variance * (soln * (self.observed - self.bias)).sum() / num
+        unbiased_slice_dir = covariance / variance
+        print(unbiased_estimate, self.bias, 'huh')
+        print(regression_variance, 'variance of regression estimate')
         print(smoothing_variance, 'smoothing variance')
         
+
         (lower_bound,
-         upper_bound) = self.interval_constraints(regression_estimate,
-                                                  slice_dir,
+         upper_bound) = self.interval_constraints(unbiased_estimate,
+                                                  unbiased_slice_dir,
                                                   tol=tol)
 
         return TruncatedGaussian(estimate=estimate,
@@ -267,8 +272,8 @@ class QAffineConstraint(AffineConstraint):
                                  lower_bound=lower_bound,
                                  upper_bound=upper_bound,
                                  level=level,
-                                 noisy_estimate=regression_estimate,
-                                 slice_dir=slice_dir)
+                                 noisy_estimate=unbiased_estimate,
+                                 slice_dir=unbiased_slice_dir)
 
 
 def lasso_inference(glmnet_obj,
@@ -450,7 +455,10 @@ def lasso_inference(glmnet_obj,
                                        offset=offset,
                                        observed=stacked,
                                        scale=(1-proportion)/proportion,
-                                       solver=active_solver)
+                                       solver=active_solver,
+                                       # the bias subtracted from the unpenalized MLE -- needed to get
+                                       # a (marginally) unbiased estimate of each target of interest
+                                       bias=-Q_full @ (penfac * lambda_val * signs) * weight_full.sum()) 
         inactive = True
         if inactive:
             pf = FL.regularizer_.penalty_factor
@@ -514,8 +522,6 @@ def lasso_inference(glmnet_obj,
             mles[i] = mle
             pvals[i] = pval
             TGs.append(TG)
-            if i > 2:
-                stop
             
         idx = active_set.tolist()
         if FL.fit_intercept:
