@@ -64,7 +64,7 @@ class WeightedGaussianFamily(object):
             grid = np.linspace(basept - self.num_sd * self.sigma,
                                basept + self.num_sd * self.sigma, self.num_grid)
 
-            log_weight = np.sum([np.log(w(grid)) for w in self.weight_fns], 0)
+            log_weight = np.sum([np.log(np.clip(w(grid), 1e-16,1)) for w in self.weight_fns], 0)
             log_weight -= log_weight.max() + 10
             weight = np.exp(log_weight)
 
@@ -255,18 +255,15 @@ class AffineConstraint(object):
 
         smoothing_variance = self.scale * variance**2 / num 
         regression_slice_dir = covariance / regression_variance # this needs to be checked in latex and units
-        regression_estimate = (soln * self.observed).sum() / den
+        regression_estimate = (soln * (self.observed - self.bias)).sum() / den
 
         unbiased_estimate = variance * (soln * (self.observed - self.bias)).sum() / num
         unbiased_slice_dir = covariance / variance
-        # print(unbiased_estimate, self.bias, 'huh')
-        # print(regression_variance, 'variance of regression estimate')
-        # print(smoothing_variance, 'smoothing variance')
-        
 
+        factor = regression_variance / variance
         (lower_bound,
-         upper_bound) = self.interval_constraints(unbiased_estimate,
-                                                  unbiased_slice_dir,
+         upper_bound) = self.interval_constraints(unbiased_estimate * factor,
+                                                  unbiased_slice_dir / factor,
                                                   tol=tol)
 
         return TruncatedGaussian(estimate=estimate,
@@ -275,22 +272,8 @@ class AffineConstraint(object):
                                  lower_bound=lower_bound,
                                  upper_bound=upper_bound,
                                  noisy_estimate=unbiased_estimate,
-                                 slice_dir=unbiased_slice_dir)
-
-# @dataclass
-# class QAffineConstraint(AffineConstraint):
-#     r"""
-#     An affine constraint with a solver for  quadratic form
-#     denoting the variance of noise (conditional on the data)
-#     implicated in the constraint.
-
-#     The implicit assumption here is that noise added to the LASSO
-#     has precision proportional to the quadratic part of the LASSO.
-
-#     So, for active constraints and some ridge, this variance is $(X_E'WX_E+ (1-\alpha)*\lambda*I)^{-1}$. The
-#     variance of the ridge estimator with parameter (1-\alpha)*\lambda
-#     """
-
+                                 slice_dir=unbiased_slice_dir,
+                                 factor=factor)
 
 
 def lasso_inference(glmnet_obj,
