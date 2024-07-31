@@ -41,7 +41,8 @@ def sample_orthogonal(rng=None,
                       s=5,
                       penalty_facs=False,
                       alt=True,
-                      prop=0.8):
+                      prop=0.8,
+                      level=0.9):
     if rng is None:
         rng = np.random.default_rng(0)
     beta = np.zeros(p)
@@ -113,7 +114,7 @@ def sample_orthogonal(rng=None,
                                    smoothing_sigma=np.sqrt((1 - prop) / prop),
                                    lower_bound=lower_bound,
                                    upper_bound=upper_bound,
-                                   level=0.90)
+                                   level=level)
             pval = TG.pvalue()
             pivots.append(TG.pvalue(null_value=df.loc[j,'target']))
             test_pvals.append(TG.pvalue(null_value=0))
@@ -169,7 +170,8 @@ def sample_AR1(rho=0.6,
                s=5,
                alt=True,
                prop=0.8,
-               dispersion=2):
+               dispersion=2,
+               level=0.9):
 
     D = np.fabs(np.subtract.outer(np.arange(p), np.arange(p)))
     dispersion = 2
@@ -180,7 +182,8 @@ def sample_AR1(rho=0.6,
                       p=p,
                       s=s,
                       alt=alt,
-                      prop=prop)
+                      prop=prop,
+                      level=level)
 
 def resample_AR1(rng=None,
                  p=50,
@@ -233,7 +236,8 @@ def sample_cov(S,
                s=5,
                alt=True,
                prop=0.8,
-               lamval=3):
+               lamval=3,
+               level=0.9):
 
     if rng is None:
         rng = np.random.default_rng(0)
@@ -253,7 +257,8 @@ def sample_cov(S,
                          cov_score=S,
                          lamval=lamval,
                          prop=prop,
-                         chol_cov=S_sqrt)
+                         chol_cov=S_sqrt,
+                         level=level)
     if df is not None:
         active = list(df.index)
         df['target'] = np.linalg.inv(S[active][:,active]) @ mu[active]

@@ -18,7 +18,7 @@ import mpmath as mp
 mp.dps = 80
 
 from .base import _get_design
-from .glmnet import GLMNet
+from .glmnet import GLMNet, GLMState
 
 from dataclasses import dataclass, asdict
 from typing import Optional, Callable
@@ -238,7 +238,7 @@ class AffineConstraint(object):
     scale: float
     bias: np.ndarray 
 
-    def compute_target(self,
+    def compute_weight(self,
                        estimate,
                        variance,
                        covariance,
@@ -247,27 +247,36 @@ class AffineConstraint(object):
 
         """
 
-        soln = self.solver(covariance)
-        num = (covariance * soln).sum()  # C' \Sigma^{-1} C where \Sigma is the (unscaled) covariance, i.e. not scaled by alpha/scale
-        sigma = np.sqrt(variance)
-        den = self.scale + num / variance # scale + C' \Sigma^{-1} C / sigma^2
-        regression_variance = num / den # this is variance of the regression estimate given N
+        if np.linalg.norm(covariance) > 1e-8 * variance:
 
-        smoothing_variance = self.scale * variance**2 / num 
-        regression_slice_dir = covariance / regression_variance # this needs to be checked in latex and units
-        regression_estimate = (soln * (self.observed - self.bias)).sum() / den
+            soln = self.solver(covariance)
+            num = (covariance * soln).sum()  # C' \Sigma^{-1} C where \Sigma is the (unscaled) covariance, i.e. not scaled by alpha/scale
+            sigma = np.sqrt(variance)
+            den = self.scale + num / variance # scale + C' \Sigma^{-1} C / sigma^2
+            regression_variance = num / den # this is variance of the regression estimate given N
 
-        unbiased_estimate = variance * (soln * (self.observed - self.bias)).sum() / num
-        unbiased_slice_dir = covariance / variance
+            smoothing_variance = self.scale * variance**2 / num 
+            regression_slice_dir = covariance / regression_variance # this needs to be checked in latex and units
+            regression_estimate = (soln * (self.observed - self.bias)).sum() / den
 
-        factor = regression_variance / variance
-        (lower_bound,
-         upper_bound) = self.interval_constraints(unbiased_estimate * factor,
-                                                  unbiased_slice_dir / factor,
-                                                  tol=tol)
+            unbiased_estimate = variance * (soln * (self.observed - self.bias)).sum() / num
+            unbiased_slice_dir = covariance / variance
 
+            factor = regression_variance / variance
+            (lower_bound,
+             upper_bound) = self.interval_constraints(unbiased_estimate * factor,
+                                                      unbiased_slice_dir / factor,
+                                                      tol=tol)
+        else:
+            smoothing_variance = 1
+            lower_bound, upper_bound = -np.inf, np.inf
+            noisy_estimate = 0
+            unbiased_slice_dir = covariance * 0
+            unbiased_estimate = estimate # ignored because slice_dir is 0 and bounds are \pm inf
+            factor = 1
+            
         return TruncatedGaussian(estimate=estimate,
-                                 sigma=sigma,
+                                 sigma=np.sqrt(variance),
                                  smoothing_sigma=np.sqrt(smoothing_variance),
                                  lower_bound=lower_bound,
                                  upper_bound=upper_bound,
@@ -286,198 +295,310 @@ def lasso_inference(glmnet_obj,
                     seed=0,
                     num_sd=10,
                     num_grid=4000,
-                    use_sample=False):
+                    use_sample=False,
+                    inactive=False):
 
     fixed_lambda, warm_state = glmnet_obj.get_fixed_lambda(lambda_val)
     X_sel, Df_sel = selection_data
-    _, _, Y_sel, _, weight_sel = fixed_lambda.get_data_arrays(X_sel,
-                                                              Df_sel)
-    if weight_sel is None:
-        weight_sel = np.ones(X_sel.shape[0])
 
     fixed_lambda.fit(X_sel,
                      Df_sel,
                      warm_state=warm_state)
 
     FL = fixed_lambda # shorthand
-
-    # the upper / lower limits introduce "inactive constraints" -- need to
-    if (not np.all(FL.upper_limits >= FL.control.big) or
-        not np.all(FL.lower_limits <= -FL.control.big)):
-        raise NotImplementedError('upper/lower limits coming soon')
-
-    # with upper / lower limits this must check which constraints are tight
+    state = FL.state_
+    lambda_val = FL.lambda_val
     
-    active_set = np.nonzero(FL.coef_ != 0)[0]
+    if inactive:
+        _, _, Y_sel, _, weight_sel = glmnet_obj.get_data_arrays(X_sel,
+                                                                Df_sel)
+        if weight_sel is None:
+            weight_sel = np.ones(X_sel.shape[0])
+        logl_score = state.logl_score(glmnet_obj._family,
+                                      Y_sel,
+                                      weight_sel / weight_sel.sum())
+        score = (FL.design_.T @ logl_score)[1:]
+    else:
+        score = None
+        
+        LI = LassoInference(glmnet_obj,
+                            full_data,
+                            lambda_val,
+                            state,
+                            score,
+                            proportion,
+                            dispersion=dispersion,
+                            inactive=inactive)
 
-    if active_set.shape[0] != 0:
-        inactive_set = ~ active_set
+        if LI.active_set_.shape[0] > 0:
+            return LI.summary(level=level)
 
-        # fit unpenalized model on full data -- this determines
-        # the baseline quadratic form used in the LASSO
+@dataclass
+class LassoInference(object):
 
-        X_full, Df_full = full_data
+    glmnet_obj: GLMNet
+    data: tuple
+    lambda_val: float
+    state: GLMState
+    score: np.ndarray
+    proportion: float
+    dispersion: Optional[float] = None
+    inactive: bool = False
 
-        unreg_GLM = glmnet_obj.get_GLM()
-        unreg_GLM.summarize = True
-        unreg_GLM.fit(X_full[:,active_set],
-                      Df_full,
-                      dispersion=dispersion)
-        _, _, Y_full, _, weight_full = fixed_lambda.get_data_arrays(X_full,
-                                                                    Df_full)
+    def __post_init__(self):
+        
+        (glmnet_obj,
+         data,
+         lambda_val,
+         state,
+         score,
+         proportion) = (self.glmnet_obj,
+                        self.data,
+                        self.lambda_val,
+                        self.state,
+                        self.score,
+                        self.proportion)  
 
-        # quadratic approximation
+        G = self.glmnet_obj # shorthand
 
-        D = _get_design(X_full[:,active_set],
-                        weight_full,
-                        standardize=glmnet_obj.standardize,
-                        intercept=glmnet_obj.fit_intercept)
-        D0 = np.ones(D.shape[1])
-        D0[0] = 0
+        # the upper / lower limits introduce "inactive constraints" -- need to
+        if (not np.all(G.upper_limits >= G.control.big) or
+            not np.all(G.lower_limits <= -G.control.big)):
+            raise NotImplementedError('upper/lower limits coming soon')
 
-        P_full = D.quadratic_form(unreg_GLM._information,
-                                  transformed=True)
+        # with upper / lower limits this must check which constraints are tight
 
-        # our proportion factor on the assumption that
-        # P_noisy represents (up to dispersion) the posterior precision of the
-        # non-LASSO penalized estimator represented by the selection data
+        self.active_set_ = active_set = np.nonzero(state.coef != 0)[0]
 
-        # that is, P_noisy = proportion * P_full
-        # the quadratic from from D above is only the likelihood contribution
-        # this is the diagonal contribution and so we add what we added to P_noisy
-        # which should be inflated by 1 / proportion
+        if active_set.shape[0] != 0:
 
-        # in cases where the selection data is a subset of the full data
-        # this factor will be captured by weight_full.sum()
+            # fit unpenalized model on full data -- this determines
+            # the baseline quadratic form used in the LASSO
 
-        D_full = np.diag(D0) * (1 - FL.alpha) * FL.lambda_val * weight_full.sum()
+            X_full, Df_full = data
 
-        if not FL.fit_intercept:
-            if FL.penalty_factor is not None:
-                penfac = FL.penalty_factor[active_set]
+            unreg_GLM = glmnet_obj.get_GLM()
+            unreg_GLM.summarize = True
+            unreg_GLM.fit(X_full[:,active_set],
+                          Df_full,
+                          dispersion=self.dispersion)
+            _, _, Y_full, _, weight_full = G.get_data_arrays(X_full,
+                                                             Df_full)
+
+            # quadratic approximation
+
+            self.D_active = _get_design(X_full[:,active_set],
+                                        weight_full,
+                                        standardize=glmnet_obj.standardize,
+                                        intercept=glmnet_obj.fit_intercept)
+            D = self.D_active
+
+            info = unreg_GLM._information
+            P_active = D.quadratic_form(info,
+                                        transformed=True)
+
+            # our proportion factor on the assumption that
+            # P_noisy represents (up to dispersion) the posterior precision of the
+            # non-LASSO penalized estimator represented by the selection data
+
+            # that is, P_noisy = proportion * P_active
+            # the quadratic from from D above is only the likelihood contribution
+            # this is the diagonal contribution and so we add what we added to P_noisy
+            # which should be inflated by 1 / proportion
+
+            # in cases where the selection data is a subset of the full data
+            # this factor will be captured by weight_full.sum()
+
+            D0 = np.ones(D.shape[1])
+            D0[0] = 0
+            DIAG_active = np.diag(D0) * (1 - G.alpha) * lambda_val * weight_full.sum()
+
+            if not G.fit_intercept:
+                if G.penalty_factor is not None:
+                    penfac = G.penalty_factor[active_set]
+                else:
+                    penfac = np.ones_like(active_set)
+                P_active = P_active[1:,1:]
+                DIAG_active = DIAG_active[1:,1:]
             else:
-                penfac = np.ones_like(active_set)
-            P_full = P_full[1:,1:]
-            D_full = D_full[1:,1:]
+                penfac = np.ones(active_set.shape[0])
+
+            self.Q_active_ = Q_active = np.linalg.inv(P_active + DIAG_active) 
+
+            signs = np.sign(state.coef[active_set])
+
+            if G.fit_intercept:
+                penfac = np.hstack([0, penfac])
+                signs = np.hstack([0, signs])
+                stacked = np.hstack([state.intercept,
+                                     state.coef[active_set]])
+            else:
+                stacked = state.coef[active_set]
+            self.stacked_ = stacked
+            
+            # now set up the constraints
+
+            penalized = penfac > 0
+            n_penalized = penalized.sum()
+            n_coef = penalized.shape[0]
+            row_idx = np.arange(n_penalized)
+            col_idx = np.nonzero(penalized)[0]
+            data = -signs[penalized]
+            sel_active = scipy.sparse.coo_matrix((data, (row_idx, col_idx)), shape=(n_penalized, n_coef))
+
+            ## the GLM's coef and intercept are on the original scale
+            ## we transform them here to the (typically) unitless "standardized" scale
+
+            self.active_mle_ = D.raw_to_scaled(unreg_GLM.state_)
+
+            if G.fit_intercept:
+                self.active_mle_ = self.active_mle_._stack
+            else:
+                self.active_mle_ = self.active_mle_.coef
+
+            linear = sel_active
+            offset = np.zeros(sel_active.shape[0]) 
+
+            # up to the scalar alpha, this should be the precision of the noise added
+            active_solver = lambda v: (P_active + DIAG_active) @ v / unreg_GLM.dispersion_
+            active_bias = -Q_active @ (penfac * lambda_val * signs) * weight_full.sum()
+            self.active_con = AffineConstraint(linear=linear,
+                                               offset=offset,
+                                               observed=stacked,
+                                               scale=(1-proportion)/proportion,
+                                               solver=active_solver,
+                                               # the bias subtracted from the unpenalized MLE -- needed to get
+                                               # a (marginally) unbiased estimate of each target of interest
+                                               bias=active_bias) 
+
+            self.dispersion_ = unreg_GLM.dispersion_
         else:
-            penfac = np.ones(active_set.shape[0])
+            self.active_con = None
+            # this should be fixed for case when there is an intercept but no
+            # features selected!!!
+            Q_active = self.C_active = None
 
-        Q_full = np.linalg.inv(P_full + D_full) 
+        if self.inactive:
 
-        signs = np.sign(FL.coef_[active_set])
+            inactive_bool = np.ones(X_full.shape[1], bool)
+            inactive_bool[active_set] = 0
 
-        if FL.fit_intercept:
-            penfac = np.hstack([0, penfac])
-            signs = np.hstack([0, signs])
-            stacked = np.hstack([FL.state_.intercept,
-                                 FL.state_.coef[active_set]])
-        else:
-            stacked = FL.state_.coef[active_set]
+            D_all = _get_design(X_full,
+                                weight_full,
+                                standardize=glmnet_obj.standardize,
+                                intercept=glmnet_obj.fit_intercept)
+            # we don't want the row corresponding to intercept
+            # we also then restrict to inactive set
+            
+            L_cross = D_all.quadratic_form(info,
+                                           columns=active_set,
+                                           transformed=True)[1:][inactive_bool]
+            # if there was not fitting for the intercept
+            # it will nto be in Q_active
+            if not glmnet_obj.fit_intercept:
+                L_cross = L_cross[:,1:] # remove the intercept column
 
-        # now set up the constraints
+            # this needs to be handled properly for big p
+            self.D_inactive = _get_design(X_full[:,inactive_bool],
+                                          weight_full,
+                                          standardize=glmnet_obj.standardize,
+                                          intercept=glmnet_obj.fit_intercept)
+            D_I = self.D_inactive
+            # whether or not we fit an intercept
+            # we don't want intercept column in the result below
+            P_inactive = D_I.quadratic_form(info,
+                                            transformed=True)[1:,1:]
 
-        penalized = penfac > 0
-        n_penalized = penalized.sum()
-        n_coef = penalized.shape[0]
-        row_idx = np.arange(n_penalized)
-        col_idx = np.nonzero(penalized)[0]
-        data = -signs[penalized]
-        sel_P = scipy.sparse.coo_matrix((data, (row_idx, col_idx)), shape=(n_penalized, n_coef))
+            P_inactive += (1 - G.alpha) * lambda_val * weight_full.sum() * np.identity(P_inactive.shape[0])
+            if Q_active is not None:
+                P_inactive -= L_cross @ Q_active @ L_cross.T
+            Q_inactive = np.linalg.inv(P_inactive)
 
-        ## the GLM's coef and intercept are on the original scale
-        ## we transform them here to the (typically) unitless "standardized" scale
-
-        full_mle = D.raw_to_scaled(unreg_GLM.state_)
-
-        if FL.fit_intercept:
-            full_mle = full_mle._stack
-        else:
-            full_mle = full_mle.coef
-
-        ## iterate over coordinates
-        Ls = np.zeros_like(stacked)
-        Us = np.zeros_like(stacked)
-        mles = np.zeros_like(stacked)
-        pvals = np.zeros_like(stacked)
-        TGs = []
-        WGs = []
-        transform_to_raw = (D.unscaler_ @
-                            np.identity(D.shape[1]))
-        if not FL.fit_intercept:
-            transform_to_raw = transform_to_raw[1:,1:]
-
-        linear = sel_P
-        offset = np.zeros(sel_P.shape[0]) 
-
-        # up to the scalar alpha, this should be the precision of the noise added
-        active_solver = lambda v: (P_full + D_full) @ v / unreg_GLM.dispersion_
-        active_con = AffineConstraint(linear=linear,
-                                      offset=offset,
-                                      observed=stacked,
-                                      scale=(1-proportion)/proportion,
-                                      solver=active_solver,
-                                      # the bias subtracted from the unpenalized MLE -- needed to get
-                                      # a (marginally) unbiased estimate of each target of interest
-                                      bias=-Q_full @ (penfac * lambda_val * signs) * weight_full.sum()) 
-
-        inactive = False
-        if inactive:
-            pf = FL.regularizer_.penalty_factor
-
-            logl_score = FL.state_.logl_score(FL._family,
-                                              Y_sel,
-                                              weight_sel / weight_sel.sum())
+            pf = G.regularizer_.penalty_factor
 
             # X_{-E}'(Y-X\hat{\beta}_E) -- \hat{\beta}_E is the LASSO soln, not GLM !
             # this is (2nd order Taylor series sense) equivalent to
             # X_{-E}'(Y-X\bar{\beta}_E) + X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
             # with \bar{\beta}_E the GLM soln
 
-            score_ = (FL.design_.T @ logl_score)[1:]
-            score_ = score_[inactive_set]
-            # we now know that `score_` is bounded by \pm lambda_val
+            score = score[inactive_bool]
+            # we now know that `score` is bounded by \pm lambda_val
 
-            I = scipy.sparse.eye(score_.shape[0])
+            I = scipy.sparse.eye(score.shape[0])
             L = scipy.sparse.vstack([I, -I])
             O = (np.ones(L.shape[0]) * lambda_val *
-                 np.hstack([pf[inactive_set],
-                            pf[inactive_set]]))
+                 np.hstack([pf[inactive_bool],
+                            pf[inactive_bool]]))
 
             fudge_factor = 0.02 # allow 2% relative error on inactive gradient
-            inactive_con = AffineConstraint(linear=L,
-                                            offset=O * (1 + fudge_factor),
-                                            observed=score_)
+            inactive_solver = lambda v: (Q_inactive @ v) * unreg_GLM.dispersion_
+            self.inactive_con = AffineConstraint(linear=L,
+                                                 offset=O * (1 + fudge_factor),
+                                                 observed=score,
+                                                 scale=(1-proportion)/proportion,
+                                                 bias=-L_cross @ active_bias,
+                                                 solver=inactive_solver)
+
+        else:
+            self.inactive_con = None
+        
+    
+    def summary(self,
+                level=0.9,
+                do_pvalue=True,
+                do_confidence_interval=True,
+                do_mle=True,
+                seed=0,
+                num_sd=10,
+                num_grid=4000,
+                use_sample=False):
+
+        transform_to_raw = (self.D_active.unscaler_ @
+                            np.identity(self.D_active.shape[1]))
+
+        ## iterate over coordinates
+        Ls = np.zeros_like(self.stacked_)
+        Us = np.zeros_like(self.stacked_)
+        mles = np.zeros_like(self.stacked_)
+        pvals = np.zeros_like(self.stacked_)
+        TGs = []
+        WGs = []
+        if not self.glmnet_obj.fit_intercept:
+            transform_to_raw = transform_to_raw[1:,1:]
 
         for i in range(transform_to_raw.shape[0]):
 
-            estimate = (transform_to_raw[i] * full_mle).sum()
-            
-            unscaled_covariance = Q_full @ transform_to_raw[i]
-            variance = unreg_GLM.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum()
-            covariance = unreg_GLM.dispersion_ * unscaled_covariance
-            TG = active_con.compute_target(estimate,
-                                           variance,
-                                           covariance)
+            unscaled_covariance = self.Q_active_ @ transform_to_raw[i]
+            estimate = (transform_to_raw[i] * self.active_mle_).sum()
+            variance = self.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum()
+            covariance = self.dispersion_ * unscaled_covariance
 
-            _fam_opts = dict(seed=seed,
-                             num_sd=num_sd,
-                             num_grid=num_grid,
-                             use_sample=use_sample)
+            ((L, U),
+             mle,
+             pval,
+             active_,
+             WG) = self.summarize_target(estimate,
+                                         variance,
+                                         covariance,
+                                         level=level,
+                                         do_pvalue=do_pvalue,
+                                         do_confidence_interval=do_confidence_interval,
+                                         do_mle=do_mle,
+                                         seed=seed,
+                                         num_sd=num_sd,
+                                         num_grid=num_grid,
+                                         use_sample=use_sample)
 
-            WG = WeightedGaussianFamily(estimate=TG.estimate,
-                                        sigma=TG.sigma,
-                                        weight_fns=[TG.weight])
-            (L, U), mle, pval = (WG.interval(level=level), WG.MLE(), WG.pvalue())
 
             Ls[i] = L
             Us[i] = U
             mles[i] = mle
             pvals[i] = pval
-            TGs.append(TG)
+            TGs.append(active_)
             WGs.append(WG)
-            
-        idx = active_set.tolist()
-        if FL.fit_intercept:
+
+        idx = self.active_set_.tolist()
+        if self.glmnet_obj.fit_intercept:
             idx = ['intercept'] + idx
 
         WG_df = pd.concat([pd.Series(asdict(wg)) for wg in WGs], axis=1).T
@@ -489,9 +610,61 @@ def lasso_inference(glmnet_obj,
         df['TG'] = TGs
 
         return df
-    else:
-        return None
-    
+
+    def summarize_target(self,
+                         estimate,
+                         variance,
+                         covariance,
+                         do_pvalue=True,
+                         do_confidence_interval=True,
+                         do_mle=True,
+                         level=0.9,
+                         seed=0,
+                         num_sd=10,
+                         num_grid=4000,
+                         use_sample=False):
+                         
+            active_ = self.active_con.compute_weight(estimate,
+                                                     variance,
+                                                     covariance)
+            active_W = active_.weight
+
+            if self.inactive:
+                inactive_ = self.inactive_con.compute_weight(estimate,
+                                                             variance,
+                                                             score)
+                inactive_W = inactive_.weight
+                weight_fns = [active_W, inactive_W]
+            else:
+                weight_fns = [active_W]
+
+            _fam_opts = dict(seed=seed,
+                             num_sd=num_sd,
+                             num_grid=num_grid,
+                             use_sample=use_sample)
+
+            WG = WeightedGaussianFamily(estimate=estimate,
+                                        sigma=np.sqrt(variance),
+                                        weight_fns=weight_fns,
+                                        **_fam_opts)
+            if do_pvalue:
+                pvalue_ = WG.pvalue()
+            else:
+                pvalue_ = np.nan
+
+            if do_mle:
+                mle_ = WG.MLE()
+            else:
+                mle_ = np.nan
+
+            if do_confidence_interval:
+                L, U = WG.interval(level=level)
+            else:
+                L, U = np.nan, np.nan
+
+            return (L, U), mle_, pvalue_, active_, WG
+
+
 def _norm_interval(lower, upper):
     r"""
     A multiprecision evaluation of
@@ -1068,6 +1241,7 @@ def score_inference(score,
                     cov_score,
                     lamval,
                     prop=0.8,
+                    level=0.9,
                     chol_cov=None,
                     perturbation=None,
                     rng=None):
@@ -1114,12 +1288,14 @@ def score_inference(score,
                            (X_sel, Df_sel),
                            (X, Df),
                            proportion=prop,
-                           dispersion=1)
+                           dispersion=1,
+                           level=level)
 
 def resampler_inference(sample,
                         lamval=None,
                         lam_frac=1,
                         prop=0.8,
+                        level=0.9,
                         random_idx=None,
                         rng=None,
                         estimate=None,
