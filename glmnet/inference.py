@@ -277,7 +277,7 @@ class AffineConstraint(object):
             
         return TruncatedGaussian(estimate=estimate,
                                  sigma=np.sqrt(variance),
-                                 smoothing_sigma=np.sqrt(smoothing_variance),
+                                 smoothing_sigma=np.sqrt(smoothing_variance) * factor,
                                  lower_bound=lower_bound,
                                  upper_bound=upper_bound,
                                  noisy_estimate=unbiased_estimate,
@@ -331,7 +331,7 @@ def lasso_inference(glmnet_obj,
                             inactive=inactive)
 
         if LI.active_set_.shape[0] > 0:
-            return LI.summary(level=level)
+            return LI.summarize(level=level)
 
 @dataclass
 class LassoInference(object):
@@ -543,15 +543,15 @@ class LassoInference(object):
             self.inactive_con = None
         
     
-    def summary(self,
-                level=0.9,
-                do_pvalue=True,
-                do_confidence_interval=True,
-                do_mle=True,
-                seed=0,
-                num_sd=10,
-                num_grid=4000,
-                use_sample=False):
+    def summarize(self,
+                  level=0.9,
+                  do_pvalue=True,
+                  do_confidence_interval=True,
+                  do_mle=True,
+                  seed=0,
+                  num_sd=10,
+                  num_grid=4000,
+                  use_sample=False):
 
         transform_to_raw = (self.D_active.unscaler_ @
                             np.identity(self.D_active.shape[1]))
@@ -1239,8 +1239,8 @@ def _truncated_inference(estimate,
 
 def score_inference(score,
                     cov_score,
-                    lamval,
-                    prop=0.8,
+                    lambda_val,
+                    proportion=0.8,
                     level=0.9,
                     chol_cov=None,
                     perturbation=None,
@@ -1274,27 +1274,42 @@ def score_inference(score,
     GN = GLMNet(response_id='response',
                 weight_id='weight',
                 fit_intercept=False,
-                standardize=False)
+                standardize=False,
+                lambda_values=np.array([lambda_val / p]))
     
-    Z_sel = Z + np.sqrt((1 - prop) / prop) * perturbation
+    Z_sel = Z + np.sqrt((1 - proportion) / proportion) * perturbation
     Y_sel = scipy.linalg.solve_triangular(chol_cov.T, Z_sel, lower=True)
     X_sel = X
-    W_sel = np.ones(X.shape[0]) * prop
+    W_sel = np.ones(X.shape[0]) * proportion
     Df_sel = pd.DataFrame({'response':Y_sel, 'weight':W_sel})
     GN.fit(X_sel, Df_sel)
     
-    return lasso_inference(GN, 
-                           lamval / p,
-                           (X_sel, Df_sel),
-                           (X, Df),
-                           proportion=prop,
-                           dispersion=1,
-                           level=level)
+    state = GN.state_
+    logl_score = state.logl_score(GN._family,
+                                  Y_sel,
+                                  W_sel / W_sel.sum())
+    D = _get_design(X,
+                    W,
+                    standardize=GN.standardize,
+                    intercept=GN.fit_intercept)
+
+    score = (D.T @ logl_score)[1:]
+
+    LI = LassoInference(GN,
+                        (X, Df),
+                        lambda_val / p,
+                        state,
+                        score,
+                        proportion,
+                        dispersion=1,
+                        inactive=False)
+    if LI.active_set_.shape[0] > 0:
+        return LI.summarize(level=level)
 
 def resampler_inference(sample,
-                        lamval=None,
+                        lambda_val=None,
                         lam_frac=1,
-                        prop=0.8,
+                        proportion=0.8,
                         level=0.9,
                         random_idx=None,
                         rng=None,
@@ -1325,17 +1340,17 @@ def resampler_inference(sample,
         score /= scaling
         
     # pick a lam
-    if lamval is None:
+    if lambda_val is None:
         max_scores = np.fabs(centered_scores).max(1)
-        lamval = lam_frac * np.median(max_scores)
+        lambda_val = lam_frac * np.median(max_scores)
 
     # pick a pseudo-Gaussian perturbation
     perturbation = centered_scores[random_idx].reshape((p,))
     
     df = score_inference(score=score,
                          cov_score=cov_score,
-                         lamval=lamval,
-                         prop=prop,
+                         lambda_val=lambda_val,
+                         proportion=proportion,
                          perturbation=perturbation)
 
     if df is not None:

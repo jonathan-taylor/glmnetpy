@@ -26,22 +26,22 @@ def test_Auto():
     Df = pd.DataFrame({'response':y})
 
     GN.fit(X, Df)
-    prop = 0.8
+    proportion = 0.8
     n =	df.shape[0]
-    m = int(prop*n)
+    m = int(proportion*n)
 
     df = lasso_inference(GN,
                          2 / n, # GN.lambda_values_[min(10, GN.lambda_values_.shape[0]-1)],
                          (X[:m], Df.iloc[:m]),
                          (X, Df),
-                         proportion=prop)
+                         proportion=proportion)
 
 def sample_orthogonal(rng=None,
                       p=50,
                       s=5,
                       penalty_facs=False,
                       alt=True,
-                      prop=0.8,
+                      proportion=0.8,
                       level=0.9):
     if rng is None:
         rng = np.random.default_rng(0)
@@ -68,50 +68,50 @@ def sample_orthogonal(rng=None,
                 standardize=False,
                 penalty_factor=penalty_factor)
 
-    lamval = 2
-    Y_sel = Y + np.sqrt((1 - prop) / prop) * rng.standard_normal(Y.shape)
-    active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
+    lambda_val = 2
+    Y_sel = Y + np.sqrt((1 - proportion) / proportion) * rng.standard_normal(Y.shape)
+    active_naive = np.nonzero(np.fabs(Y_sel) > lambda_val)[0]
 
-    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(prop)})
-    X_sel = np.sqrt(prop) * X
+    Df_sel = pd.DataFrame({'response':Y_sel * np.sqrt(proportion)})
+    X_sel = np.sqrt(proportion) * X
     GN.fit(X, Df)
-    active_naive = np.nonzero(np.fabs(Y_sel) > lamval)[0]
+    active_naive = np.nonzero(np.fabs(Y_sel) > lambda_val)[0]
 
     pivots = []
     test_pvals = []
 
     if active_naive.shape[0] > 0:
         df = lasso_inference(GN, 
-                             prop * lamval / p,
+                             proportion * lambda_val / p,
                              (X_sel, Df_sel),
                              (X, Df),
-                             proportion=prop,
+                             proportion=proportion,
                              dispersion=1)
         df['target'] = mu[df.index]
 
         signs = np.sign(Y_sel[df.index])
-        assert np.all(Y_sel[df.index] * signs >= lamval * GN.penalty_factor[df.index])
+        assert np.all(Y_sel[df.index] * signs >= lambda_val * GN.penalty_factor[df.index])
 
     if df is not None:
         for j, s in zip(df.index, signs):
             if s == 1:
                 upper_bound = np.inf
                 if penalty_factor is not None:
-                    lower_bound = lamval * penalty_factor[j]
+                    lower_bound = lambda_val * penalty_factor[j]
                 else:
-                    lower_bound = lamval
+                    lower_bound = lambda_val
             else:
                 if penalty_factor is not None:
-                    upper_bound = -lamval * penalty_factor[j]
+                    upper_bound = -lambda_val * penalty_factor[j]
                 else:
-                    upper_bound = -lamval
+                    upper_bound = -lambda_val
                 lower_bound = -np.inf
 
             tg = df.loc[j,'WG']
 
             TG = TruncatedGaussian(estimate=Y[j],
                                    sigma=1,
-                                   smoothing_sigma=np.sqrt((1 - prop) / prop),
+                                   smoothing_sigma=np.sqrt((1 - proportion) / proportion),
                                    lower_bound=lower_bound,
                                    upper_bound=upper_bound,
                                    level=level)
@@ -133,7 +133,7 @@ def resample_orthogonal(rng=None,
                         p=50,
                         s=5,
                         alt=True,
-                        prop=0.8,
+                        proportion=0.8,
                         standardize=True,
                         B=2000):
 
@@ -153,7 +153,7 @@ def resample_orthogonal(rng=None,
     sample = bootstrap_noise + beta_hat[None,:]
 
     df = resampler_inference(sample,
-                             prop=prop,
+                             proportion=proportion,
                              standardize=standardize)
     if df is not None:
         df['target'] = beta[df.index]
@@ -169,7 +169,7 @@ def sample_AR1(rho=0.6,
                p=100,
                s=5,
                alt=True,
-               prop=0.8,
+               proportion=0.8,
                dispersion=2,
                level=0.9):
 
@@ -182,7 +182,7 @@ def sample_AR1(rho=0.6,
                       p=p,
                       s=s,
                       alt=alt,
-                      prop=prop,
+                      proportion=proportion,
                       level=level)
 
 def resample_AR1(rng=None,
@@ -190,7 +190,7 @@ def resample_AR1(rng=None,
                  rho=0.6,
                  s=5,
                  alt=True,
-                 prop=0.8,
+                 proportion=0.8,
                  standardize=True,
                  B=2000):
 
@@ -218,7 +218,7 @@ def resample_AR1(rng=None,
     mu = S_i @ beta
 
     df = resampler_inference(sample,
-                             prop=prop,
+                             proportion=proportion,
                              standardize=standardize)
     if df is not None:
         prec_E = S_i[df.index][:,df.index]
@@ -235,8 +235,8 @@ def sample_cov(S,
                p=100,
                s=5,
                alt=True,
-               prop=0.8,
-               lamval=3,
+               proportion=0.8,
+               lambda_val=3,
                level=0.9):
 
     if rng is None:
@@ -255,8 +255,8 @@ def sample_cov(S,
 
     df = score_inference(score=Z,
                          cov_score=S,
-                         lamval=lamval,
-                         prop=prop,
+                         lambda_val=lambda_val,
+                         proportion=proportion,
                          chol_cov=S_sqrt,
                          level=level)
     if df is not None:
@@ -276,7 +276,7 @@ def sample_randomX(n,
                    alt=False,
                    s=10,
                    snr=1,
-                   prop=0.8,
+                   proportion=0.8,
                    penalty_facs=False,
                    cv=True,
                    upper_limits=np.inf):
@@ -309,24 +309,24 @@ def sample_randomX(n,
                 penalty_factor=penalty_factor,
                 upper_limits=upper_limits)
 
-    m = int(prop*n)
+    m = int(proportion*n)
 
     Df = pd.DataFrame({'response':Y})
     GN.fit(X[:m], Df.iloc[:m]) 
 
     if cv:
         GN.cross_validation_path(X[:m], Df.iloc[:m])
-        lamval = GN.index_best_['Mean Squared Error']
+        lambda_val = GN.index_best_['Mean Squared Error']
     else:
         eps = rng.standard_normal((X.shape[0], 1000)) * sd
         noise_score = X.T @ eps
-        lamval = 1.2 * np.median(np.fabs(noise_score).max(0)) / X.shape[0]
+        lambda_val = 1.2 * np.median(np.fabs(noise_score).max(0)) / X.shape[0]
         
     df = lasso_inference(GN, 
-                         lamval,
+                         lambda_val,
                          (X[:m], Df.iloc[:m]),
                          (X, Df),
-                         proportion=prop)
+                         proportion=proportion)
 
     if df is not None:
         if fit_intercept:
