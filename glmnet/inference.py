@@ -370,13 +370,15 @@ class GLMNetInference(object):
 
         self.active_set_ = active_set = np.nonzero(state.coef != 0)[0]
 
+        X_full, Df_full = data
+
         if active_set.shape[0] != 0:
 
             # fit unpenalized model on full data -- this determines
             # the baseline quadratic form used in the LASSO
 
-            X_full, Df_full = data
-
+            # need to fix this for ENet?
+            
             unreg_GLM = glmnet_obj.get_GLM()
             unreg_GLM.summarize = True
             unreg_GLM.fit(X_full[:,active_set],
@@ -424,12 +426,14 @@ class GLMNetInference(object):
                 penfac = np.ones(active_set.shape[0])
 
             self.Q_active_ = Q_active = np.linalg.inv(P_active + DIAG_active) 
+
+            # compute the estimated covariance of `active_mle_`
             transform_to_raw = self.D_active.unscaler_ @ np.identity(self.D_active.shape[1])
             if not self.glmnet_obj.fit_intercept:
                 transform_to_raw = transform_to_raw[1:, 1:]
             self.C_active_ = (transform_to_raw @
                               self.Q_active_ @
-                              transform_to_raw.T)
+                              transform_to_raw.T) * unreg_GLM.dispersion_
             signs = np.sign(state.coef[active_set])
 
             if G.fit_intercept:
@@ -451,15 +455,13 @@ class GLMNetInference(object):
             data = -signs[penalized]
             sel_active = scipy.sparse.coo_matrix((data, (row_idx, col_idx)), shape=(n_penalized, n_coef))
 
-            ## the GLM's coef and intercept are on the original scale
-            ## we transform them here to the (typically) unitless "standardized" scale
+            # store the MLE/MAP from the GLM
 
-            self.active_mle_ = unreg_GLM.state_
+            self.active_mle_ = np.hstack([unreg_GLM.intercept_,
+                                          unreg_GLM.coef_])
 
-            if G.fit_intercept:
-                self.active_mle_ = self.active_mle_._stack
-            else:
-                self.active_mle_ = self.active_mle_.coef
+            if not G.fit_intercept:
+                self.active_mle_ = self.active_mle_[1:]
 
             linear = sel_active
             offset = np.zeros(sel_active.shape[0]) 
@@ -483,10 +485,15 @@ class GLMNetInference(object):
             # features selected!!!
             Q_active = None
 
+        # compute inactive set as a boolean mask
+
+    
+        inactive_bool = np.ones(X_full.shape[1], bool)
+        inactive_bool[active_set] = 0
+        self.inactive_bool_ = inactive_bool
+
         if self.inactive:
 
-            inactive_bool = np.ones(X_full.shape[1], bool)
-            inactive_bool[active_set] = 0
 
             D_all = _get_design(X_full,
                                 weight_full,
@@ -544,13 +551,13 @@ class GLMNetInference(object):
                                                  bias=-L_cross @ active_bias,
                                                  solver=inactive_solver)
 
-            self.inactive_bool_ = inactive_bool
         else:
             self.inactive_con = None
-            self.inactive_bool_ = None
     
     def summarize(self,
                   level=0.9,
+                  estimate_cov=None,
+                  inactive_cov=None,
                   do_pvalue=True,
                   do_confidence_interval=True,
                   do_mle=True,
@@ -559,6 +566,12 @@ class GLMNetInference(object):
                   num_grid=4000,
                   use_sample=False):
 
+        if estimate_cov is None:
+            # use the parametric estimate of covariance
+            estimate_cov = self.C_active_
+        if inactive_cov is None:
+            inactive_cov = scipy.sparse.csc_array((self.inactive_bool_.sum(),
+                                                   estimate_cov.shape[1]))
 
         ## iterate over coordinates
         Ls = np.zeros_like(self.stacked_)
@@ -570,23 +583,18 @@ class GLMNetInference(object):
 
         for i in range(self.Q_active_.shape[0]):
 
-            estimate = self.active_mle_[i]
-            variance = self.dispersion_ * self.C_active_[i, i]
-
-            active_cov = self.dispersion_ * self.C_active_[i]
-
             if self.inactive:
-                inactive_cov = np.zeros(self.inactive_bool_.sum())
+                i_cov = inactive_cov[:,i]
             else:
-                inactive_cov = None
-
+                i_cov = None
             ((L, U),
              mle,
              pval,
              active_,
-             WG) = self.summarize_target(estimate,
-                                         variance,
-                                         [active_cov, inactive_cov],
+             WG) = self.summarize_target(self.active_mle_[i],
+                                         estimate_cov[i, i],
+                                         [estimate_cov[i],
+                                          i_cov],
                                          level=level,
                                          do_pvalue=do_pvalue,
                                          do_confidence_interval=do_confidence_interval,
@@ -635,15 +643,17 @@ class GLMNetInference(object):
         # coef / score -- we must convert them back
         
         active_cov, inactive_cov = covariances
-        active_ = self.active_con.compute_weight(estimate,
-                                                 variance,
-                                                 active_cov)
-
         if self.glmnet_obj.fit_intercept:
             active_cov = self.D_active.scaler_ @ active_cov
         else:
             active_cov = (self.D_active.scaler_ @
                           np.hstack([0, active_cov]))[1:]
+
+        active_ = self.active_con.compute_weight(estimate,
+                                                 variance,
+                                                 active_cov)
+
+
         active_W = active_.weight
 
         if self.inactive:
