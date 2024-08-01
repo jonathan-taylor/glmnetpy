@@ -135,7 +135,8 @@ def resample_orthogonal(rng=None,
                         alt=True,
                         proportion=0.8,
                         standardize=True,
-                        B=2000):
+                        B=2000,
+                        level=0.9):
 
     # when standardize is True, coverage will be fine but pivot won't be
     # this is because the TruncatedGaussian instance is not corrected for scale
@@ -192,7 +193,8 @@ def resample_AR1(rng=None,
                  alt=True,
                  proportion=0.8,
                  standardize=True,
-                 B=2000):
+                 B=2000,
+                 level=0.9):
 
     # when standardize is True, coverage will be fine but pivot won't be
     # this is because the TruncatedGaussian instance is not corrected for scale
@@ -219,7 +221,8 @@ def resample_AR1(rng=None,
 
     df = resampler_inference(sample,
                              proportion=proportion,
-                             standardize=standardize)
+                             standardize=standardize,
+                             level=level)
     if df is not None:
         prec_E = S_i[df.index][:,df.index]
         df['target'] = np.linalg.inv(prec_E) @ mu[df.index]

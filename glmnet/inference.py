@@ -321,20 +321,20 @@ def lasso_inference(glmnet_obj,
     else:
         score = None
         
-        LI = LassoInference(glmnet_obj,
-                            full_data,
-                            lambda_val,
-                            state,
-                            score,
-                            proportion,
-                            dispersion=dispersion,
-                            inactive=inactive)
+        GNI = GLMNetInference(glmnet_obj,
+                              full_data,
+                              lambda_val,
+                              state,
+                              score,
+                              proportion,
+                              dispersion=dispersion,
+                              inactive=inactive)
 
-        if LI.active_set_.shape[0] > 0:
-            return LI.summarize(level=level)
+        if GNI.active_set_.shape[0] > 0:
+            return GNI.summarize(level=level)
 
 @dataclass
-class LassoInference(object):
+class GLMNetInference(object):
 
     glmnet_obj: GLMNet
     data: tuple
@@ -1295,16 +1295,16 @@ def score_inference(score,
 
     score = (D.T @ logl_score)[1:]
 
-    LI = LassoInference(GN,
-                        (X, Df),
-                        lambda_val / p,
-                        state,
-                        score,
-                        proportion,
-                        dispersion=1,
-                        inactive=False)
-    if LI.active_set_.shape[0] > 0:
-        return LI.summarize(level=level)
+    GNI = GLMNetInference(GN,
+                          (X, Df),
+                          lambda_val / p,
+                          state,
+                          score,
+                          proportion,
+                          dispersion=1,
+                          inactive=False)
+    if GNI.active_set_.shape[0] > 0:
+        return GNI.summarize(level=level)
 
 def resampler_inference(sample,
                         lambda_val=None,
@@ -1351,7 +1351,8 @@ def resampler_inference(sample,
                          cov_score=cov_score,
                          lambda_val=lambda_val,
                          proportion=proportion,
-                         perturbation=perturbation)
+                         perturbation=perturbation,
+                         level=level)
 
     if df is not None:
         if standardize:
