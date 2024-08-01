@@ -428,7 +428,7 @@ class GLMNetInference(object):
 
             self.Q_active_ = Q_active = np.linalg.inv(P_active + DIAG_active) 
 
-            # compute the estimated covariance of `active_mle_`
+            # compute the estimated covariance of `active_est_`
             transform_to_raw = self.D_active.unscaler_ @ np.identity(self.D_active.shape[1])
             if not self.glmnet_obj.fit_intercept:
                 transform_to_raw = transform_to_raw[1:, 1:]
@@ -458,11 +458,11 @@ class GLMNetInference(object):
 
             # store the MLE/MAP from the GLM
 
-            self.active_mle_ = np.hstack([unreg_GLM.intercept_,
+            self.active_est_ = np.hstack([unreg_GLM.intercept_,
                                           unreg_GLM.coef_])
 
             if not G.fit_intercept:
-                self.active_mle_ = self.active_mle_[1:]
+                self.active_est_ = self.active_est_[1:]
 
             linear = sel_active
             offset = np.zeros(sel_active.shape[0]) 
@@ -592,7 +592,7 @@ class GLMNetInference(object):
              mle,
              pval,
              active_,
-             WG) = self.summarize_target(self.active_mle_[i],
+             WG) = self.summarize_target(self.active_est_[i],
                                          estimate_cov[i, i],
                                          [estimate_cov[i],
                                           i_cov],
