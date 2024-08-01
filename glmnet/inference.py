@@ -371,6 +371,9 @@ class GLMNetInference(object):
         self.active_set_ = active_set = np.nonzero(state.coef != 0)[0]
 
         X_full, Df_full = data
+        _, _, Y_full, _, weight_full = G.get_data_arrays(X_full,
+                                                         Df_full)
+        ridge_coef = (1 - G.alpha) * lambda_val * weight_full.sum()
 
         if active_set.shape[0] != 0:
 
@@ -379,13 +382,11 @@ class GLMNetInference(object):
 
             # need to fix this for ENet?
             
-            unreg_GLM = glmnet_obj.get_GLM()
+            unreg_GLM = glmnet_obj.get_GLM(ridge_coef=ridge_coef)
             unreg_GLM.summarize = True
             unreg_GLM.fit(X_full[:,active_set],
                           Df_full,
                           dispersion=self.dispersion)
-            _, _, Y_full, _, weight_full = G.get_data_arrays(X_full,
-                                                             Df_full)
 
             # quadratic approximation
 
@@ -413,7 +414,7 @@ class GLMNetInference(object):
 
             D0 = np.ones(D.shape[1])
             D0[0] = 0
-            DIAG_active = np.diag(D0) * (1 - G.alpha) * lambda_val * weight_full.sum()
+            DIAG_active = np.diag(D0) * ridge_coef
 
             if not G.fit_intercept:
                 if G.penalty_factor is not None:
@@ -521,7 +522,7 @@ class GLMNetInference(object):
             P_inactive = D_I.quadratic_form(info,
                                             transformed=True)[1:,1:]
 
-            P_inactive += (1 - G.alpha) * lambda_val * weight_full.sum() * np.identity(P_inactive.shape[0])
+            P_inactive += ridge_coef * np.identity(P_inactive.shape[0])
             if Q_active is not None:
                 P_inactive -= L_cross @ Q_active @ L_cross.T
             Q_inactive = np.linalg.inv(P_inactive)
