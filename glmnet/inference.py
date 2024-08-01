@@ -424,7 +424,12 @@ class GLMNetInference(object):
                 penfac = np.ones(active_set.shape[0])
 
             self.Q_active_ = Q_active = np.linalg.inv(P_active + DIAG_active) 
-
+            transform_to_raw = self.D_active.unscaler_ @ np.identity(self.D_active.shape[1])
+            if not self.glmnet_obj.fit_intercept:
+                transform_to_raw = transform_to_raw[1:, 1:]
+            self.C_active_ = (transform_to_raw @
+                              self.Q_active_ @
+                              transform_to_raw.T)
             signs = np.sign(state.coef[active_set])
 
             if G.fit_intercept:
@@ -449,7 +454,7 @@ class GLMNetInference(object):
             ## the GLM's coef and intercept are on the original scale
             ## we transform them here to the (typically) unitless "standardized" scale
 
-            self.active_mle_ = D.raw_to_scaled(unreg_GLM.state_)
+            self.active_mle_ = unreg_GLM.state_
 
             if G.fit_intercept:
                 self.active_mle_ = self.active_mle_._stack
@@ -476,7 +481,7 @@ class GLMNetInference(object):
             self.active_con = None
             # this should be fixed for case when there is an intercept but no
             # features selected!!!
-            Q_active = self.C_active = None
+            Q_active = None
 
         if self.inactive:
 
@@ -539,9 +544,10 @@ class GLMNetInference(object):
                                                  bias=-L_cross @ active_bias,
                                                  solver=inactive_solver)
 
+            self.inactive_bool_ = inactive_bool
         else:
             self.inactive_con = None
-        
+            self.inactive_bool_ = None
     
     def summarize(self,
                   level=0.9,
@@ -553,8 +559,6 @@ class GLMNetInference(object):
                   num_grid=4000,
                   use_sample=False):
 
-        transform_to_raw = (self.D_active.unscaler_ @
-                            np.identity(self.D_active.shape[1]))
 
         ## iterate over coordinates
         Ls = np.zeros_like(self.stacked_)
@@ -563,15 +567,18 @@ class GLMNetInference(object):
         pvals = np.zeros_like(self.stacked_)
         TGs = []
         WGs = []
-        if not self.glmnet_obj.fit_intercept:
-            transform_to_raw = transform_to_raw[1:,1:]
 
-        for i in range(transform_to_raw.shape[0]):
+        for i in range(self.Q_active_.shape[0]):
 
-            unscaled_covariance = self.Q_active_ @ transform_to_raw[i]
-            estimate = (transform_to_raw[i] * self.active_mle_).sum()
-            variance = self.dispersion_ * (unscaled_covariance * transform_to_raw[i]).sum()
-            covariance = self.dispersion_ * unscaled_covariance
+            estimate = self.active_mle_[i]
+            variance = self.dispersion_ * self.C_active_[i, i]
+
+            active_cov = self.dispersion_ * self.C_active_[i]
+
+            if self.inactive:
+                inactive_cov = np.zeros(self.inactive_bool_.sum())
+            else:
+                inactive_cov = None
 
             ((L, U),
              mle,
@@ -579,7 +586,7 @@ class GLMNetInference(object):
              active_,
              WG) = self.summarize_target(estimate,
                                          variance,
-                                         covariance,
+                                         [active_cov, inactive_cov],
                                          level=level,
                                          do_pvalue=do_pvalue,
                                          do_confidence_interval=do_confidence_interval,
@@ -614,7 +621,7 @@ class GLMNetInference(object):
     def summarize_target(self,
                          estimate,
                          variance,
-                         covariance,
+                         covariances,
                          do_pvalue=True,
                          do_confidence_interval=True,
                          do_mle=True,
@@ -623,46 +630,59 @@ class GLMNetInference(object):
                          num_sd=10,
                          num_grid=4000,
                          use_sample=False):
-                         
-            active_ = self.active_con.compute_weight(estimate,
-                                                     variance,
-                                                     covariance)
-            active_W = active_.weight
+        
+        # covariances are covariances with the raw
+        # coef / score -- we must convert them back
+        
+        active_cov, inactive_cov = covariances
+        active_ = self.active_con.compute_weight(estimate,
+                                                 variance,
+                                                 active_cov)
 
-            if self.inactive:
-                inactive_ = self.inactive_con.compute_weight(estimate,
-                                                             variance,
-                                                             score)
-                inactive_W = inactive_.weight
-                weight_fns = [active_W, inactive_W]
-            else:
-                weight_fns = [active_W]
+        if self.glmnet_obj.fit_intercept:
+            active_cov = self.D_active.scaler_ @ active_cov
+        else:
+            active_cov = (self.D_active.scaler_ @
+                          np.hstack([0, active_cov]))[1:]
+        active_W = active_.weight
 
-            _fam_opts = dict(seed=seed,
-                             num_sd=num_sd,
-                             num_grid=num_grid,
-                             use_sample=use_sample)
+        if self.inactive:
+            # convert to scaled
+            inactive_cov = (self.D_inactive.scaler_ @
+                            np.hstack([0, inactive_cov]))[1:]
+            inactive_ = self.inactive_con.compute_weight(estimate,
+                                                         variance,
+                                                         inactive_cov)
+            inactive_W = inactive_.weight
+            weight_fns = [active_W, inactive_W]
+        else:
+            weight_fns = [active_W]
 
-            WG = WeightedGaussianFamily(estimate=estimate,
-                                        sigma=np.sqrt(variance),
-                                        weight_fns=weight_fns,
-                                        **_fam_opts)
-            if do_pvalue:
-                pvalue_ = WG.pvalue()
-            else:
-                pvalue_ = np.nan
+        _fam_opts = dict(seed=seed,
+                         num_sd=num_sd,
+                         num_grid=num_grid,
+                         use_sample=use_sample)
 
-            if do_mle:
-                mle_ = WG.MLE()
-            else:
-                mle_ = np.nan
+        WG = WeightedGaussianFamily(estimate=estimate,
+                                    sigma=np.sqrt(variance),
+                                    weight_fns=weight_fns,
+                                    **_fam_opts)
+        if do_pvalue:
+            pvalue_ = WG.pvalue()
+        else:
+            pvalue_ = np.nan
 
-            if do_confidence_interval:
-                L, U = WG.interval(level=level)
-            else:
-                L, U = np.nan, np.nan
+        if do_mle:
+            mle_ = WG.MLE()
+        else:
+            mle_ = np.nan
 
-            return (L, U), mle_, pvalue_, active_, WG
+        if do_confidence_interval:
+            L, U = WG.interval(level=level)
+        else:
+            L, U = np.nan, np.nan
+
+        return (L, U), mle_, pvalue_, active_, WG
 
 
 def _norm_interval(lower, upper):

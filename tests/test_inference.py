@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
+from sklearn.model_selection import KFold
+
 import scipy.sparse
 
 from glmnet import GLMNet
@@ -282,7 +284,8 @@ def sample_randomX(n,
                    proportion=0.8,
                    penalty_facs=False,
                    cv=True,
-                   upper_limits=np.inf):
+                   upper_limits=np.inf,
+                   level=0.9):
 
     if rng is None:
         rng = np.random.default_rng(0)
@@ -290,7 +293,7 @@ def sample_randomX(n,
     subs = rng.choice(p, s, replace=False)
 
     X = rng.standard_normal((n, p))
-    D = np.ones(p) # np.linspace(1, p, p) / p + 1
+    D = np.linspace(1, p, p) / p + 1
     X *= D[None,:]
     sd = np.fabs(1+np.random.standard_normal())
     Y = rng.standard_normal(n) * sd
@@ -318,8 +321,8 @@ def sample_randomX(n,
     GN.fit(X[:m], Df.iloc[:m]) 
 
     if cv:
-        GN.cross_validation_path(X[:m], Df.iloc[:m])
-        lambda_val = GN.index_best_['Mean Squared Error']
+        GN.cross_validation_path(X[:m], Df.iloc[:m], cv=KFold(5))
+        lambda_val = GN.index_1se_['Mean Squared Error']
     else:
         eps = rng.standard_normal((X.shape[0], 1000)) * sd
         noise_score = X.T @ eps
@@ -329,7 +332,8 @@ def sample_randomX(n,
                          lambda_val,
                          (X[:m], Df.iloc[:m]),
                          (X, Df),
-                         proportion=proportion)
+                         proportion=proportion,
+                         level=level)
 
     if df is not None:
         if fit_intercept:
@@ -426,7 +430,7 @@ def main(sampler,
         if df is not None:
             dfs.append(df)
         if len(dfs) > 0:
-            all_df = pd.concat(dfs)
+            all_df = pd.concat(dfs).dropna()
             ncover += ((all_df['lower'] < all_df['target']) & (all_df['upper'] > all_df['target'])).sum()
             nsel += all_df.shape[0]
 
