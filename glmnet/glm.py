@@ -89,8 +89,8 @@ class GLMFamilySpec(object):
                             standardize=False,
                             intercept=False)
             
-            state = GLMState(np.zeros(1),
-                             0)
+            state = GLMState(coef=np.zeros(1),
+                             intercept=0)
             state.update(D,
                          self,
                          offset,
@@ -103,15 +103,15 @@ class GLMFamilySpec(object):
                                                      offset,
                                                      sample_weight)
                 newcoef = (z*w).sum() / w.sum()
-                state = GLMState(np.array([newcoef]),
-                                 0)
+                state = GLMState(coef=np.array([newcoef]),
+                                 intercept=0)
                 state.update(D,
                              self,
                              offset,
                              None)
 
         else:
-            state = GLMState(np.zeros(1), 0)
+            state = GLMState(coef=np.zeros(1), intercept=0)
             state.link_parameter = offset
             state.mean_parameter = self.base.link.inverse(state.link_parameter)
         return state
@@ -310,6 +310,35 @@ class GLMState(object):
         r = (y - self.mu) 
         return sample_weight * r * dmu_deta / varmu 
 
+def compute_grad(glm_obj,
+                 raw_intercept,
+                 raw_coef,
+                 design,
+                 response,
+                 offset=None,
+                 sample_weight=None):
+
+    family = glm_obj._family
+
+    if sample_weight is None:
+        sample_weight = np.ones(design.shape[0])
+        
+    raw_state = GLMState(intercept=raw_intercept,
+                         coef=raw_coef)
+    scaled_state = design.raw_to_scaled(raw_state)
+
+    scaled_state.update(design,
+                        family,
+                        offset=offset)
+
+    saturated_score = scaled_state.logl_score(family,
+                                              response, 
+                                              sample_weight)
+    scaled_score = design.T @ saturated_score
+    raw_score = design.scaler_.T @ scaled_score
+
+    return raw_score, saturated_score
+
 @dataclass
 class GLMRegularizer(object):
 
@@ -419,7 +448,6 @@ class GLMBase(BaseEstimator,
                          nvars=None):
         return GLMRegularizer(fit_intercept=self.fit_intercept)
 
-    # no standardization for GLM
     def _get_design(self,
                     X,
                     sample_weight):

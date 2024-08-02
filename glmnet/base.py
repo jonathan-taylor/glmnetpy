@@ -209,9 +209,9 @@ class Design(LinearOperator):
         Take a "raw" (intercept, coef) and return a (intercept, coef)
         on "scaled" scale (i.e. the scale GLMnet uses in its objective).
         """
-        unscaled = self.scaler_ @ state._stack
-        coef = unscaled[1:]
-        intercept = unscaled[0]
+        scaled = self.scaler_ @ state._stack
+        coef = scaled[1:]
+        intercept = scaled[0]
         klass = state.__class__
         return klass(coef=coef,
                      intercept=intercept)

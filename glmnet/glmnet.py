@@ -139,7 +139,8 @@ class GLMNet(BaseEstimator,
         state.update(self.reg_glm_est_.design_,
                      self._family,
                      offset)
-
+        self.design_ = self.reg_glm_est_.design_
+        
         logl_score = state.logl_score(self._family,
                                       response,
                                       normed_sample_weight)
@@ -162,6 +163,7 @@ class GLMNet(BaseEstimator,
                                          )
             self.lambda_values_ *= self.lambda_max_
         else:
+            self.lambda_values = np.asarray(self.lambda_values)
             self.lambda_values_ = np.sort(self.lambda_values)[::-1]
             self.nlambda = self.lambda_values.shape[0]
             self.lambda_min_ratio = (self.lambda_values.min() /
@@ -473,7 +475,7 @@ class GLMNet(BaseEstimator,
                                             # X a column of 1s
             else:
                 intercept_ = 0
-        return GLMState(coef_, intercept_), keep.astype(float)
+        return GLMState(coef=coef_, intercept=intercept_), keep.astype(float)
 
     def get_GLM(self,
                 ridge_coef=0):

@@ -17,8 +17,7 @@ from .docstrings import (add_dataclass_docstring,
 from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
-from .glm import (GLMState,
-                  GLMFamilySpec,
+from .glm import (GLMFamilySpec,
                   GLM)
 
 @add_dataclass_docstring
@@ -167,7 +166,6 @@ class RegGLM(GLM,
                                 control=self.control,
                                 exclude=self.exclude)
 
-    # no standardization for GLM
     def _get_design(self,
                     X,
                     sample_weight):
