@@ -311,11 +311,13 @@ class GLMState(object):
         return sample_weight * r * dmu_deta / varmu 
 
 def compute_grad(glm_obj,
-                 raw_intercept,
-                 raw_coef,
+                 intercept,
+                 coef,
                  design,
                  response,
                  offset=None,
+                 scaled_input=False,
+                 scaled_output=False,
                  sample_weight=None):
 
     family = glm_obj._family
@@ -323,9 +325,13 @@ def compute_grad(glm_obj,
     if sample_weight is None:
         sample_weight = np.ones(design.shape[0])
         
-    raw_state = GLMState(intercept=raw_intercept,
-                         coef=raw_coef)
-    scaled_state = design.raw_to_scaled(raw_state)
+    if not scaled_input:
+        raw_state = GLMState(intercept=intercept,
+                             coef=coef)
+        scaled_state = design.raw_to_scaled(raw_state)
+    else:
+        scaled_state = GLMState(intercept=intercept,
+                                coef=coef)
 
     scaled_state.update(design,
                         family,
@@ -335,9 +341,12 @@ def compute_grad(glm_obj,
                                               response, 
                                               sample_weight)
     scaled_score = design.T @ saturated_score
-    raw_score = design.scaler_.T @ scaled_score
-
-    return raw_score, saturated_score
+    if not scaled_output:
+        score = design.scaler_.T @ scaled_score
+    else:
+        score = scaled_score
+        
+    return score, saturated_score
 
 @dataclass
 class GLMRegularizer(object):
