@@ -12,13 +12,15 @@ import numpy as np
 import scipy.sparse
 import pandas as pd
 from scipy.stats import norm as normal_dbn
-import statsmodels.api as sm
+from sklearn.base import clone
+
 
 import mpmath as mp
 mp.dps = 80
 
 from .base import _get_design
 from .glmnet import GLMNet, GLMState
+from .glm import compute_grad
 
 from dataclasses import dataclass, asdict
 from typing import Optional, Callable
@@ -321,17 +323,17 @@ def lasso_inference(glmnet_obj,
     else:
         score = None
         
-        GNI = GLMNetInference(glmnet_obj,
-                              full_data,
-                              lambda_val,
-                              state,
-                              score,
-                              proportion,
-                              dispersion=dispersion,
-                              inactive=inactive)
+    GNI = GLMNetInference(glmnet_obj,
+                          full_data,
+                          lambda_val,
+                          state,
+                          score,
+                          proportion,
+                          dispersion=dispersion,
+                          inactive=inactive)
 
-        if GNI.active_set_.shape[0] > 0:
-            return GNI.summarize(level=level)
+    if GNI.active_set_.shape[0] > 0:
+        return GNI.summarize(level=level)
 
 @dataclass
 class GLMNetInference(object):
@@ -527,12 +529,16 @@ class GLMNetInference(object):
                 P_inactive -= L_cross @ Q_active @ L_cross.T
             Q_inactive = np.linalg.inv(P_inactive)
 
-            pf = G.regularizer_.penalty_factor
+            pf = G.penalty_factor
+            if pf is None:
+                pf = np.ones(G.design_.shape[1]-1)
 
             # X_{-E}'(Y-X\hat{\beta}_E) -- \hat{\beta}_E is the LASSO soln, not GLM !
             # this is (2nd order Taylor series sense) equivalent to
             # X_{-E}'(Y-X\bar{\beta}_E) + X_{-E}'WX_E(X_E'WX_E)^{-1}\lambda_E s_E
             # with \bar{\beta}_E the GLM soln
+
+            score = score[1:] # drop the intercept column
 
             score = score[inactive_bool]
             # we now know that `score` is bounded by \pm lambda_val
@@ -585,7 +591,10 @@ class GLMNetInference(object):
         for i in range(self.Q_active_.shape[0]):
 
             if self.inactive:
-                i_cov = inactive_cov[:,i]
+                if scipy.sparse.issparse(inactive_cov):
+                    i_cov = inactive_cov[:,[i]].todense().reshape(-1)
+                else:
+                    i_cov = inactive_cov[:,i]
             else:
                 i_cov = None
             ((L, U),
@@ -1268,6 +1277,61 @@ def _truncated_inference(estimate,
         
     return L, U, mle, pval, sel_distr
 
+def split_inference(glmnet_obj,
+                    X,
+                    Df, # "Y" argument of sklearn
+                    lambda_val,
+                    proportion=0.8,
+                    rng=None,
+                    inactive=False):
+    
+    G = clone(glmnet_obj)
+    G.lambda_values = [lambda_val]
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    n, p = X.shape
+    idx = rng.choice(n, int(proportion*n), replace=False)
+
+    X_sel = X[idx]
+    Df_sel = Df.iloc[idx]
+
+    G.fit(X_sel, Df_sel)
+    intercept, coef = G.intercepts_[0], G.coefs_[0]
+
+    ## Compute the gradient of the negative log-likelihood at LASSO solution
+    # we normalize by weights.sum() as this is the objective
+    # used in GLMNET so this scaled_grad actually satisfies our
+    # KKT conditions
+    
+    scaled_grad, resid = compute_grad(G,
+                                      intercept,
+                                      coef,
+                                      G.design_,
+                                      Df_sel['Y'],
+                                      scaled_output=True,
+                                      norm_weights=True)
+
+    ## Convert the LASSO solution to scaled coordinates
+
+    raw_state = GLMState(intercept=intercept,
+                         coef=coef)
+    scaled_state = G.design_.raw_to_scaled(state=raw_state)
+
+    W = G.get_data_arrays(X, Df)[-1]
+    final_proportion = W[idx].sum() / W.sum()
+
+    GNI = GLMNetInference(G,
+                          (X, Df),
+                          lambda_val,
+                          scaled_state,
+                          scaled_grad,
+                          final_proportion,
+                          inactive=inactive)
+
+    return GNI
+
 def score_inference(score,
                     cov_score,
                     lambda_val,
@@ -1335,7 +1399,7 @@ def score_inference(score,
                           dispersion=1,
                           inactive=False)
     if GNI.active_set_.shape[0] > 0:
-        return GNI.summarize(level=level)
+        return GNI
 
 def resampler_inference(sample,
                         lambda_val=None,
@@ -1378,12 +1442,12 @@ def resampler_inference(sample,
     # pick a pseudo-Gaussian perturbation
     perturbation = centered_scores[random_idx].reshape((p,))
     
-    df = score_inference(score=score,
-                         cov_score=cov_score,
-                         lambda_val=lambda_val,
-                         proportion=proportion,
-                         perturbation=perturbation,
-                         level=level)
+    df, GNI = score_inference(score=score,
+                              cov_score=cov_score,
+                              lambda_val=lambda_val,
+                              proportion=proportion,
+                              perturbation=perturbation,
+                              level=level)
 
     if df is not None:
         if standardize:
