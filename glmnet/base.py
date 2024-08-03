@@ -192,29 +192,62 @@ class Design(LinearOperator):
 
         return Q
 
-    def scaled_to_raw(self, state):
+    def scaled_to_raw(self,
+                      state=None,
+                      coef=None,
+                      intercept=None):
         """
         Take a "scaled" (intercept, coef) (these are the params
         used by glmnet) and return a (intercept, coef) on "raw" scale.
         """
+        if coef is not None or intercept is not None:
+            if coef is None:
+                coef = np.zeros(self.unscaler_.shape[1]-1)
+            if intercept is None:
+                intercept = 0
+            _stack = np.hstack([intercept, coef])
+        elif state is not None:
+            _stack = state._stack
+        else:
+            raise ValueError("must specify (coef, intercept) or a state")
+
         unscaled = self.unscaler_ @ state._stack
         coef = unscaled[1:]
         intercept = unscaled[0]
-        klass = state.__class__
-        return klass(coef=coef,
-                     intercept=intercept)
+        if state is not None:
+            klass = state.__class__
+            return klass(coef=coef,
+                         intercept=intercept)
+        else:
+            return (intercept, coef)
 
-    def raw_to_scaled(self, state):
+    def raw_to_scaled(self,
+                      state=None,
+                      coef=None,
+                      intercept=None):
         """
         Take a "raw" (intercept, coef) and return a (intercept, coef)
         on "scaled" scale (i.e. the scale GLMnet uses in its objective).
         """
-        scaled = self.scaler_ @ state._stack
+        if coef is not None or intercept is not None:
+            if coef is None:
+                coef = np.zeros(self.unscaler_.shape[1]-1)
+            if intercept is None:
+                intercept = 0
+            _stack = np.hstack([intercept, coef])
+        elif state is not None:
+            _stack = state._stack
+        else:
+            raise ValueError("must specify (coef, intercept) or a state")
+        scaled = self.scaler_ @ _stack
         coef = scaled[1:]
         intercept = scaled[0]
-        klass = state.__class__
-        return klass(coef=coef,
-                     intercept=intercept)
+        if state is not None:
+            klass = state.__class__
+            return klass(coef=coef,
+                         intercept=intercept)
+        else:
+            return (intercept, coef)
 
 @dataclass
 class UnscaleOperator(LinearOperator):

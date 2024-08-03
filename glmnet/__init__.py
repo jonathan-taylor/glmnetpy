@@ -1,5 +1,9 @@
-from .glm import (GLM, GLMControl, compute_grad)
-from .regularized_glm import RegGLM, RegGLMControl
+from .glm import (GLM,
+                  GLMControl,
+                  compute_grad,
+                  GLMState)
+from .regularized_glm import (RegGLM,
+                              RegGLMControl)
 from .glmnet import GLMNet
 from .elnet import ElNet
 

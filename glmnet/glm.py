@@ -318,7 +318,8 @@ def compute_grad(glm_obj,
                  offset=None,
                  scaled_input=False,
                  scaled_output=False,
-                 sample_weight=None):
+                 sample_weight=None,
+                 norm_weights=False):
 
     family = glm_obj._family
 
@@ -346,6 +347,11 @@ def compute_grad(glm_obj,
     else:
         score = scaled_score
         
+    if norm_weights:
+        w_sum = sample_weight.sum()
+        score /= w_sum
+        saturated_score /= w_sum
+
     return score, saturated_score
 
 @dataclass
