@@ -630,7 +630,8 @@ class GLMNetInference(object):
         WG_df.index = idx
         TG_df = pd.concat([pd.Series(asdict(tg)) for tg in TGs], axis=1).T
         TG_df.index = idx
-        df = pd.concat([pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us}, index=idx), WG_df, TG_df], axis=1)
+        df = pd.concat([pd.DataFrame({'mle': mles, 'pval': pvals, 'lower': Ls, 'upper': Us},
+                                     index=idx), WG_df, TG_df], axis=1)
         df['WG'] = WGs
         df['TG'] = TGs
 
@@ -1442,29 +1443,32 @@ def resampler_inference(sample,
     # pick a pseudo-Gaussian perturbation
     perturbation = centered_scores[random_idx].reshape((p,))
     
-    df, GNI = score_inference(score=score,
-                              cov_score=cov_score,
-                              lambda_val=lambda_val,
-                              proportion=proportion,
-                              perturbation=perturbation,
-                              level=level)
+    GNI = score_inference(score=score,
+                          cov_score=cov_score,
+                          lambda_val=lambda_val,
+                          proportion=proportion,
+                          perturbation=perturbation,
+                          level=level)
 
-    if df is not None:
-        if standardize:
-            for col in ['mle', 'upper', 'lower']:
-                df[col].values[:] = df[col] / scaling[df.index]
+    # this inference instance is on standardized coefs!
+    return GNI
 
-            for j in df.index:
-                df.loc[j,'TG'] = None
-                # XX try to correct this!!
-                # tg = df.loc[j, 'TG']
-                # tg_params = asdict(tg)
-                # tg_params.update(estimate=tg.estimate * scaling[j],
-                #                  sigma=tg.sigma * scaling[j],
-                #                  smoothing_sigma=tg.smoothing_sigma * scaling[j],
-                #                  lower_bound=tg.lower_bound * scaling[j],
-                #                  upper_bound=tg.upper_bound * scaling[j])
-                # df.loc[j,'TG'] = TruncatedGaussian(**tg_params)
+    # if df is not None:
+    #     if standardize:
+    #         for col in ['mle', 'upper', 'lower']:
+    #             df[col].values[:] = df[col] / scaling[df.index]
 
-    return df
+    #         for j in df.index:
+    #             df.loc[j,'TG'] = None
+    #             # XX try to correct this!!
+    #             # tg = df.loc[j, 'TG']
+    #             # tg_params = asdict(tg)
+    #             # tg_params.update(estimate=tg.estimate * scaling[j],
+    #             #                  sigma=tg.sigma * scaling[j],
+    #             #                  smoothing_sigma=tg.smoothing_sigma * scaling[j],
+    #             #                  lower_bound=tg.lower_bound * scaling[j],
+    #             #                  upper_bound=tg.upper_bound * scaling[j])
+    #             # df.loc[j,'TG'] = TruncatedGaussian(**tg_params)
+
+    # return df
 
