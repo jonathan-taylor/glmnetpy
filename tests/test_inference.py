@@ -174,7 +174,15 @@ def sample_AR1(rho=0.6,
                alt=True,
                proportion=0.8,
                dispersion=2,
-               level=0.9):
+               level=0.9,
+               penalty_facs=False):
+
+    if penalty_facs:
+        penalty_factor = np.ones(p)
+        penalty_factor[:p//10] = 0.5
+        penalty_factor[p//10:2*p//10] = 0.1
+    else:
+        penalty_factor = None
 
     D = np.fabs(np.subtract.outer(np.arange(p), np.arange(p)))
     dispersion = 2
@@ -186,7 +194,8 @@ def sample_AR1(rho=0.6,
                       s=s,
                       alt=alt,
                       proportion=proportion,
-                      level=level)
+                      level=level,
+                      penalty_factor=penalty_factor)
 
 def resample_AR1(rng=None,
                  p=50,
@@ -242,7 +251,8 @@ def sample_cov(S,
                alt=True,
                proportion=0.8,
                lambda_val=3,
-               level=0.9):
+               level=0.9,
+               penalty_factor=None):
 
     if rng is None:
         rng = np.random.default_rng(0)
@@ -258,12 +268,18 @@ def sample_cov(S,
 
     Z = mu + noise
 
-    df = score_inference(score=Z,
-                         cov_score=S,
-                         lambda_val=lambda_val,
-                         proportion=proportion,
-                         chol_cov=S_sqrt,
-                         level=level)
+    GNI = score_inference(score=Z,
+                          cov_score=S,
+                          lambda_val=lambda_val,
+                          proportion=proportion,
+                          chol_cov=S_sqrt,
+                          level=level,
+                          penalty_factor=penalty_factor)
+    if len(GNI.active_set_) > 0:
+        df = GNI.summarize()
+    else:
+        df = None
+        
     if df is not None:
         active = list(df.index)
         df['target'] = np.linalg.inv(S[active][:,active]) @ mu[active]
