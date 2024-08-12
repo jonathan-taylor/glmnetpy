@@ -1340,6 +1340,7 @@ def score_inference(score,
                     level=0.9,
                     chol_cov=None,
                     perturbation=None,
+                    penalty_factor=None,
                     rng=None):
 
     # perturbation should be N(0, cov_score) roughly
@@ -1371,8 +1372,9 @@ def score_inference(score,
                 weight_id='weight',
                 fit_intercept=False,
                 standardize=False,
-                lambda_values=np.array([lambda_val / p]))
-    
+                lambda_values=np.array([lambda_val / p]),
+                penalty_factor=penalty_factor)
+
     Z_sel = Z + np.sqrt((1 - proportion) / proportion) * perturbation
     Y_sel = scipy.linalg.solve_triangular(chol_cov.T, Z_sel, lower=True)
     X_sel = X
@@ -1431,9 +1433,9 @@ def resampler_inference(sample,
     score = cov_score @ estimate
 
     if standardize:
-        centered_scores /= scaling[None,:]
-        cov_score /= np.multiply.outer(scaling, scaling)
-        score /= scaling
+        penalty_factor = scaling
+    else:
+        penalty_factor = None
         
     # pick a lam
     if lambda_val is None:
@@ -1448,7 +1450,8 @@ def resampler_inference(sample,
                           lambda_val=lambda_val,
                           proportion=proportion,
                           perturbation=perturbation,
-                          level=level)
+                          level=level,
+                          penalty_factor=penalty_factor)
 
     # this inference instance is on standardized coefs!
     return GNI
