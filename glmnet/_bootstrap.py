@@ -44,42 +44,46 @@ def bootstrap_GLM(glm,
 
         glm_ = clone(glm)
         glm_.summarize = True
-#        glm_.weight_id = f'boot_weight_{id(glm_)}'
-#        glm_.response_id = f'response_{id(glm_)}'
-#        glm_.offset_id = f'offset_{id(glm_)}'
-        df_ = pd.DataFrame({f'response_{id(glm_)}': R,
-                            f'offset_{id(glm_)}': O,
-                            f'weight_{id(glm_)}': W_idx})
+        glm_.weight_id = f'boot_weight_{id(glm_)}'
+        glm_.response_id = f'response_{id(glm_)}'
+        Df_star = pd.DataFrame({f'response_{id(glm_)}': R,
+                                f'boot_weight_{id(glm_)}': W_idx})
+        if O is not None:
+            Df_star[f'offset_{id(glm_)}'] = O
+            glm_.offset_id = f'offset_{id(glm_)}'
 
-        if type(X_a) == np.ndarray:
-            X_star = X_a[idx]
-        else:
-            X_star = X_a.iloc[idx]
-        if type(Df) == np.ndarray:
-            Df_star = Df[idx]
-        else:
-            Df_star = Df.iloc[idx]
-        glm_.fit(X_star, Df_star)
-    
+        # previous method, not using weights
+        # if type(X_a) == np.ndarray:
+        #     X_star = X_a[idx]
+        # else:
+        #     X_star = X_a.iloc[idx]
+        # if type(Df) == np.ndarray:
+        #     Df_star = Df[idx]
+        # else:
+        #     Df_star = Df.iloc[idx]
+
+        glm_.fit(X_a, Df_star)
         coefs.append(np.hstack([glm_.intercept_, glm_.coef_.copy()]))
+
         full_coef = np.zeros(X.shape[1])
         if active_set is not None:
             full_coef[active_set] = glm_.coef_
         else:
             full_coef[:] = glm_.coef_
         if inactive_set is not None:
-            D_idx = Design(X, # X[idx],
-                           W_idx, # W[idx],
-                           standardize=glm_.standardize,
-                           intercept=glm_.fit_intercept)
+            D_star = Design(X, # X[idx],
+                            W_idx, # W[idx],
+                            standardize=glm_.standardize,
+                            intercept=glm_.fit_intercept)
             grad = compute_grad(glm_, 
                                 glm_.intercept_,
                                 full_coef,
-                                D_idx,
-                                R[idx],
+                                D_star,
+                                R,
                                 offset=O,
-                                sample_weight=W_idx)[0] # W[idx])[0]
-            grads.append(grad[1:][inactive_set]) # drop the coef and keep inactive one
+                                sample_weight=W_idx)[0] 
+            # drop the coef and keep inactive coordinates
+            grads.append(grad[1:][inactive_set]) 
         else:
             grads.append(np.nan)
 
