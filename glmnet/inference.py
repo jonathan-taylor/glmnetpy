@@ -1407,7 +1407,7 @@ def score_inference(score,
                           inactive=False)
 
     if GNI.active_set_.shape[0] > 0:
-        return GNI, perturbation
+        return GNI, Z - np.sqrt(proportion / (1 - proportion)) * perturbation
 
 def resampler_inference(sample,
                         lambda_val=None,
