@@ -274,7 +274,7 @@ def sample_cov(S,
                           proportion=proportion,
                           chol_cov=S_sqrt,
                           level=level,
-                          penalty_factor=penalty_factor)
+                          penalty_factor=penalty_factor)[0]
     if len(GNI.active_set_) > 0:
         df = GNI.summarize()
     else:

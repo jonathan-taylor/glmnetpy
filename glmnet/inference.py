@@ -1298,6 +1298,10 @@ def split_inference(glmnet_obj,
     X_sel = X[idx]
     Df_sel = Df.iloc[idx]
 
+    heldout = ~(Df.index.isin(idx))
+    Df_split = Df.loc[heldout]
+    X_split = X[heldout]
+    
     G.fit(X_sel, Df_sel)
     intercept, coef = G.intercepts_[0], G.coefs_[0]
 
@@ -1331,7 +1335,7 @@ def split_inference(glmnet_obj,
                           final_proportion,
                           inactive=inactive)
 
-    return GNI
+    return GNI, (X_split, Df_split)
 
 def score_inference(score,
                     cov_score,
@@ -1401,8 +1405,9 @@ def score_inference(score,
                           proportion,
                           dispersion=1,
                           inactive=False)
+
     if GNI.active_set_.shape[0] > 0:
-        return GNI
+        return GNI, perturbation
 
 def resampler_inference(sample,
                         lambda_val=None,
@@ -1445,33 +1450,17 @@ def resampler_inference(sample,
     # pick a pseudo-Gaussian perturbation
     perturbation = centered_scores[random_idx].reshape((p,))
     
-    GNI = score_inference(score=score,
-                          cov_score=cov_score,
-                          lambda_val=lambda_val,
-                          proportion=proportion,
-                          perturbation=perturbation,
-                          level=level,
-                          penalty_factor=penalty_factor)
+    (GNI,
+     perturbation) = score_inference(score=score,
+                                     cov_score=cov_score,
+                                     lambda_val=lambda_val,
+                                     proportion=proportion,
+                                     perturbation=perturbation,
+                                     level=level,
+                                     penalty_factor=penalty_factor)
 
-    # this inference instance is on standardized coefs!
-    return GNI
+    # perturbation is on the score scale,
+    # convert it to the original coords
 
-    # if df is not None:
-    #     if standardize:
-    #         for col in ['mle', 'upper', 'lower']:
-    #             df[col].values[:] = df[col] / scaling[df.index]
-
-    #         for j in df.index:
-    #             df.loc[j,'TG'] = None
-    #             # XX try to correct this!!
-    #             # tg = df.loc[j, 'TG']
-    #             # tg_params = asdict(tg)
-    #             # tg_params.update(estimate=tg.estimate * scaling[j],
-    #             #                  sigma=tg.sigma * scaling[j],
-    #             #                  smoothing_sigma=tg.smoothing_sigma * scaling[j],
-    #             #                  lower_bound=tg.lower_bound * scaling[j],
-    #             #                  upper_bound=tg.upper_bound * scaling[j])
-    #             # df.loc[j,'TG'] = TruncatedGaussian(**tg_params)
-
-    # return df
+    return GNI, prec_score @ perturbation
 
