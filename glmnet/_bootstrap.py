@@ -4,15 +4,19 @@ import pandas as pd
 from sklearn.base import clone
 
 from .base import Design
-from .glm import compute_grad
+from .glm import (compute_grad,
+                  GLM)
 
-def bootstrap_GLM(glm, 
-                  X, 
-                  Df, 
-                  active_set, 
-                  inactive_set,
+def bootstrap_GLM(X, 
+                  Df,
+                  glm=None,
+                  active_set=None, 
+                  inactive_set=None,
                   rng=None, B=500):
     
+    if glm is None:
+        glm = GLM()
+
     n = X.shape[0]
     
     if rng is None:
@@ -26,6 +30,11 @@ def bootstrap_GLM(glm,
     else:
         X_a = X
 
+    # find a warm start
+    
+    glm_ = clone(glm)
+    warm_state = glm_.fit(X_a, Df).state_
+    
     _, Y, R, O, W = glm.get_data_arrays(X, Df)
 
     prob = W / W.sum()
@@ -62,7 +71,9 @@ def bootstrap_GLM(glm,
         # else:
         #     Df_star = Df.iloc[idx]
 
-        glm_.fit(X_a, Df_star)
+        glm_.fit(X_a,
+                 Df_star,
+                 warm_state=warm_state)
         coefs.append(np.hstack([glm_.intercept_, glm_.coef_.copy()]))
 
         full_coef = np.zeros(X.shape[1])
@@ -71,8 +82,8 @@ def bootstrap_GLM(glm,
         else:
             full_coef[:] = glm_.coef_
         if inactive_set is not None:
-            D_star = Design(X, # X[idx],
-                            W_idx, # W[idx],
+            D_star = Design(X,
+                            W_idx,
                             standardize=glm_.standardize,
                             intercept=glm_.fit_intercept)
             grad = compute_grad(glm_, 
