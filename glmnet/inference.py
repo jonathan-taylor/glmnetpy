@@ -1406,8 +1406,10 @@ def score_inference(score,
                           dispersion=1,
                           inactive=False)
 
+    indep_est = Z - np.sqrt(proportion / (1 - proportion)) * perturbation
+    indep_cov = (1 + proportion / (1 - proportion)) * cov_score
     if GNI.active_set_.shape[0] > 0:
-        return GNI, Z - np.sqrt(proportion / (1 - proportion)) * perturbation
+        return GNI, (indep_est, indep_cov)
 
 def resampler_inference(sample,
                         lambda_val=None,
@@ -1451,7 +1453,7 @@ def resampler_inference(sample,
     perturbation = centered_scores[random_idx].reshape((p,))
     
     (GNI,
-     perturbation) = score_inference(score=score,
+     (perturbation, cov)) = score_inference(score=score,
                                      cov_score=cov_score,
                                      lambda_val=lambda_val,
                                      proportion=proportion,
@@ -1462,5 +1464,6 @@ def resampler_inference(sample,
     # perturbation is on the score scale,
     # convert it to the original coords
 
-    return GNI, prec_score @ perturbation
+    return (GNI, (prec_score @ perturbation,
+                  prec_score @ cov @ prec_score))
 
