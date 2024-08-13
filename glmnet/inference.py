@@ -705,7 +705,75 @@ class GLMNetInference(object):
 
         return (L, U), mle_, pvalue_, active_, WG
 
+    @staticmethod
+    def from_score(score,
+                   cov_score,
+                   lambda_val,
+                   proportion=0.8,
+                   level=0.9,
+                   chol_cov=None,
+                   perturbation=None,
+                   penalty_factor=None,
+                   rng=None,
+                   compute_fission=False):
 
+        (GNI,
+         (beta_perp,
+          beta_perp_cov)) = _score_inference(score,
+                                             cov_score,
+                                             lambda_val,
+                                             proportion=proportion,
+                                             level=level,
+                                             chol_cov=chol_cov,
+                                             perturbation=perturbation,
+                                             penalty_factor=penalty_factor,
+                                             rng=rng)
+        if compute_fission:
+            active = GNI.active_set_ 
+            fission_summary = _simple_score_inference(beta_perp,
+                                                      beta_perp_cov,
+                                                      active=active,
+                                                      level=level)
+            fission_summary.index = active
+            GNI.fission_summary_ = fission_summary
+
+        return GNI
+    
+    @staticmethod
+    def from_resample(sample,
+                      lam_frac=1,
+                      proportion=0.8,
+                      level=0.9,
+                      random_idx=None,
+                      penalty_factor=None,
+                      rng=None,
+                      estimate=None,
+                      standardize=True,
+                      compute_fission=False):
+
+        (GNI,
+         (beta_perp,
+          beta_perp_cov)) = _resampler_inference(sample,
+                                                 lam_frac=lam_frac,
+                                                 proportion=proportion,
+                                                 level=level,
+                                                 random_idx=random_idx,
+                                                 penalty_factor=penalty_factor,
+                                                 rng=rng,
+                                                 estimate=estimate,
+                                                 standardize=standardize)
+
+        if compute_fission:
+            active = GNI.active_set_
+            fission_summary = _simple_score_inference(beta_perp,
+                                                      beta_perp_cov,
+                                                      active=active,
+                                                      level=level)
+            fission_summary.index = active
+            GNI.fission_summary_ = fission_summary
+
+        return GNI
+    
 def _norm_interval(lower, upper):
     r"""
     A multiprecision evaluation of
@@ -1337,15 +1405,15 @@ def split_inference(glmnet_obj,
 
     return GNI, (X_split, Df_split)
 
-def score_inference(score,
-                    cov_score,
-                    lambda_val,
-                    proportion=0.8,
-                    level=0.9,
-                    chol_cov=None,
-                    perturbation=None,
-                    penalty_factor=None,
-                    rng=None):
+def _score_inference(score,
+                     cov_score,
+                     lambda_val,
+                     proportion=0.8,
+                     level=0.9,
+                     chol_cov=None,
+                     perturbation=None,
+                     penalty_factor=None,
+                     rng=None):
 
     # perturbation should be N(0, cov_score) roughly
 
@@ -1414,15 +1482,16 @@ def score_inference(score,
     else:
         return None, (np.nan, np.nan)
 
-def resampler_inference(sample,
-                        lambda_val=None,
-                        lam_frac=1,
-                        proportion=0.8,
-                        level=0.9,
-                        random_idx=None,
-                        rng=None,
-                        estimate=None,
-                        standardize=True):
+def _resampler_inference(sample,
+                         lambda_val=None,
+                         lam_frac=1,
+                         proportion=0.8,
+                         level=0.9,
+                         random_idx=None,
+                         penalty_factor=None,
+                         rng=None,
+                         estimate=None,
+                         standardize=True):
 
     if estimate is None:
         estimate = sample.mean(0)
@@ -1442,10 +1511,10 @@ def resampler_inference(sample,
     scaling = centered_scores.std(0)
     score = cov_score @ estimate
 
+    if penalty_factor is None:
+        penalty_factor = np.ones(p)
     if standardize:
-        penalty_factor = scaling
-    else:
-        penalty_factor = None
+        penalty_factor *= scaling
         
     # pick a lam
     if lambda_val is None:
@@ -1457,13 +1526,13 @@ def resampler_inference(sample,
     
     (GNI,
      (perturbation,
-      cov)) = score_inference(score=score,
-                              cov_score=cov_score,
-                              lambda_val=lambda_val,
-                              proportion=proportion,
-                              perturbation=perturbation,
-                              level=level,
-                              penalty_factor=penalty_factor)
+      cov)) = _score_inference(score=score,
+                               cov_score=cov_score,
+                               lambda_val=lambda_val,
+                               proportion=proportion,
+                               perturbation=perturbation,
+                               level=level,
+                               penalty_factor=penalty_factor)
 
     # perturbation is on the score scale,
     # convert it to the original coords
