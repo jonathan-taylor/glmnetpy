@@ -1408,8 +1408,11 @@ def score_inference(score,
 
     indep_est = Z - np.sqrt(proportion / (1 - proportion)) * perturbation
     indep_cov = (1 + proportion / (1 - proportion)) * cov_score
+
     if GNI.active_set_.shape[0] > 0:
         return GNI, (indep_est, indep_cov)
+    else:
+        return None, (np.nan, np.nan)
 
 def resampler_inference(sample,
                         lambda_val=None,
@@ -1453,17 +1456,46 @@ def resampler_inference(sample,
     perturbation = centered_scores[random_idx].reshape((p,))
     
     (GNI,
-     (perturbation, cov)) = score_inference(score=score,
-                                     cov_score=cov_score,
-                                     lambda_val=lambda_val,
-                                     proportion=proportion,
-                                     perturbation=perturbation,
-                                     level=level,
-                                     penalty_factor=penalty_factor)
+     (perturbation,
+      cov)) = score_inference(score=score,
+                              cov_score=cov_score,
+                              lambda_val=lambda_val,
+                              proportion=proportion,
+                              perturbation=perturbation,
+                              level=level,
+                              penalty_factor=penalty_factor)
 
     # perturbation is on the score scale,
     # convert it to the original coords
 
-    return (GNI, (prec_score @ perturbation,
-                  prec_score @ cov @ prec_score))
+    if GNI is not None:
+        return (GNI, (prec_score @ perturbation,
+                      prec_score @ cov @ prec_score))
+    else:
+        return (GNI, (perturbation, cov))
 
+def _simple_score_inference(beta,
+                            beta_cov,
+                            active=None,
+                            level=0.9):
+    q = normal_dbn.ppf(1 - (1 - level) / 2)
+    prec = np.linalg.inv(beta_cov)
+    score = prec @ beta
+
+    if active is not None:
+        Q_a = prec[np.ix_(active, active)]
+        C_a = np.linalg.inv(Q_a)
+        beta_sel = (C_a @ score[active])
+    else:
+        C_a = beta_cov
+        beta_sel = beta
+        
+    _sd = np.sqrt(np.diag(C_a))
+    _Z = beta_sel / _sd
+    _df = pd.DataFrame({'pval':2 * normal_dbn.sf(np.fabs(_Z))},
+                             index=active)
+    _df['upper'] = beta_sel + q * _sd
+    _df['lower'] = beta_sel - q * _sd
+    _df['estimate'] = beta_sel
+    _df['std err'] = _sd
+    return _df
