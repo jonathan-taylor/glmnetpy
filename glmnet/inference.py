@@ -8,12 +8,14 @@ import warnings
 from warnings import warn
 from copy import copy
 
+from dataclasses import dataclass, asdict
+from typing import Optional, Callable
+
 import numpy as np
 import scipy.sparse
 import pandas as pd
 from scipy.stats import norm as normal_dbn
 from sklearn.base import clone
-
 
 import mpmath as mp
 mp.dps = 80
@@ -21,9 +23,7 @@ mp.dps = 80
 from .base import _get_design
 from .glmnet import GLMNet, GLMState
 from .glm import compute_grad
-
-from dataclasses import dataclass, asdict
-from typing import Optional, Callable
+from ._bootstrap import parametric_GLM
 
 @dataclass
 class TruncatedGaussian(object):
@@ -211,9 +211,6 @@ class AffineConstraint(object):
         
         # Inequalities are now U + V @ target <= 0
         
-        # print(f'target: {target}')
-        # print(f'gamma: {gamma}')
-
         # adding the zero_coords in the denominator ensures that
         # there are no divide-by-zero errors in RHS
         # these coords are never used in upper_bound or lower_bound
@@ -434,6 +431,7 @@ class GLMNetInference(object):
             transform_to_raw = self.D_active.unscaler_ @ np.identity(self.D_active.shape[1])
             if not self.glmnet_obj.fit_intercept:
                 transform_to_raw = transform_to_raw[1:, 1:]
+
             self.C_active_ = (transform_to_raw @
                               self.Q_active_ @
                               transform_to_raw.T) * unreg_GLM.dispersion_
@@ -723,7 +721,6 @@ class GLMNetInference(object):
                                              cov_score,
                                              lambda_val,
                                              proportion=proportion,
-                                             level=level,
                                              chol_cov=chol_cov,
                                              perturbation=perturbation,
                                              penalty_factor=penalty_factor,
@@ -740,6 +737,195 @@ class GLMNetInference(object):
         return GNI
     
     @staticmethod
+    def from_parametric(glmnet_obj,
+                        X,
+                        Df, # "Y" argument of sklearn
+                        lambda_val,
+                        level=0.9,
+                        proportion=0.8,
+                        rng=None,
+                        inactive=False,
+                        compute_fission=False):
+
+        glm = glmnet_obj.get_GLM()
+        glm.summarize = True
+        glm.fit(X, Df, dispersion=None)
+        
+        param = np.hstack([1. * glm.intercept_, glm.coef_.copy()])
+        penalty_factor = np.ones_like(param)
+        penalty_factor[0] = 1e-8
+
+        (GNI_raw, (beta_perp,
+                   beta_perp_cov)) = _coef_inference(param,
+                                                     glm.covariance_,
+                                                     lambda_val,
+                                                     proportion=proportion,
+                                                     penalty_factor=penalty_factor,
+                                                     rng=rng)                                                 
+        # correct the GNI as it doesn't treat intercept
+        # in "special" fashion
+
+        new_state = GLMState(coef=GNI_raw.state.coef[1:],
+                             intercept=GNI_raw.state.coef[0])
+        # print(new_state._stack)
+        # print(beta_perp,'perp')
+        # print(param)
+        
+        GNI = GLMNetInference(glmnet_obj=glmnet_obj,
+                              data=(X, Df),
+                              lambda_val=GNI_raw.lambda_val,
+                              state=new_state,
+                              score=GNI_raw.score,
+                              proportion=GNI_raw.proportion,
+                              dispersion=None,
+                              inactive=GNI_raw.inactive)
+
+        if compute_fission:
+            active = [0] + list(GNI.active_set_ + 1)
+            fission_summary = _simple_score_inference(beta_perp,
+                                                      beta_perp_cov,
+                                                      active=active,
+                                                      level=level)
+            fission_summary.index = ['intercept'] + list(GNI.active_set_)
+            GNI.fission_summary_ = fission_summary
+        
+        return GNI
+
+        # code below tries to use parameteric bootstrap rather
+        # than a perturbation of the asymptotic gaussian...
+        # param_boot = np.squeeze(parametric_GLM(X,
+        #                                        Df,
+        #                                        glm=glm,
+        #                                        B=1)[0])
+
+        # perturbation = param - param_boot
+        # factor = np.sqrt((1 - proportion) / proportion)
+        # beta_perp = param - perturbation / factor
+        # beta_perp_cov = (1 + 1 / factor**2) * glm.covariance_
+
+        # # the "-" means that beta_star - beta_hat has perturbation
+        # # added (rather than subtracted) from it
+        
+        # O_perturb = factor * glm.design_ @ perturbation
+        # if glmnet_obj.offset_id is not None:
+        #     O_perturb += Df[glmnet_obj.offset_id]
+
+        # G_star = clone(glmnet_obj)
+        # G_star.lambda_values = [lambda_val]
+        # G_star.offset_id = f'boot_offset_{id(G_star)}'
+        # Df_ = copy(Df)
+        # Df_[f'boot_offset_{id(G_star)}'] = O_perturb
+
+        # G_star.fit(X, Df_)
+        
+        # intercept, coef = G_star.intercepts_[0], G_star.coefs_[0]
+
+        # ## Compute the gradient of the negative
+        # # log-likelihood at LASSO solution
+        # # we normalize by weights.sum() as this is the objective
+        # # used in GLMNET so this scaled_grad actually satisfies our
+        # # KKT conditions
+
+        # scaled_grad, resid = compute_grad(G_star,
+        #                                   intercept,
+        #                                   coef,
+        #                                   G_star.design_,
+        #                                   Df[G_star.response_id],
+        #                                   scaled_output=True,
+        #                                   norm_weights=True)
+
+        # ## Convert the LASSO solution to scaled coordinates
+
+        # raw_state = GLMState(intercept=intercept,
+        #                      coef=coef)
+        # scaled_state = G_star.design_.raw_to_scaled(state=raw_state)
+
+        # W = G_star.get_data_arrays(X, Df_)[-1]
+
+        # GNI = GLMNetInference(glmnet_obj,
+        #                       (X, Df),
+        #                       lambda_val,
+        #                       scaled_state,
+        #                       scaled_grad,
+        #                       proportion,
+        #                       inactive=inactive)
+
+        # if len(GNI.active_set_) > 0:
+        #     active = GNI.active_set_
+            
+        #     if glm.fit_intercept:
+        #         fission_summary = _simple_score_inference(
+        #                              beta_perp,
+        #                              beta_perp_cov,
+        #                              active=[0]+list(active+1),
+        #                              level=level)
+        #         fission_summary.index = ['intercept'] + list(active)
+        #         print(np.diag(beta_perp_cov), 'param')
+        #     else:
+        #         fission_summary = _simple_score_inference(
+        #                              beta_perp[1:],
+        #                              beta_perp_cov[1:,1:],
+        #                              active=active,
+        #                              level=level)
+        #         fission_summary.index = active
+                
+        #     GNI.fission_summary_ = fission_summary
+        # elif compute_fission:
+        #     GNI.fission_summary_ = None
+
+        # return GNI
+
+    def from_split(glmnet_obj,
+                   X,
+                   Df, # "Y" argument of sklearn
+                   lambda_val,
+                   level=0.9,
+                   proportion=0.8,
+                   rng=None,
+                   inactive=False,
+                   compute_fission=False):
+
+        (GNI,
+         (X_split,
+          Df_split)) = _split_inference(glmnet_obj,
+                                        X,
+                                        Df,
+                                        lambda_val,
+                                        proportion=proportion,
+                                        rng=rng,
+                                        inactive=inactive)
+
+        if compute_fission and len(GNI.active_set_) > 0:
+            active = GNI.active_set_
+            glm = glmnet_obj.get_GLM()
+            glm.summarize = True
+            X_a = X_split[:,active]
+            glm.fit(X_a,
+                    Df_split,
+                    dispersion=None)
+            
+            if glm.fit_intercept:
+                fission_summary = _simple_score_inference(
+                                     np.hstack([glm.intercept_,
+                                                glm.coef_]),
+                                     glm.covariance_,
+                                     level=level)
+                fission_summary.index = ['intercept'] + list(active)
+
+            else:
+                fission_summary = _simple_score_inference(
+                                     glm.coef_,
+                                     glm.covariance_,
+                                     level=level)
+                fission_summary.index = active
+                
+            GNI.fission_summary_ = fission_summary
+        elif compute_fission:
+            GNI.fission_summary_ = None
+            
+        return GNI
+
+    @staticmethod
     def from_resample(sample,
                       lam_frac=1,
                       proportion=0.8,
@@ -749,6 +935,7 @@ class GLMNetInference(object):
                       rng=None,
                       estimate=None,
                       standardize=True,
+                      inactive=False,
                       compute_fission=False):
 
         (GNI,
@@ -756,12 +943,12 @@ class GLMNetInference(object):
           beta_perp_cov)) = _resampler_inference(sample,
                                                  lam_frac=lam_frac,
                                                  proportion=proportion,
-                                                 level=level,
                                                  random_idx=random_idx,
                                                  penalty_factor=penalty_factor,
                                                  rng=rng,
                                                  estimate=estimate,
-                                                 standardize=standardize)
+                                                 standardize=standardize,
+                                                 inactive=inactive)
 
         if compute_fission:
             active = GNI.active_set_
@@ -1346,13 +1533,14 @@ def _truncated_inference(estimate,
         
     return L, U, mle, pval, sel_distr
 
-def split_inference(glmnet_obj,
-                    X,
-                    Df, # "Y" argument of sklearn
-                    lambda_val,
-                    proportion=0.8,
-                    rng=None,
-                    inactive=False):
+def _split_inference(glmnet_obj,
+                     X,
+                     Df, # "Y" argument of sklearn
+                     lambda_val,
+                     proportion=0.8,
+                     level=0.9,
+                     rng=None,
+                     inactive=False):
     
     G = clone(glmnet_obj)
     G.lambda_values = [lambda_val]
@@ -1409,7 +1597,6 @@ def _score_inference(score,
                      cov_score,
                      lambda_val,
                      proportion=0.8,
-                     level=0.9,
                      chol_cov=None,
                      perturbation=None,
                      penalty_factor=None,
@@ -1486,12 +1673,12 @@ def _resampler_inference(sample,
                          lambda_val=None,
                          lam_frac=1,
                          proportion=0.8,
-                         level=0.9,
                          random_idx=None,
                          penalty_factor=None,
                          rng=None,
                          estimate=None,
-                         standardize=True):
+                         standardize=True,
+                         inactive=False):
 
     if estimate is None:
         estimate = sample.mean(0)
@@ -1531,8 +1718,8 @@ def _resampler_inference(sample,
                                lambda_val=lambda_val,
                                proportion=proportion,
                                perturbation=perturbation,
-                               level=level,
-                               penalty_factor=penalty_factor)
+                               penalty_factor=penalty_factor,
+                               rng=rng)
 
     # perturbation is on the score scale,
     # convert it to the original coords
@@ -1543,6 +1730,51 @@ def _resampler_inference(sample,
     else:
         return (GNI, (perturbation, cov))
 
+def _coef_inference(coef,
+                    cov_coef,
+                    lambda_val,
+                    proportion=0.8,
+                    penalty_factor=None,
+                    perturbation=None,
+                    rng=None,
+                    standardize=True,
+                    inactive=False):
+
+    cov_score = np.linalg.inv(cov_coef)
+    score = cov_score @ coef
+    scaling = np.diag(cov_score)
+
+    # perturbation would be on beta/coef scale,
+    # convert to score scale
+    if perturbation is not None:
+        perturbation = cov_score @ perturbation 
+
+    p = cov_score.shape[0]
+    
+    if penalty_factor is None:
+        penalty_factor = np.ones(p)
+    if standardize:
+        penalty_factor *= scaling
+        
+    (GNI,
+     (perturbation,
+      cov)) = _score_inference(score=score,
+                               cov_score=cov_score,
+                               lambda_val=lambda_val,
+                               proportion=proportion,
+                               perturbation=perturbation,
+                               penalty_factor=penalty_factor,
+                               rng=rng)
+
+    # perturbation is on the score scale,
+    # convert it to the original coords
+
+    if GNI is not None:
+        return (GNI, (cov_coef @ perturbation,
+                      cov_coef @ cov @ cov_coef))
+    else:
+        return (GNI, (perturbation, cov))
+    
 def _simple_score_inference(beta,
                             beta_cov,
                             active=None,
