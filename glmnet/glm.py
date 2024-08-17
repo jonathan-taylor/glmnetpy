@@ -161,6 +161,14 @@ class GLMFamilySpec(object):
 
         return pseudo_response, newton_weights
         
+    def rvs(self,
+            link_param,
+            scale=None):
+        family = self.base
+        mean_param = family.link.inverse(link_param)
+        dbn = family.get_distribution(mean_param, scale=scale)
+        return dbn.rvs()
+
     def _default_scorers(self):
 
         fam_name = self.base.__class__.__name__
