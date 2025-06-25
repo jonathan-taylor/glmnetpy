@@ -141,7 +141,7 @@ def test_cross_validation_fraction_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     r_foldid = IntVector(foldid.astype(int))
@@ -172,7 +172,7 @@ def test_cross_validation_lambda_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     r_foldid = IntVector(foldid.astype(int))
@@ -203,7 +203,7 @@ def test_cross_validation_with_weights_fraction(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
@@ -235,7 +235,7 @@ def test_cross_validation_with_weights_lambda(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
