@@ -33,14 +33,11 @@ dependencies = ["numpy>=1.7.1", # max version for numba
 classifiers = ["Development Status :: 3 - Alpha",
                "Environment :: Console",
                "Intended Audience :: Science/Research",
-               "License :: OSI Approved :: BSD License",
                "Operating System :: OS Independent",
                "Programming Language :: Python",
                "Topic :: Scientific/Engineering"]
 dynamic = ['version']
-
-[project.license]
-file = 'LICENSE.txt'
+license = "BSD-3-Clause"
 
 [tool.versioneer]
 VCS = "git"

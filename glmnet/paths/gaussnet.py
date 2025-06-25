@@ -31,7 +31,7 @@ class GaussNet(FastNetMixin):
         Whether to use the covariance update (default: auto based on nvars).
     """
 
-    covariance : bool = None
+    covariance : bool | None = None
 
     _dense = _dense
     _sparse = _sparse

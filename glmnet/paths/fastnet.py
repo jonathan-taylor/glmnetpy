@@ -93,9 +93,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         Control parameters for the solver.
     """
 
-    lambda_min_ratio: float = None
+    lambda_min_ratio: float | None = None
     nlambda: int = 100
-    df_max: int = None
+    df_max: int | None = None
     control: FastNetControl = field(default_factory=FastNetControl)
 
     def fit(self,
@@ -179,9 +179,15 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self._args.update(**D)
 
         if scipy.sparse.issparse(design.X):
-            self._fit = self._sparse(**self._args)
+            fit_method = getattr(self, "_sparse", None)
+            if fit_method is None:
+                raise AttributeError(f"{self.__class__.__name__} has no method '_sparse' required for sparse input.")
+            self._fit = fit_method(**self._args)
         else:
-            self._fit = self._dense(**self._args)
+            fit_method = getattr(self, "_dense", None)
+            if fit_method is None:
+                raise AttributeError(f"{self.__class__.__name__} has no method '_dense' required for dense input.")
+            self._fit = fit_method(**self._args)
 
         # if error code > 0, fatal error occurred: stop immediately
         # if error code < 0, non-fatal error occurred: return error code
@@ -359,19 +365,22 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # isn't this always nvars?
         # should have a df_max arg
-        nx = min(self.df_max*2+20, nvars)
+        if self.df_max is not None:
+            nx = min(self.df_max*2+20, nvars)
+        else:
+            nx = nvars
 
         _args = {'parm':float(self.alpha),
                  'ni':nvars,
                  'no':nobs,
                  'y':response,
-                 'w':sample_weight.reshape((-1,1)),
-                 'jd':jd,
-                 'vp':self.penalty_factor.reshape((-1,1)),
-                 'cl':np.asfortranarray(cl),
-                 'ne':self.df_max,
-                 'nx':nx,
-                 'nlam':self.nlambda,
+                 'w': np.asarray(sample_weight).reshape((-1, 1)),
+                 'jd': jd,
+                 'vp': np.asarray(self.penalty_factor).reshape((-1, 1)),
+                 'cl': np.asfortranarray(cl),
+                 'ne': self.df_max,
+                 'nx': nx,
+                 'nlam': self.nlambda,
                  'flmin':flmin,
                  'ulam':ulam,
                  'thr':float(self.control.thresh),
