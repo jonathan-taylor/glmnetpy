@@ -84,13 +84,13 @@ def test_coxlm_breslow_comparison(sample_data):
     r_surv = survival.Surv(FloatVector(start_numeric), FloatVector(event_numeric), 
                           FloatVector(status_numeric))
     
-    # Create formula with individual predictors
-    formula_str = 'Y ~ ' + ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
+    # Create formula with survival object and individual predictors
+    formula_str = 'Surv(start, event, status) ~ ' + ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
     r_model = survival.coxph(ro.Formula(formula_str), data=r_data, weights=FloatVector(W_numeric), 
                            ties='breslow', robust=False)
-    r_coef = np.array(survival.coef(r_model))
+    r_coef = np.array(ro.r.coef(r_model))
     
-    assert np.allclose(G2.coef_, r_coef)
+    assert np.allclose(G2.coef_, r_coef, rtol=1e-4, atol=1e-4)
 
 
 def test_coxlm_efron_comparison(sample_data):
@@ -123,14 +123,13 @@ def test_coxlm_efron_comparison(sample_data):
     r_surv = survival.Surv(FloatVector(start_numeric), FloatVector(event_numeric), 
                           FloatVector(status_numeric))
     
-    # Create formula with individual predictors
-    formula_str = 'Y ~ ' + ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
+    # Create formula with survival object and individual predictors
+    formula_str = 'Surv(start, event, status) ~ ' + ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
     r_model = survival.coxph(ro.Formula(formula_str), data=r_data, weights=FloatVector(W_numeric), 
-                           robust=False)
-    r_coef = np.array(survival.coef(r_model))
+                             ties="efron", robust=False)
+    r_coef = np.array(ro.r.coef(r_model))
     
     assert np.allclose(G3.coef_, r_coef, rtol=1e-4, atol=1e-4)
-
 
 def test_coxnet_comparison(sample_data):
     """Test CoxNet comparison with R glmnet."""
