@@ -19,14 +19,30 @@ from ..docstrings import (make_docstring,
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
 
+"""
+Implements the LogNet path algorithm for binomial (logistic) regression models.
+Provides the LogNet estimator class using the FastNetMixin base.
+"""
+
 @dataclass
 class LogNet(FastNetMixin):
+    """
+    LogNet estimator for binomial (logistic) regression using the FastNet path algorithm.
+
+    Parameters
+    ----------
+    modified_newton : bool, optional
+        Whether to use the modified Newton method.
+    """
 
     modified_newton: bool = False
     _dense = _dense
     _sparse = _sparse
 
     def __post_init__(self):
+        """
+        Initialize the LogNet estimator and set the GLM family to Binomial.
+        """
         self._family = GLMFamilySpec(base=sm_family.Binomial())
 
     # private methods
@@ -34,6 +50,21 @@ class LogNet(FastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape): # getcoef.R
+        """
+        Extract fitted coefficients, intercepts, and related statistics for binary models.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         # intercepts will be shape (1,nfits),
         # reshape to (nfits,)
         # specific to binary
@@ -45,7 +76,23 @@ class LogNet(FastNetMixin):
                         X,
                         y,
                         check=True):
+        """
+        Prepare and validate data arrays for binomial regression.
 
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+        check : bool, optional
+            Whether to check input validity.
+
+        Returns
+        -------
+        tuple
+            Tuple of (X, y, labels, offset, weight).
+        """
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = LabelEncoder()
         labels = np.asfortranarray(encoder.fit_transform(response))
@@ -60,7 +107,27 @@ class LogNet(FastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
+        """
+        Prepare arguments for the C++ backend wrapper for binomial regression.
 
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array.
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
         _args = super()._wrapper_args(design,
                                       response,
                                       sample_weight,

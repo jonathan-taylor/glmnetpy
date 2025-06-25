@@ -22,6 +22,42 @@ from ..docstrings import (make_docstring,
 
 @dataclass
 class FastNetControl(object):
+    """
+    Control parameters for FastNet path solvers.
+
+    Attributes
+    ----------
+    fdev : float
+        Fractional deviance tolerance for early stopping.
+    eps : float
+        Convergence threshold for coordinate descent.
+    big : float
+        Large value used for numerical stability.
+    mnlam : int
+        Minimum number of lambda values.
+    devmax : float
+        Maximum fraction of deviance explained.
+    pmin : float
+        Minimum value for probabilities.
+    exmx : float
+        Maximum exponent value.
+    itrace : int
+        Trace level for logging.
+    prec : float
+        Precision for calculations.
+    mxit : int
+        Maximum number of iterations.
+    epsnr : float
+        Convergence threshold for Newton-Raphson.
+    mxitnr : int
+        Maximum Newton-Raphson iterations.
+    maxit : int
+        Maximum number of iterations (wrapper only).
+    thresh : float
+        Threshold for convergence (wrapper only).
+    logging : bool
+        Enable logging (wrapper only).
+    """
 
     fdev: float = 1e-5
     eps: float = 1e-6
@@ -42,6 +78,20 @@ class FastNetControl(object):
     
 @dataclass
 class FastNetMixin(GLMNet): # base class for C++ path methods
+    """
+    Mixin for fast path solvers using C++ backend.
+
+    Parameters
+    ----------
+    lambda_min_ratio : float, optional
+        Minimum lambda ratio.
+    nlambda : int, optional
+        Number of lambda values.
+    df_max : int, optional
+        Maximum degrees of freedom.
+    control : FastNetControl, optional
+        Control parameters for the solver.
+    """
 
     lambda_min_ratio: float = None
     nlambda: int = 100
@@ -53,6 +103,25 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             y,
             sample_weight=None, # ignored
             interpolation_grid=None):
+        """
+        Fit the penalized regression model using the FastNet path algorithm.
+
+        Parameters
+        ----------
+        X : array-like or sparse matrix
+            Feature matrix.
+        y : array-like
+            Target vector or matrix.
+        sample_weight : array-like, optional
+            Sample weights (ignored).
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+
+        Returns
+        -------
+        self : object
+            Fitted estimator.
+        """
     
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
@@ -164,6 +233,21 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     def _extract_fits(self,
                       X_shape,
                       response_shape): # getcoef.R
+        """
+        Extract fitted coefficients, intercepts, and related statistics.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         _fit, _args = self._fit, self._args
         nvars = X_shape[1]
         nfits = _fit['lmu']
@@ -202,7 +286,27 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                       sample_weight,
                       offset, # ignored, but subclasses use it
                       exclude=[]):
+        """
+        Prepare arguments for the C++ backend wrapper.
 
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array (ignored here).
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
         sample_weight = np.asfortranarray(sample_weight)
         
         X = design.X
@@ -292,12 +396,29 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
 @dataclass
 class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
+    """
+    Mixin for fast path solvers with multiple response variables.
+    """
 
     def predict(self,
                 X,
                 prediction_type='link' # ignored except checking valid
                 ):
+        """
+        Predict using the fitted model for multiple responses.
 
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        prediction_type : str, optional
+            Type of prediction ('response' or 'link').
+
+        Returns
+        -------
+        np.ndarray
+            Predicted values.
+        """
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
         
@@ -331,6 +452,21 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
     def _extract_fits(self,
                       X_shape,
                       response_shape):
+        """
+        Extract fitted coefficients, intercepts, and related statistics for multi-response models.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         _fit, _args = self._fit, self._args
         nvars = X_shape[1]
         nresp = response_shape[1]
@@ -370,7 +506,27 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                       sample_weight,
                       offset,
                       exclude=[]):
-           
+        """
+        Prepare arguments for the C++ backend wrapper for multi-response models.
+
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array.
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
         _args = super()._wrapper_args(design,
                                       response,
                                       sample_weight,
