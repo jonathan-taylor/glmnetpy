@@ -26,6 +26,11 @@ survival = importr('survival')
 glmnet = importr('glmnet')
 
 
+def numpy_to_r_matrix(X):
+    """Convert numpy array to R matrix with proper row/column major ordering."""
+    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
+
+
 @pytest.fixture
 def sample_data():
     """Create sample data for testing."""
@@ -145,7 +150,7 @@ def test_coxnet_comparison(sample_data):
     r_surv = survival.Surv(FloatVector(start_numeric), FloatVector(event_numeric), 
                           FloatVector(status_numeric))
     
-    r_gn = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), 
                         r_surv, weights=FloatVector(W_numeric), family='cox')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
     
@@ -172,7 +177,7 @@ def test_cross_validation_fraction_alignment_grouped(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X[:, :8], event_data, cv=5, alignment='fraction')
+    predictions, scores = GN3.cross_validation_path(X[:, :8], event_data, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     event_numeric = event_data['event'].astype(float)
@@ -185,7 +190,7 @@ def test_cross_validation_fraction_alignment_grouped(sample_data):
                           FloatVector(status_numeric))
     
     # Create the subset matrix X[,1:8] in R
-    r_X_subset = ro.r.matrix(FloatVector(X[:, :8].flatten()), nrow=X.shape[0], ncol=8)
+    r_X_subset = numpy_to_r_matrix(X[:, :8])
     
     r_foldid = IntVector(foldid.astype(int))
     r_gcv = glmnet.cv_glmnet(r_X_subset, r_surv, weights=FloatVector(W_numeric), 
@@ -215,7 +220,7 @@ def test_cross_validation_lambda_alignment_grouped(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X[:, :8], event_data, cv=5, alignment='lambda')
+    predictions, scores = GN4.cross_validation_path(X[:, :8], event_data, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     event_numeric = event_data['event'].astype(float)
@@ -228,7 +233,7 @@ def test_cross_validation_lambda_alignment_grouped(sample_data):
                           FloatVector(status_numeric))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X[:, :8].flatten()), nrow=X.shape[0], ncol=8), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X[:, :8]), 
                              r_surv, weights=FloatVector(W_numeric), family='cox', 
                              foldid=r_foldid, alignment='lambda', grouped=True)
     
@@ -256,7 +261,7 @@ def test_cross_validation_fraction_alignment_ungrouped(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X[:, :8], event_data, cv=5, alignment='fraction')
+    predictions, scores = GN3.cross_validation_path(X[:, :8], event_data, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     event_numeric = event_data['event'].astype(float)
@@ -269,7 +274,7 @@ def test_cross_validation_fraction_alignment_ungrouped(sample_data):
                           FloatVector(status_numeric))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X[:, :8].flatten()), nrow=X.shape[0], ncol=8), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X[:, :8]), 
                              r_surv, weights=FloatVector(W_numeric), family='cox', 
                              foldid=r_foldid, alignment='fraction', grouped=False)
     
@@ -297,7 +302,7 @@ def test_cross_validation_lambda_alignment_ungrouped(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X[:, :8], event_data, cv=5, alignment='lambda')
+    predictions, scores = GN4.cross_validation_path(X[:, :8], event_data, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     event_numeric = event_data['event'].astype(float)
@@ -310,7 +315,7 @@ def test_cross_validation_lambda_alignment_ungrouped(sample_data):
                           FloatVector(status_numeric))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X[:, :8].flatten()), nrow=X.shape[0], ncol=8), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X[:, :8]), 
                              r_surv, weights=FloatVector(W_numeric), family='cox', 
                              foldid=r_foldid, alignment='lambda', grouped=False)
     

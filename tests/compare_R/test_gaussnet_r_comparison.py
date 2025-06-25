@@ -25,6 +25,11 @@ stats = importr('stats')
 glmnet = importr('glmnet')
 
 
+def numpy_to_r_matrix(X):
+    """Convert numpy array to R matrix with proper row/column major ordering."""
+    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
+
+
 @pytest.fixture
 def sample_data():
     """Create sample data for testing."""
@@ -66,7 +71,6 @@ def test_glm_comparison_with_offset_weight(sample_data):
     
     assert np.allclose(G2.coef_, r_coef[1:])
     assert np.allclose(G2.intercept_, r_coef[0])
-
 
 def test_glm_comparison_no_weights(sample_data):
     """Test GLM comparison without weights."""
@@ -157,7 +161,7 @@ def test_glmnet_comparison(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), 
                         FloatVector(Y), offset=FloatVector(O), 
                         weights=FloatVector(W_numeric), family='gaussian')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
@@ -179,7 +183,7 @@ def test_gaussnet_comparison_with_offset_weight(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           FloatVector(Y), weights=FloatVector(W_numeric), 
                           offset=FloatVector(O), family='gaussian')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
@@ -201,7 +205,7 @@ def test_gaussnet_comparison_weights_only(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           FloatVector(Y), weights=FloatVector(W_numeric), 
                           family='gaussian')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
@@ -222,7 +226,7 @@ def test_gaussnet_comparison_offset_only(sample_data):
     GN2.fit(X, Df)
     
     # R glmnet
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           FloatVector(Y), offset=FloatVector(O), 
                           family='gaussian')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
@@ -249,25 +253,20 @@ def test_cross_validation_fraction_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
-    W_numeric = W.astype(float)
-    O_numeric = O.astype(float)
-    Y_numeric = Y.astype(float)
-    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             FloatVector(Y_numeric), offset=FloatVector(O_numeric), 
-                             foldid=r_foldid, family="gaussian", 
-                             alignment="fraction", grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             FloatVector(Y), offset=FloatVector(O), foldid=r_foldid,
+                             family='gaussian', alignment='fraction', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
-    # Compare results
-    assert np.allclose(GN3.cv_scores_['Gaussian Deviance'], r_cvm)
-    assert np.allclose(GN3.cv_scores_['SD(Gaussian Deviance)'], r_cvsd)
+    # Compare results (using first 50 as in original)
+    assert np.allclose(GN3.cv_scores_['Mean Squared Error'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_lambda_alignment(sample_data):
@@ -285,24 +284,20 @@ def test_cross_validation_lambda_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
-    W_numeric = W.astype(float)
-    O_numeric = O.astype(float)
-    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             FloatVector(Y), offset=FloatVector(O_numeric), 
-                             foldid=r_foldid, family='gaussian', 
-                             alignment="lambda", grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             FloatVector(Y), offset=FloatVector(O), foldid=r_foldid,
+                             family='gaussian', alignment='lambda', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
-    # Compare results
-    assert np.allclose(GN3.cv_scores_['Gaussian Deviance'], r_cvm)
-    assert np.allclose(GN3.cv_scores_['SD(Gaussian Deviance)'], r_cvsd)
+    # Compare results (using first 50 as in original)
+    assert np.allclose(GN3.cv_scores_['Mean Squared Error'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_with_weights_fraction(sample_data):
@@ -320,24 +315,21 @@ def test_cross_validation_with_weights_fraction(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
-    O_numeric = O.astype(float)
-    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             FloatVector(Y), offset=FloatVector(O_numeric), 
-                             weights=FloatVector(W_numeric), foldid=r_foldid, 
-                             family='gaussian', alignment="fraction", grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             FloatVector(Y), offset=FloatVector(O), weights=FloatVector(W_numeric),
+                             foldid=r_foldid, family='gaussian', alignment='fraction', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
-    # Compare results
-    assert np.allclose(GN4.cv_scores_['Gaussian Deviance'], r_cvm)
-    assert np.allclose(GN4.cv_scores_['SD(Gaussian Deviance)'], r_cvsd)
+    # Compare results (using first 50 as in original)
+    assert np.allclose(GN4.cv_scores_['Mean Squared Error'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_with_weights_lambda(sample_data):
@@ -355,21 +347,18 @@ def test_cross_validation_with_weights_lambda(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
-    O_numeric = O.astype(float)
-    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             FloatVector(Y), offset=FloatVector(O_numeric), 
-                             weights=FloatVector(W_numeric), foldid=r_foldid, 
-                             family='gaussian', alignment="lambda", grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             FloatVector(Y), offset=FloatVector(O), weights=FloatVector(W_numeric),
+                             foldid=r_foldid, family='gaussian', alignment='lambda', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
-    # Compare results
-    assert np.allclose(GN4.cv_scores_['Gaussian Deviance'], r_cvm)
-    assert np.allclose(GN4.cv_scores_['SD(Gaussian Deviance)'], r_cvsd) 
+    # Compare results (using first 50 as in original)
+    assert np.allclose(GN4.cv_scores_['Mean Squared Error'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3) 

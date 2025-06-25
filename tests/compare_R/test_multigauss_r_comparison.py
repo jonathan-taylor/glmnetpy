@@ -24,6 +24,11 @@ from rpy2.robjects import numpy2ri
 glmnet = importr('glmnet')
 
 
+def numpy_to_r_matrix(X):
+    """Convert numpy array to R matrix with proper row/column major ordering."""
+    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
+
+
 @pytest.fixture
 def sample_data():
     """Create sample data for testing."""
@@ -50,9 +55,9 @@ def test_multigaussnet_comparison_with_offset(sample_data):
     GN2.fit(X, Df)
     
     # R glmnet
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                          ro.r.matrix(FloatVector(Y.flatten()), nrow=Y.shape[0], ncol=Y.shape[1]), 
-                          offset=ro.r.matrix(FloatVector(O.flatten()), nrow=O.shape[0], ncol=O.shape[1]),
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
+                          numpy_to_r_matrix(Y), 
+                          offset=numpy_to_r_matrix(O),
                           family='mgaussian', nlambda=nlambda)
     r_coef = ro.r.coef(r_gn2)
     
@@ -77,8 +82,8 @@ def test_multigaussnet_comparison_weights_only(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                          ro.r.matrix(FloatVector(Y.flatten()), nrow=Y.shape[0], ncol=Y.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
+                          numpy_to_r_matrix(Y), 
                           weights=FloatVector(W_numeric), family='mgaussian', nlambda=nlambda)
     r_coef = ro.r.coef(r_gn2)
     
@@ -103,10 +108,10 @@ def test_multigaussnet_comparison_with_offset_weight(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                          ro.r.matrix(FloatVector(Y.flatten()), nrow=Y.shape[0], ncol=Y.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
+                          numpy_to_r_matrix(Y), 
                           weights=FloatVector(W_numeric), 
-                          offset=ro.r.matrix(FloatVector(O.flatten()), nrow=O.shape[0], ncol=O.shape[1]),
+                          offset=numpy_to_r_matrix(O),
                           family='mgaussian', nlambda=nlambda)
     r_coef = ro.r.coef(r_gn2)
     
@@ -139,13 +144,10 @@ def test_cross_validation_fraction_alignment(sample_data):
     predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='fraction')
     
     # R cv.glmnet
-    W_numeric = W.astype(float)
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             ro.r.matrix(FloatVector(Y.flatten()), nrow=Y.shape[0], ncol=Y.shape[1]), 
-                             offset=ro.r.matrix(FloatVector(O.flatten()), nrow=O.shape[0], ncol=O.shape[1]),
-                             foldid=r_foldid, family="mgaussian", 
-                             alignment="fraction", nlambda=nlambda, grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), foldid=r_foldid,
+                             family='mgaussian', alignment='fraction', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
@@ -173,13 +175,10 @@ def test_cross_validation_lambda_alignment(sample_data):
     predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='lambda')
     
     # R cv.glmnet
-    W_numeric = W.astype(float)
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             ro.r.matrix(FloatVector(Y.flatten()), nrow=Y.shape[0], ncol=Y.shape[1]), 
-                             offset=ro.r.matrix(FloatVector(O.flatten()), nrow=O.shape[0], ncol=O.shape[1]),
-                             foldid=r_foldid, family='mgaussian', 
-                             nlambda=nlambda, alignment="lambda", grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), foldid=r_foldid,
+                             family='mgaussian', alignment='lambda', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
@@ -209,11 +208,9 @@ def test_cross_validation_with_weights_fraction(sample_data):
     # R cv.glmnet
     W_numeric = W.astype(float)
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             ro.r.matrix(FloatVector(Y.flatten()), nrow=Y.shape[0], ncol=Y.shape[1]), 
-                             offset=ro.r.matrix(FloatVector(O.flatten()), nrow=O.shape[0], ncol=O.shape[1]),
-                             weights=FloatVector(W_numeric), foldid=r_foldid, 
-                             family='mgaussian', alignment="fraction", nlambda=nlambda, grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), weights=FloatVector(W_numeric),
+                             foldid=r_foldid, family='mgaussian', alignment='fraction', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
@@ -243,11 +240,9 @@ def test_cross_validation_with_weights_lambda(sample_data):
     # R cv.glmnet
     W_numeric = W.astype(float)
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
-                             ro.r.matrix(FloatVector(Y.flatten()), nrow=Y.shape[0], ncol=Y.shape[1]), 
-                             offset=ro.r.matrix(FloatVector(O.flatten()), nrow=O.shape[0], ncol=O.shape[1]),
-                             weights=FloatVector(W_numeric), foldid=r_foldid, 
-                             family='mgaussian', alignment="lambda", grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), weights=FloatVector(W_numeric),
+                             foldid=r_foldid, family='mgaussian', alignment='lambda', grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))

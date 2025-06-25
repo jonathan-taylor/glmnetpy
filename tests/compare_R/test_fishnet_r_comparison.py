@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
 import statsmodels.api as sm
+from glmnet.glm import GLMControl
+from glmnet.glmnet import GLMNetControl
 
 # rpy2 imports
 import rpy2.robjects as ro
@@ -23,6 +25,11 @@ from rpy2.robjects import numpy2ri
 # Import R packages
 stats = importr('stats')
 glmnet = importr('glmnet')
+
+
+def numpy_to_r_matrix(X):
+    """Convert numpy array to R matrix with proper row/column major ordering."""
+    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 
 @pytest.fixture
@@ -163,7 +170,7 @@ def test_glmnet_comparison(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), 
                         IntVector(Y), offset=FloatVector(O), 
                         weights=FloatVector(W_numeric), family='poisson')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
@@ -185,7 +192,7 @@ def test_fishnet_comparison_with_offset_weight(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           IntVector(Y), weights=FloatVector(W_numeric), 
                           offset=FloatVector(O), family='poisson')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
@@ -207,7 +214,7 @@ def test_fishnet_comparison_weights_only(sample_data):
     
     # R glmnet
     W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           IntVector(Y), weights=FloatVector(W_numeric), 
                           family='poisson')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
@@ -228,7 +235,7 @@ def test_fishnet_comparison_offset_only(sample_data):
     GN2.fit(X, Df)
     
     # R glmnet
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           IntVector(Y), offset=FloatVector(O), 
                           family='poisson')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
@@ -255,14 +262,14 @@ def test_cross_validation_fraction_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
     O_numeric = O.astype(float)
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
                              IntVector(Y), offset=FloatVector(O_numeric), 
                              foldid=r_foldid, family="poisson", 
                              alignment="fraction", grouped=True)
@@ -290,14 +297,14 @@ def test_cross_validation_lambda_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
     O_numeric = O.astype(float)
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
                              IntVector(Y), offset=FloatVector(O_numeric), 
                              foldid=r_foldid, family='poisson', 
                              alignment="lambda", grouped=True)
@@ -325,14 +332,14 @@ def test_cross_validation_with_weights_fraction(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
     O_numeric = O.astype(float)
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
                              IntVector(Y), offset=FloatVector(O_numeric), 
                              weights=FloatVector(W_numeric), foldid=r_foldid, 
                              family='poisson', alignment="fraction", grouped=True)
@@ -360,14 +367,14 @@ def test_cross_validation_with_weights_lambda(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     W_numeric = W.astype(float)
     O_numeric = O.astype(float)
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
                              IntVector(Y), offset=FloatVector(O_numeric), 
                              weights=FloatVector(W_numeric), foldid=r_foldid, 
                              family='poisson', alignment="lambda", grouped=True)

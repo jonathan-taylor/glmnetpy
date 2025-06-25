@@ -28,6 +28,11 @@ glmnet = importr('glmnet')
 stats = importr('stats')
 
 
+def numpy_to_r_matrix(X):
+    """Convert numpy array to R matrix with proper row/column major ordering."""
+    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
+
+
 @pytest.fixture
 def sample_data():
     """Create sample data for testing."""
@@ -46,7 +51,7 @@ def sample_data():
     Df['response'] = R
     
     # Create probit family
-    probit = sm.families.Binomial(link=sm.families.links.probit())
+    probit = sm.families.Binomial(link=sm.families.links.Probit())
     
     return X, Df, probit, Y, O, W
 
@@ -208,11 +213,14 @@ def test_glmnet_comparison(sample_data):
     O_numeric = O.astype(float)
     W_numeric = W.astype(float)
     
-    r_gn = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    # Create probit family in R
+    r_probit_family = stats.binomial(link='probit')
+    
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), 
                         FloatVector(Y_numeric), 
                         offset=FloatVector(O_numeric), 
                         weights=FloatVector(W_numeric), 
-                        family='binomial')
+                        family=r_probit_family)
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
     r_lambda = np.array(r_gn.rx2('lambda'))
     
@@ -239,11 +247,14 @@ def test_glmnet_no_offset(sample_data):
     O_numeric = O.astype(float)
     W_numeric = W.astype(float)
     
-    r_gn2 = glmnet.glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]), 
+    # Create probit family in R
+    r_probit_family = stats.binomial(link='probit')
+    
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           FloatVector(Y_numeric), 
                           weights=FloatVector(W_numeric), 
                           offset=FloatVector(O_numeric),
-                          family='binomial')
+                          family=r_probit_family)
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
     r_lambda = np.array(r_gn2.rx2('lambda'))
     
@@ -274,19 +285,22 @@ def test_cross_validation_fraction_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     Y_numeric = Y.astype(float)
     O_numeric = O.astype(float)
     W_numeric = W.astype(float)
     
+    # Create probit family in R
+    r_probit_family = stats.binomial(link='probit')
+    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              foldid=r_foldid,
-                             family='binomial',
+                             family=r_probit_family,
                              alignment='fraction',
                              grouped=True)
     
@@ -316,19 +330,22 @@ def test_cross_validation_lambda_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     Y_numeric = Y.astype(float)
     O_numeric = O.astype(float)
     W_numeric = W.astype(float)
     
+    # Create probit family in R
+    r_probit_family = stats.binomial(link='probit')
+    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              foldid=r_foldid,
-                             family='binomial',
+                             family=r_probit_family,
                              alignment='lambda',
                              grouped=True)
     
@@ -359,21 +376,24 @@ def test_cross_validation_with_weights_fraction(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='fraction')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction')
     
     # R cv.glmnet
     Y_numeric = Y.astype(float)
     O_numeric = O.astype(float)
     W_numeric = W.astype(float)
     
+    # Create probit family in R
+    r_probit_family = stats.binomial(link='probit')
+    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              weights=FloatVector(W_numeric),
                              foldid=r_foldid,
                              alignment='fraction',
-                             family='binomial',
+                             family=r_probit_family,
                              grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
@@ -403,21 +423,24 @@ def test_cross_validation_with_weights_lambda(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=5, alignment='lambda')
+    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda')
     
     # R cv.glmnet
     Y_numeric = Y.astype(float)
     O_numeric = O.astype(float)
     W_numeric = W.astype(float)
     
+    # Create probit family in R
+    r_probit_family = stats.binomial(link='probit')
+    
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(ro.r.matrix(FloatVector(X.flatten()), nrow=X.shape[0], ncol=X.shape[1]),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              weights=FloatVector(W_numeric),
                              foldid=r_foldid,
                              alignment='lambda',
-                             family='binomial',
+                             family=r_probit_family,
                              grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
