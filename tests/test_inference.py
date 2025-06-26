@@ -10,8 +10,8 @@ import scipy.sparse
 
 from glmnet import GLMNet
 from glmnet.inference import (lasso_inference,
-                              score_inference,
-                              resampler_inference,
+                              _score_inference as score_inference,
+                              _resampler_inference as resampler_inference,
                               TruncatedGaussian)
 
 def test_Auto():

@@ -312,7 +312,7 @@ class GLMNet(BaseEstimator,
                                         cv=cv,
                                         n_jobs=n_jobs,
                                         verbose=verbose,
-                                        fit_params=fit_params,
+                                        params=fit_params,
                                         pre_dispatch=pre_dispatch)
         # truncate to the size we got
         predictions = predictions[:,:self.lambda_values_.shape[0]]
