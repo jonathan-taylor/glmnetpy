@@ -15,13 +15,25 @@ from sklearn.preprocessing import LabelEncoder
 import statsmodels.api as sm
 
 # rpy2 imports
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
-from rpy2.robjects.vectors import FloatVector, IntVector
-from rpy2.robjects import numpy2ri
+try:
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
+    from rpy2.robjects.vectors import FloatVector, IntVector
+    from rpy2.robjects import numpy2ri
+    
+    # Import R packages
+    glmnet = importr('glmnet')
+    
+    has_rpy2 = True
+except ImportError:
+    has_rpy2 = False
 
-# Import R packages
-glmnet = importr('glmnet')
+# Pytest decorators
+ifrpy = pytest.mark.skipif(not has_rpy2, reason='requires rpy2')
+alpha = pytest.mark.parametrize('alpha', [0, 0.4, 1])
+use_offset = pytest.mark.parametrize('use_offset', [True, False])
+use_weights = pytest.mark.parametrize('use_weights', [True, False])
+alignment = pytest.mark.parametrize('alignment', ['fraction', 'lambda'])
 
 
 def numpy_to_r_matrix(X):
@@ -46,20 +58,34 @@ def sample_data():
     return X, Y, O, W, Df, response_id, offset_id, nlambda
 
 
-def test_multigaussnet_comparison_with_offset(sample_data):
-    """Test MultiGaussNet comparison with offset."""
+@ifrpy
+@alpha
+@use_offset
+@use_weights
+def test_multigaussnet_comparison(sample_data, alpha, use_offset, use_weights):
+    """Test MultiGaussNet comparison with different alpha, offset, and weight combinations."""
     X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
     
-    # Python MultiGaussNet
-    GN2 = MultiGaussNet(response_id=response_id, offset_id=offset_id, nlambda=nlambda)
-    GN2.fit(X, Df)
+    # Configure Python MultiGaussNet
+    multigauss_kwargs = {'alpha': alpha, 'nlambda': nlambda}
+    if use_offset:
+        multigauss_kwargs['offset_id'] = offset_id
+    if use_weights:
+        multigauss_kwargs['weight_id'] = 'weight'
     
-    # R glmnet
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          numpy_to_r_matrix(Y), 
-                          offset=numpy_to_r_matrix(O),
-                          family='mgaussian', nlambda=nlambda)
-    r_coef = ro.r.coef(r_gn2)
+    GN = MultiGaussNet(response_id=response_id, **multigauss_kwargs)
+    GN.fit(X, Df)
+    
+    # Configure R glmnet
+    r_kwargs = {'family': 'mgaussian', 'alpha': alpha, 'nlambda': nlambda}
+    if use_offset:
+        r_kwargs['offset'] = numpy_to_r_matrix(O)
+    if use_weights:
+        W_numeric = W.astype(float)
+        r_kwargs['weights'] = FloatVector(W_numeric)
+    
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), numpy_to_r_matrix(Y), **r_kwargs)
+    r_coef = ro.r.coef(r_gn)
     
     # Extract coefficients for each response
     C1 = np.array(ro.r['as.matrix'](r_coef.rx2('y1')))
@@ -68,71 +94,29 @@ def test_multigaussnet_comparison_with_offset(sample_data):
     
     C = np.array([C1, C2, C3]).T
     
-    assert np.allclose(C[:, 1:], GN2.coefs_)
-    assert np.allclose(C[:, 0], GN2.intercepts_)
+    # Compare results
+    assert np.allclose(C[:, 1:], GN.coefs_)
+    assert np.allclose(C[:, 0], GN.intercepts_)
 
 
-def test_multigaussnet_comparison_weights_only(sample_data):
-    """Test MultiGaussNet comparison with weights only."""
+@ifrpy
+@alpha
+@alignment
+@use_offset
+@use_weights
+def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights):
+    """Test cross-validation with different alpha, alignment, offset, and weight combinations."""
     X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
     
-    # Python MultiGaussNet
-    GN2 = MultiGaussNet(response_id=response_id, weight_id='weight', nlambda=nlambda)
-    GN2.fit(X, Df)
+    # Configure Python MultiGaussNet with CV
+    multigauss_kwargs = {'response_id': response_id, 'alpha': alpha}
+    if use_offset:
+        multigauss_kwargs['offset_id'] = offset_id
+    if use_weights:
+        multigauss_kwargs['weight_id'] = 'weight'
     
-    # R glmnet
-    W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          numpy_to_r_matrix(Y), 
-                          weights=FloatVector(W_numeric), family='mgaussian', nlambda=nlambda)
-    r_coef = ro.r.coef(r_gn2)
-    
-    # Extract coefficients for each response
-    C1 = np.array(ro.r['as.matrix'](r_coef.rx2('y1')))
-    C2 = np.array(ro.r['as.matrix'](r_coef.rx2('y2')))
-    C3 = np.array(ro.r['as.matrix'](r_coef.rx2('y3')))
-    
-    C = np.array([C1, C2, C3]).T
-    
-    assert np.allclose(C[:, 1:], GN2.coefs_)
-    assert np.allclose(C[:, 0], GN2.intercepts_)
-
-
-def test_multigaussnet_comparison_with_offset_weight(sample_data):
-    """Test MultiGaussNet comparison with offset and weights."""
-    X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
-    
-    # Python MultiGaussNet
-    GN2 = MultiGaussNet(response_id=response_id, offset_id=offset_id, weight_id='weight')
-    GN2.fit(X, Df)
-    
-    # R glmnet
-    W_numeric = W.astype(float)
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          numpy_to_r_matrix(Y), 
-                          weights=FloatVector(W_numeric), 
-                          offset=numpy_to_r_matrix(O),
-                          family='mgaussian', nlambda=nlambda)
-    r_coef = ro.r.coef(r_gn2)
-    
-    # Extract coefficients for each response
-    C1 = np.array(ro.r['as.matrix'](r_coef.rx2('y1')))
-    C2 = np.array(ro.r['as.matrix'](r_coef.rx2('y2')))
-    C3 = np.array(ro.r['as.matrix'](r_coef.rx2('y3')))
-    
-    C = np.array([C1, C2, C3]).T
-    
-    assert np.allclose(C[:, 1:], GN2.coefs_)
-    assert np.allclose(C[:, 0], GN2.intercepts_)
-
-
-def test_cross_validation_fraction_alignment(sample_data):
-    """Test cross-validation with fraction alignment."""
-    X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
-    
-    # Python MultiGaussNet with CV
-    GN3 = MultiGaussNet(response_id=response_id, offset_id=offset_id)
-    GN3.fit(X, Df)
+    GN = MultiGaussNet(**multigauss_kwargs)
+    GN.fit(X, Df)
     
     # Create fold IDs
     cv = KFold(5, random_state=0, shuffle=True)
@@ -141,112 +125,27 @@ def test_cross_validation_fraction_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction')
+    predictions, scores = GN.cross_validation_path(X, Df, cv=cv, alignment=alignment)
     
-    # R cv.glmnet
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), foldid=r_foldid,
-                             family='mgaussian', alignment='fraction', grouped=True)
+    # Configure R cv.glmnet
+    r_kwargs = {
+        'foldid': IntVector(foldid.astype(int)),
+        'family': 'mgaussian',
+        'alignment': alignment,
+        'grouped': True,
+        'alpha': alpha
+    }
+    if use_offset:
+        r_kwargs['offset'] = numpy_to_r_matrix(O)
+    if use_weights:
+        W_numeric = W.astype(float)
+        r_kwargs['weights'] = FloatVector(W_numeric)
     
-    r_cvm = np.array(r_gcv.rx2('cvm'))
-    r_cvsd = np.array(r_gcv.rx2('cvsd'))
-    
-    # Compare results
-    assert np.allclose(GN3.cv_scores_['Mean Squared Error'], r_cvm)
-    assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)'], r_cvsd)
-
-
-def test_cross_validation_lambda_alignment(sample_data):
-    """Test cross-validation with lambda alignment."""
-    X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
-    
-    # Python MultiGaussNet with CV
-    GN3 = MultiGaussNet(response_id=response_id, offset_id=offset_id)
-    GN3.fit(X, Df)
-    
-    # Create fold IDs
-    cv = KFold(5, random_state=0, shuffle=True)
-    foldid = np.empty(X.shape[0])
-    for i, (train, test) in enumerate(cv.split(np.arange(X.shape[0]))):
-        foldid[test] = i + 1
-    
-    # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda')
-    
-    # R cv.glmnet
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), foldid=r_foldid,
-                             family='mgaussian', alignment='lambda', grouped=True)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), numpy_to_r_matrix(Y), **r_kwargs)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results
-    assert np.allclose(GN3.cv_scores_['Mean Squared Error'], r_cvm)
-    assert np.allclose(GN3.cv_scores_['SD(Mean Squared Error)'], r_cvsd)
-
-
-def test_cross_validation_with_weights_fraction(sample_data):
-    """Test cross-validation with weights using fraction alignment."""
-    X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
-    
-    # Python MultiGaussNet with CV
-    GN4 = MultiGaussNet(response_id=response_id, offset_id=offset_id, weight_id='weight')
-    GN4.fit(X, Df)
-    
-    # Create fold IDs
-    cv = KFold(5, random_state=0, shuffle=True)
-    foldid = np.empty(X.shape[0])
-    for i, (train, test) in enumerate(cv.split(np.arange(X.shape[0]))):
-        foldid[test] = i + 1
-    
-    # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction')
-    
-    # R cv.glmnet
-    W_numeric = W.astype(float)
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), weights=FloatVector(W_numeric),
-                             foldid=r_foldid, family='mgaussian', alignment='fraction', grouped=True)
-    
-    r_cvm = np.array(r_gcv.rx2('cvm'))
-    r_cvsd = np.array(r_gcv.rx2('cvsd'))
-    
-    # Compare results
-    assert np.allclose(GN4.cv_scores_['Mean Squared Error'], r_cvm)
-    assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)'], r_cvsd)
-
-
-def test_cross_validation_with_weights_lambda(sample_data):
-    """Test cross-validation with weights using lambda alignment."""
-    X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
-    
-    # Python MultiGaussNet with CV
-    GN4 = MultiGaussNet(response_id=response_id, offset_id=offset_id, weight_id='weight')
-    GN4.fit(X, Df)
-    
-    # Create fold IDs
-    cv = KFold(5, random_state=0, shuffle=True)
-    foldid = np.empty(X.shape[0])
-    for i, (train, test) in enumerate(cv.split(np.arange(X.shape[0]))):
-        foldid[test] = i + 1
-    
-    # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda')
-    
-    # R cv.glmnet
-    W_numeric = W.astype(float)
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             numpy_to_r_matrix(Y), offset=numpy_to_r_matrix(O), weights=FloatVector(W_numeric),
-                             foldid=r_foldid, family='mgaussian', alignment='lambda', grouped=True)
-    
-    r_cvm = np.array(r_gcv.rx2('cvm'))
-    r_cvsd = np.array(r_gcv.rx2('cvsd'))
-    
-    # Compare results
-    assert np.allclose(GN4.cv_scores_['Mean Squared Error'], r_cvm)
-    assert np.allclose(GN4.cv_scores_['SD(Mean Squared Error)'], r_cvsd) 
+    assert np.allclose(GN.cv_scores_['Mean Squared Error'], r_cvm)
+    assert np.allclose(GN.cv_scores_['SD(Mean Squared Error)'], r_cvsd) 

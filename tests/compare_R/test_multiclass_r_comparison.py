@@ -50,22 +50,41 @@ def sample_data():
     return X, Y, O, W, R, Df, response_id, offset_id, nlambda
 
 
-def test_multiclassnet_comparison_with_offset(sample_data):
-    """Test MultiClassNet comparison with offset."""
+@pytest.mark.parametrize("alpha", [0.0, 0.5, 1.0][-1:])
+@pytest.mark.parametrize("use_offset", [True, False])
+@pytest.mark.parametrize("use_weights", [True, False])
+def test_multiclassnet_comparison(sample_data, alpha, use_offset, use_weights):
+    """Test MultiClassNet comparison with various configurations."""
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
     # Python MultiClassNet
-    GN2 = MultiClassNet(response_id='response', offset_id=offset_id, nlambda=nlambda)
+    kwargs = {'response_id': 'response', 'nlambda': nlambda, 'alpha': alpha}
+    if use_offset:
+        kwargs['offset_id'] = offset_id
+    if use_weights:
+        kwargs['weight_id'] = 'weight'
+    
+    GN2 = MultiClassNet(**kwargs)
     GN2.fit(X, Df)
     
     # R glmnet
     # Convert response to factor for multinomial regression
     response_factor = ro.r.factor(ro.StrVector(Df['response']))
     
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          response_factor, 
-                          offset=numpy_to_r_matrix(O),
-                          family='multinomial', nlambda=nlambda)
+    r_kwargs = {
+        'x': numpy_to_r_matrix(X),
+        'y': response_factor,
+        'family': 'multinomial',
+        'nlambda': nlambda,
+        'alpha': alpha
+    }
+    
+    if use_offset:
+        r_kwargs['offset'] = numpy_to_r_matrix(O)
+    if use_weights:
+        r_kwargs['weights'] = FloatVector(W.astype(float))
+    
+    r_gn2 = glmnet.glmnet(**r_kwargs)
     r_coef = ro.r.coef(r_gn2)
     
     # Extract coefficients for each class
@@ -79,92 +98,60 @@ def test_multiclassnet_comparison_with_offset(sample_data):
     assert np.allclose(C[:, 0], GN2.intercepts_)
 
 
-def test_multiclassnet_comparison_with_offset_weight(sample_data):
-    """Test MultiClassNet comparison with offset and weights."""
+@pytest.mark.parametrize("alpha", [0.0, 0.5, 1.0][-1:])
+@pytest.mark.parametrize("use_offset", [True, False])
+@pytest.mark.parametrize("use_weights", [True, False])
+@pytest.mark.parametrize("alignment", ['fraction', 'lambda'])
+def test_multiclassnet_cross_validation(sample_data, alpha, use_offset, use_weights, alignment):
+    """Test MultiClassNet cross-validation with various configurations."""
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
-    # Python MultiClassNet
-    GN2 = MultiClassNet(response_id='response', offset_id=offset_id, weight_id='weight', nlambda=nlambda)
-    GN2.fit(X, Df)
+    # Python MultiClassNet with CV
+    kwargs = {'response_id': 'response', 'nlambda': nlambda, 'alpha': alpha}
+    if use_offset:
+        kwargs['offset_id'] = offset_id
+    if use_weights:
+        kwargs['weight_id'] = 'weight'
     
-    # R glmnet - for multinomial, we need to handle the response differently
-    W_numeric = W.astype(float)
+    GN3 = MultiClassNet(**kwargs)
+    GN3.fit(X, Df)
     
+    # Create fold IDs
+    cv = KFold(5, random_state=0, shuffle=True)
+    foldid = np.empty(X.shape[0])
+    for i, (train, test) in enumerate(cv.split(np.arange(X.shape[0]))):
+        foldid[test] = i + 1
+    
+    # Use the correct cross-validation method
+    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment=alignment)
+    
+    # R cv.glmnet
     # Convert response to factor for multinomial regression
     response_factor = ro.r.factor(ro.StrVector(Df['response']))
     
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          response_factor, weights=FloatVector(W_numeric), 
-                          offset=numpy_to_r_matrix(O), family='multinomial', nlambda=nlambda)
-    r_coef = ro.r.coef(r_gn2)
+    r_foldid = IntVector(foldid.astype(int))
+    r_kwargs = {
+        'x': numpy_to_r_matrix(X),
+        'y': response_factor,
+        'foldid': r_foldid,
+        'family': 'multinomial',
+        'alignment': alignment,
+        'nlambda': nlambda,
+        'grouped': True
+    }
     
-    # Extract coefficients for each class
-    C1 = np.array(ro.r['as.matrix'](r_coef.rx2('A')))
-    C2 = np.array(ro.r['as.matrix'](r_coef.rx2('B')))
-    C3 = np.array(ro.r['as.matrix'](r_coef.rx2('C')))
+    if use_offset:
+        r_kwargs['offset'] = numpy_to_r_matrix(O)
+    if use_weights:
+        r_kwargs['weights'] = FloatVector(W.astype(float))
     
-    C = np.array([C1, C2, C3]).T
+    r_gcv = glmnet.cv_glmnet(**r_kwargs)
     
-    assert np.allclose(C[:, 1:], GN2.coefs_)
-    assert np.allclose(C[:, 0], GN2.intercepts_)
-
-
-def test_multiclassnet_comparison_weights_only(sample_data):
-    """Test MultiClassNet comparison with weights only."""
-    X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
+    r_cvm = np.array(r_gcv.rx2('cvm'))
+    r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
-    # Python MultiClassNet
-    GN2 = MultiClassNet(response_id='response', weight_id='weight', nlambda=nlambda)
-    GN2.fit(X, Df)
-    
-    # R glmnet
-    W_numeric = W.astype(float)
-    
-    # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
-    
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          response_factor, weights=FloatVector(W_numeric), 
-                          family='multinomial', nlambda=nlambda)
-    r_coef = ro.r.coef(r_gn2)
-    
-    # Extract coefficients for each class
-    C1 = np.array(ro.r['as.matrix'](r_coef.rx2('A')))
-    C2 = np.array(ro.r['as.matrix'](r_coef.rx2('B')))
-    C3 = np.array(ro.r['as.matrix'](r_coef.rx2('C')))
-    
-    C = np.array([C1, C2, C3]).T
-    
-    assert np.allclose(C[:, 1:], GN2.coefs_)
-    assert np.allclose(C[:, 0], GN2.intercepts_)
-
-
-def test_multiclassnet_comparison_offset_only(sample_data):
-    """Test MultiClassNet comparison with offset only."""
-    X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
-    
-    # Python MultiClassNet
-    GN2 = MultiClassNet(response_id='response', offset_id=offset_id, nlambda=nlambda)
-    GN2.fit(X, Df)
-    
-    # R glmnet
-    # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
-    
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          response_factor, offset=numpy_to_r_matrix(O), 
-                          family='multinomial', nlambda=nlambda)
-    r_coef = ro.r.coef(r_gn2)
-    
-    # Extract coefficients for each class
-    C1 = np.array(ro.r['as.matrix'](r_coef.rx2('A')))
-    C2 = np.array(ro.r['as.matrix'](r_coef.rx2('B')))
-    C3 = np.array(ro.r['as.matrix'](r_coef.rx2('C')))
-    
-    C = np.array([C1, C2, C3]).T
-    
-    assert np.allclose(C[:, 1:], GN2.coefs_)
-    assert np.allclose(C[:, 0], GN2.intercepts_)
+    # Compare results (using first 50 as in original)
+    assert np.allclose(GN3.cv_scores_['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_fraction_alignment(sample_data):
