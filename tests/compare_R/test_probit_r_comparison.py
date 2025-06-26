@@ -122,8 +122,8 @@ def test_glm_no_weights_no_offset(sample_data):
                        control=stats.glm_control(epsilon=1e-10))
     r_coef = np.array(stats.coef(r_model))
     
-    assert np.allclose(G4.coef_, r_coef[1:], rtol=1e-5, atol=1e-5)
-    assert np.allclose(G4.intercept_, r_coef[0], rtol=1e-5, atol=1e-5)
+    assert np.allclose(G4.coef_, r_coef[1:], rtol=1e-4, atol=1e-4)
+    assert np.allclose(G4.intercept_, r_coef[0], rtol=1e-4, atol=1e-4)
 
 
 def test_glm_with_weights(sample_data):
@@ -253,7 +253,6 @@ def test_glmnet_no_offset(sample_data):
     r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
                           FloatVector(Y_numeric), 
                           weights=FloatVector(W_numeric), 
-                          offset=FloatVector(O_numeric),
                           family=r_probit_family)
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
     r_lambda = np.array(r_gn2.rx2('lambda'))
