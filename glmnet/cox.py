@@ -93,6 +93,9 @@ class CoxFamilySpec(object):
 
     def __post_init__(self, event_data):
 
+        self.is_gaussian = False
+        self.is_binomial = False
+
         if (self.event_id not in event_data.columns or
             self.status_id not in event_data.columns):
             raise ValueError(f'expecting f{event_id} and f{status_id} columns')
@@ -132,16 +135,16 @@ class CoxFamilySpec(object):
         return np.zeros_like(sample_weight)
 
     def get_null_deviance(self,
-                          y,
+                          response,
                           sample_weight,
                           offset, # ignored for Cox
                           fit_intercept):
-        mu0 = self.null_fit(y, sample_weight, fit_intercept)
-        return mu0, self.deviance(y, mu0, sample_weight)
+        mu0 = self.null_fit(response, sample_weight, fit_intercept)
+        return mu0, self.deviance(response, mu0, sample_weight)
 
-    def get_null_state(self,
-                       null_fit,
-                       nvars):
+    def _get_null_state(self,
+                        null_fit,
+                        nvars):
         coefold = np.zeros(nvars)   # initial coefs = 0
         return CoxState(coef=coefold,
                         intercept=0)

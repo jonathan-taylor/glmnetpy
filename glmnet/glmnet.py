@@ -20,7 +20,6 @@ from sklearn.utils.validation import check_is_fitted
 from sklearn.utils import check_X_y
 
 from statsmodels.genmod.families import family as sm_family
-from statsmodels.genmod.families import links as sm_links
 
 from .docstrings import add_dataclass_docstring
 
@@ -79,10 +78,11 @@ class GLMNet(BaseEstimator,
                          check=check)
 
     def _get_family_spec(self, y):
-        if isinstance(self.family, sm_family.Family):
-            return GLMFamilySpec(self.family)
-        elif isinstance(self.family, GLMFamilySpec):
-            return self.family
+        return self.family 
+        # if isinstance(self.family, sm_family.Family):
+        #     return GLMFamilySpec(self.family)
+        # elif isinstance(self.family, GLMFamilySpec):
+        #     return self.family
 
     def fit(self,
             X,
@@ -175,10 +175,11 @@ class GLMNet(BaseEstimator,
         sample_weight_sum = sample_weight.sum()
         
         (null_fit,
-         self.null_deviance_) = self._family.get_null_deviance(response,
-                                                               sample_weight,
-                                                               offset,
-                                                               self.fit_intercept)
+         self.null_deviance_) = self._family.get_null_deviance(
+                                    response=response,
+                                    sample_weight=sample_weight,
+                                    offset=offset,
+                                    fit_intercept=self.fit_intercept)
 
         for l in self.lambda_values_:
 
@@ -197,7 +198,7 @@ class GLMNet(BaseEstimator,
             intercepts_.append(self.reg_glm_est_.intercept_)
             dev_ratios_.append(1 - self.reg_glm_est_.deviance_ / self.null_deviance_)
             if len(dev_ratios_) > 1:
-                if isinstance(self.family, sm_family.Gaussian): 
+                if self._family.is_gaussian:
                     if dev_ratios_[-1] - dev_ratios_[-2] < self.control.fdev * dev_ratios_[-1]:
                         break
                 else: # TODO Poisson case
@@ -234,8 +235,7 @@ class GLMNet(BaseEstimator,
         linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
         linear_pred_ = linear_pred_.T
         if prediction_type == 'response':
-            family = self._family.base
-            fits = family.link.inverse(linear_pred_)
+            fits = self._family.predict(linear_pred_, prediction_type='response')
         else:
             fits = linear_pred_
 
@@ -371,7 +371,7 @@ class GLMNet(BaseEstimator,
             raise ValueError("xvar should be in ['lambda', '-lambda', 'norm', 'dev']")
 
         if score is None:
-            score = self.family._default_scorers()[0]
+            score = self._family._default_scorers()[0]
 
         return plot_cv(self.cv_scores_,
                        self.index_best_,
@@ -437,9 +437,8 @@ class GLMNet(BaseEstimator,
     def _offset_predictions(self,
                             predictions,
                             offset):
-        family = self._family.base
-        return family.link.inverse(family.link(predictions) +
-                                   offset[:,None])
+        linpred = self._family.link(predictions) + offset[:, None]
+        return self._family.predict(linpred, prediction_type='response')
    
     def _get_initial_state(self,
                            X,

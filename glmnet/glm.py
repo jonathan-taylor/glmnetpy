@@ -21,30 +21,19 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import (LinearRegression, Ridge)
 from sklearn.preprocessing import LabelEncoder
 
-from statsmodels.genmod.families import family as sm_family
-from statsmodels.genmod.families import links as sm_links
-
 from ._utils import (_parent_dataclass_from_child,
                      _get_data)
 
 from .base import (Design,
                    _get_design)
 
-from .scoring import (Scorer,
-                      mae_scorer,
-                      mse_scorer,
-                      accuracy_scorer,
-                      auc_scorer,
-                      aucpr_scorer,
-                      ungrouped_mse_scorer,
-                      ungrouped_mae_scorer)
-
 from .docstrings import (make_docstring,
                          add_dataclass_docstring,
                          _docstrings)
 from .irls import IRLS
-
-  
+from .family import (GLMFamilySpec,
+                     BinomFamilySpec,
+                     GLMState)
 
 @add_dataclass_docstring
 @dataclass
@@ -244,7 +233,7 @@ class GLMControl(object):
 @dataclass
 class GLMBaseSpec(object):
 
-    family: sm_family.Family = field(default_factory=sm_family.Gaussian)
+    family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     fit_intercept: bool = True
     standardize: bool = False
     control: GLMControl = field(default_factory=GLMControl)
@@ -481,10 +470,11 @@ class GLMBase(BaseEstimator,
 
     def _get_family_spec(self,
                          y):
-        if isinstance(self.family, sm_family.Family):
-            return GLMFamilySpec(self.family)
-        elif isinstance(self.family, GLMFamilySpec):
-            return self.family
+        return self.family
+        # if isinstance(self.family, sm_family.Family):
+        #     return GLMFamilySpec(self.family)
+        # elif isinstance(self.family, GLMFamilySpec):
+        #     return self.family
 
     def get_data_arrays(self, X, y, check=True):
         return _get_data(self,
@@ -548,18 +538,18 @@ class GLMBase(BaseEstimator,
         if fit_null or not hasattr(self.regularizer_, 'warm_state'):
             (null_state,
              self.null_deviance_) = self._family.get_null_deviance(
-                                        response,
-                                        sample_weight,
-                                        offset,
-                                        self.fit_intercept)
+                                        response=response,
+                                        sample_weight=sample_weight,
+                                        offset=offset,
+                                        fit_intercept=self.fit_intercept)
 
 
         if (hasattr(self.regularizer_, 'warm_state') and
             self.regularizer_.warm_state):
             state = self.regularizer_.warm_state
         else:
-            state = self._family.get_null_state(null_state,
-                                                nvar)
+            state = self._family._get_null_state(null_state,
+                                                 nvar)
 
         # for Cox, the state could have mu==eta so that this need not change
         def obj_function(response,
@@ -622,6 +612,8 @@ class GLMBase(BaseEstimator,
             isinstance(self._family.base, sm_family.Gaussian)): # GLM specific
             # usual estimate of sigma^2
             self.dispersion_ = self.deviance_ / (nobs-nvar-self.fit_intercept) 
+            n, p = X.shape
+            self.df_resid_ = n - p - self.fit_intercept
         else:
             self.dispersion_ = dispersion
 
@@ -647,13 +639,9 @@ self: object
     
     def predict(self, X, prediction_type='response'):
 
-        eta = X @ self.coef_ + self.intercept_
-        if prediction_type == 'link':
-            return eta
-        elif prediction_type == 'response':
-            return self._family.base.link.inverse(eta)
-        else:
-            raise ValueError("prediction should be one of 'response' or 'link'")
+        linpred = X @ self.coef_ + self.intercept_ # often called eta
+        return self._family.predict(linpred, prediction_type=prediction_type)
+
     predict.__doc__ = '''
 Predict outcome of corresponding family.
 
@@ -763,7 +751,7 @@ class GLM(GLMBase):
                    exclude,
                    dispersion,
                    sample_weight,
-                   X_shape):
+                   df_resid):
 
         if self.ridge_coef != 0:
             warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
@@ -794,15 +782,12 @@ class GLM(GLMBase):
             coef = self.coef_
             T = self.coef_ / SE
 
-        family = self._family.base
-        if (isinstance(family, sm_family.Gaussian) and
-            isinstance(family.link, sm_links.Identity)):
-            n, p = X_shape
-            self.resid_df_ = n - p - self.fit_intercept
+        if (df_resid < np.inf):
             summary_ = pd.DataFrame({'coef':coef,
                                      'std err': SE,
                                      't': T,
-                                     'P>|t|': 2 * t_dbn.sf(np.fabs(T), df=self.resid_df_)},
+                                     'P>|t|': 2 * t_dbn.sf(np.fabs(T),
+                                                           df=df_resid)},
                                     index=index)
         else:
             summary_ = pd.DataFrame({'coef':coef,
@@ -812,7 +797,37 @@ class GLM(GLMBase):
                                     index=index)
         return covariance_, summary_
         
-    
+GLM.__doc__ = '''
+Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
+
+Parameters
+----------
+{family}
+{fit_intercept}
+{control_glm}
+{response_id}
+{weight_id}
+{offset_id}
+{exclude}
+
+Notes
+-----
+
+This is a test
+
+Attributes
+----------
+
+{coef_}
+{intercept_}
+{regularizer_}
+{null_deviance_}
+{deviance_}
+{dispersion_}
+{summary_}
+{covariance_}
+'''.format(**_docstrings)
+   
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
     pass
@@ -820,7 +835,7 @@ class GaussianGLM(RegressorMixin, GLM):
 @dataclass
 class BinomialGLM(ClassifierMixin, GLM):
 
-    family: sm_family.Family = field(default_factory=sm_family.Binomial)
+    family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
     def get_data_arrays(self, X, y, check=True):
 
@@ -843,7 +858,7 @@ class BinomialGLM(ClassifierMixin, GLM):
 
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
-            if not isinstance(self._family.base, sm_family.Binomial):
+            if not self._family.is_binomial:
                 msg = f'{self.__class__.__name__} expects a Binomial family.'
                 warnings.warn(msg)
                 if self.control.logging: logging.warn(msg)
@@ -858,18 +873,13 @@ class BinomialGLM(ClassifierMixin, GLM):
 
     def predict(self, X, prediction_type='class'):
 
-        eta = X @ self.coef_ + self.intercept_
-        family = self._family.base
-        if prediction_type == 'link':
-            return eta
-        elif prediction_type == 'response':
-            return family.link.inverse(eta)
-        elif prediction_type == 'class':
-            pi_hat = family.link.inverse(eta)
-            _integer_classes = (pi_hat > 0.5).astype(int)
-            return self.classes_[_integer_classes]
-        else:
-            raise ValueError("prediction should be one of 'response', 'link' or 'class'")
+        linpred = X @ self.coef_ + self.intercept_ # often called eta
+        pred = self._family.predict(linpred,
+                                    prediction_type=prediction_type)
+        if prediction_type == 'class':
+            pred = self._classes[pred]
+        return pred
+
     predict.__doc__ = '''
 Predict outcome of corresponding family.
 
