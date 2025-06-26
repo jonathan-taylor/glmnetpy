@@ -14,8 +14,9 @@ from .docstrings import (add_dataclass_docstring,
 from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
-from .glm import (GLMFamilySpec,
-                  GLM)
+from .glm import GLM
+from .family import (GLMFamilySpec,
+                     BinomFamilySpec)
 
 @add_dataclass_docstring
 @dataclass

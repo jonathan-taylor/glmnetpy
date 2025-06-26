@@ -185,10 +185,9 @@ class CoxLM(GLM):
     
     fit_intercept: Literal[False] = False
 
-    def _get_family_spec(self,
-                         y):
-        event_data = y
-        return CoxFamilySpec(event_data=event_data,
+    def _finalize_family(self,
+                         response):
+        return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
                              event_id=self.family.event_id,
                              status_id=self.family.status_id,
@@ -261,10 +260,9 @@ class RegCoxLM(RegGLM):
                          check=check,
                          multi_output=True)
 
-    def _get_family_spec(self,
-                         y):
-        event_data = y
-        return CoxFamilySpec(event_data=event_data,
+    def _finalize_family(self,
+                         response):
+        return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
                              event_id=self.family.event_id,
                              status_id=self.family.status_id,
@@ -289,10 +287,9 @@ class CoxNet(GLMNet):
                          check=check,
                          multi_output=True)
 
-    def _get_family_spec(self,
-                         y):
-        event_data = y
-        return CoxFamilySpec(event_data=event_data,
+    def _finalize_family(self,
+                         response):
+        return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
                              event_id=self.family.event_id,
                              status_id=self.family.status_id,

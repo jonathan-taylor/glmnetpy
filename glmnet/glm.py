@@ -4,6 +4,7 @@ from dataclasses import (dataclass,
                          field)
 from functools import partial
 import logging
+import warnings
    
 import numpy as np
 from numpy.linalg import LinAlgError
@@ -34,192 +35,6 @@ from .irls import IRLS
 from .family import (GLMFamilySpec,
                      BinomFamilySpec,
                      GLMState)
-
-@add_dataclass_docstring
-@dataclass
-class GLMFamilySpec(object):
-    
-    base: sm_family.Family = field(default_factory=sm_family.Gaussian)
-
-    def link(self,
-             mu):
-        return self.base.link(mu)
-    
-    def deviance(self,
-                 y,
-                 mu,
-                 sample_weight):
-        if sample_weight is not None:
-            return self.base.deviance(y, mu, freq_weights=sample_weight)
-        else:
-            return self.base.deviance(y, mu)
-
-    def null_fit(self,
-                 y,
-                 sample_weight,
-                 offset,
-                 fit_intercept):
-
-        sample_weight = np.asarray(sample_weight)
-        y = np.asarray(y)
-
-        if offset is None:
-            offset = np.zeros(y.shape[0])
-        if sample_weight is None:
-            sample_weight = np.ones(y.shape[0])
-
-        if fit_intercept:
-
-            # solve a one parameter problem
-
-            X1 = np.ones((y.shape[0], 1))
-            D = _get_design(X1,
-                            sample_weight,
-                            standardize=False,
-                            intercept=False)
-            
-            state = GLMState(coef=np.zeros(1),
-                             intercept=0)
-            state.update(D,
-                         self,
-                         offset,
-                         None)
-
-            for i in range(10):
-
-                z, w = self.get_response_and_weights(state,
-                                                     y,
-                                                     offset,
-                                                     sample_weight)
-                newcoef = (z*w).sum() / w.sum()
-                state = GLMState(coef=np.array([newcoef]),
-                                 intercept=0)
-                state.update(D,
-                             self,
-                             offset,
-                             None)
-
-        else:
-            state = GLMState(coef=np.zeros(1), intercept=0)
-            state.link_parameter = offset
-            state.mean_parameter = self.base.link.inverse(state.link_parameter)
-        return state
-
-    def get_null_deviance(self,
-                          y,
-                          sample_weight,
-                          offset,
-                          fit_intercept):
-        state0 = self.null_fit(y,
-                               sample_weight,
-                               offset,
-                               fit_intercept)
-        D = self.deviance(y, state0.mean_parameter, sample_weight)
-        return state0, D
-
-    def get_null_state(self,
-                       null_fit,
-                       nvars):
-        coefold = np.zeros(nvars)   # initial coefs = 0
-        state = GLMState(coef=coefold,
-                         intercept=null_fit.intercept)
-        state.mean_parameter = null_fit.mean_parameter
-        state.link_parameter = null_fit.link_parameter
-        return state
-    
-    def get_response_and_weights(self,
-                                 state,
-                                 y,
-                                 offset,
-                                 sample_weight):
-
-        family = self.base
-
-        # some checks for NAs/zeros
-        varmu = family.variance(state.mu)
-        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
-
-        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
-
-        dmu_deta = family.link.inverse_deriv(state.link_parameter)
-        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
-
-        newton_weights = sample_weight * dmu_deta**2 / varmu
-
-        pseudo_response = state.eta + (y - state.mu) / dmu_deta
-
-        return pseudo_response, newton_weights
-        
-    def rvs(self,
-            link_param,
-            scale=None):
-        family = self.base
-        mean_param = family.link.inverse(link_param)
-        dbn = family.get_distribution(mean_param, scale=scale)
-        return dbn.rvs()
-
-    def _default_scorers(self):
-
-        fam_name = self.base.__class__.__name__
-
-        def _dev(y, yhat, sample_weight):
-            return self.deviance(y, yhat, sample_weight) / y.shape[0]
-        dev_scorer = Scorer(name=f'{fam_name} Deviance',
-                            score=_dev,
-                            maximize=False)
-        
-        scorers_ = [dev_scorer,
-                    mse_scorer,
-                    mae_scorer,
-                    ungrouped_mse_scorer,
-                    ungrouped_mae_scorer]
-
-        if isinstance(self.base, sm_family.Binomial):
-            scorers_.extend([accuracy_scorer,
-                             auc_scorer,
-                             aucpr_scorer])
-
-        return scorers_
-
-    def information(self,
-                    state,
-                    sample_weight=None):
-
-        family = self.base
-
-        # some checks for NAs/zeros
-        varmu = family.variance(state.mu)
-        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
-
-        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
-
-        dmu_deta = family.link.inverse_deriv(state.link_parameter)
-        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
-
-        W = dmu_deta**2 / varmu
-        if sample_weight is not None:
-            W *= sample_weight
-            
-        n = W.shape[0]
-        W = W.reshape(-1)
-        return DiagonalOperator(W)
-
-@dataclass
-class DiagonalOperator(LinearOperator):
-
-    weights: np.ndarray
-
-    def __post_init__(self):
-        self.weights = np.asarray(self.weights).reshape(-1)
-        n = self.weights.shape[0]
-        self.shape = (n, n)
-
-    def _matvec(self, arg):
-        return self.weights * arg.reshape(-1)
-
-    def _adjoint(self, arg):
-        return self._matvec(arg)
-    
 
 @add_dataclass_docstring
 @dataclass
@@ -274,21 +89,21 @@ class GLMState(object):
                objective=None):
         '''pin the mu/eta values to coef/intercept'''
 
-        family = family.base
+        _family = family.base
         self.linear_predictor = design @ self._stack
         if offset is None:
             self.link_parameter = self.linear_predictor
         else:
             self.link_parameter = self.linear_predictor + offset
-        self.mean_parameter = family.link.inverse(self.link_parameter)
+        self.mean_parameter = _family.link.inverse(self.link_parameter)
 
         # shorthand
         self.mu = self.mean_parameter 
         self.eta = self.linear_predictor 
 
-        if isinstance(family, sm_family.Binomial):
+        if family.is_binomial: # isinstance(family, sm_family.Binomial):
             self.mu = np.clip(self.mu, self.pmin, 1-self.pmin)
-            self.link_parameter = family.link(self.mu)
+            self.link_parameter = _family.link(self.mu)
 
         if objective is not None:
             self.obj_val = objective(self)
@@ -468,14 +283,6 @@ class GLMBase(BaseEstimator,
                            standardize=self.standardize,
                            intercept=self.fit_intercept)
 
-    def _get_family_spec(self,
-                         y):
-        return self.family
-        # if isinstance(self.family, sm_family.Family):
-        #     return GLMFamilySpec(self.family)
-        # elif isinstance(self.family, GLMFamilySpec):
-        #     return self.family
-
     def get_data_arrays(self, X, y, check=True):
         return _get_data(self,
                          X,
@@ -502,7 +309,7 @@ class GLMBase(BaseEstimator,
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
         if not hasattr(self, "_family"):
-            self._family = self._get_family_spec(y)
+            self._family = self._finalize_family(response=y)
 
         X, y, response, offset, weight = self.get_data_arrays(X, y, check=check)
 
@@ -608,12 +415,10 @@ class GLMBase(BaseEstimator,
 
         self._set_coef_intercept(state)
 
-        if (dispersion is None and hasattr(self._family, "base") and 
-            isinstance(self._family.base, sm_family.Gaussian)): # GLM specific
+        if self._family.is_gaussian:
             # usual estimate of sigma^2
-            self.dispersion_ = self.deviance_ / (nobs-nvar-self.fit_intercept) 
-            n, p = X.shape
-            self.df_resid_ = n - p - self.fit_intercept
+            self.dispersion_ = self.deviance_ / (nobs - nvar - self.fit_intercept) 
+            self.df_resid_ = nobs - nvar - self.fit_intercept
         else:
             self.dispersion_ = dispersion
 
@@ -718,6 +523,11 @@ class GLM(GLMBase):
         return GLMRegularizer(fit_intercept=self.fit_intercept,
                               ridge_coef=self.ridge_coef)
 
+    def _finalize_family(self,
+                         response):
+        if not hasattr(self, "_family"):
+            return GLMFamilySpec.from_family(self.family, response)
+
     def fit(self,
             X,
             y,
@@ -751,7 +561,7 @@ class GLM(GLMBase):
                    exclude,
                    dispersion,
                    sample_weight,
-                   df_resid):
+                   X_shape):
 
         if self.ridge_coef != 0:
             warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
@@ -781,6 +591,13 @@ class GLM(GLMBase):
         else:
             coef = self.coef_
             T = self.coef_ / SE
+
+        if self._family.is_gaussian:
+            n, p = X_shape
+            self.df_resid_ = n - p - self.fit_intercept
+            df_resid = self.df_resid_
+        else:
+            df_resid = np.inf
 
         if (df_resid < np.inf):
             summary_ = pd.DataFrame({'coef':coef,
@@ -847,6 +664,16 @@ class BinomialGLM(ClassifierMixin, GLM):
             raise ValueError("BinomialGLM expecting a binary classification problem.")
         return X, y, labels, offset, weight
 
+    def _finalize_family(self,
+                         response):
+        if not hasattr(self, "_family"):
+            _family = GLMFamilySpec.from_family(self.family, response)
+            if not _family.is_binomial:
+                msg = f'{self.__class__.__name__} expects a Binomial family.'
+                warnings.warn(msg)
+                if self.control.logging: logging.warn(msg)
+            return _family
+        
     def fit(self,
             X,
             y,
@@ -856,12 +683,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             dispersion=1,
             check=True):
 
-        if not hasattr(self, "_family"):
-            self._family = self._get_family_spec(y)
-            if not self._family.is_binomial:
-                msg = f'{self.__class__.__name__} expects a Binomial family.'
-                warnings.warn(msg)
-                if self.control.logging: logging.warn(msg)
+        self._family = self._finalize_family(response=y)
 
         return super().fit(X,
                            y,

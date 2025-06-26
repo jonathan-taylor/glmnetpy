@@ -15,6 +15,7 @@ from ..glm import GLMState
 from ..elnet import (_check_and_set_limits,
                     _check_and_set_vp,
                     _design_wrapper_args)
+from ..family import GLMFamilySpec
 
 from .._utils import _jerr_elnetfit
 from ..docstrings import (make_docstring,
@@ -124,7 +125,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         """
     
         if not hasattr(self, "_family"):
-            self._family = self._get_family_spec(y)
+            self._family = GLMFamilySpec.from_family(self.family, response=y)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
