@@ -15,10 +15,23 @@ from ..docstrings import (make_docstring,
 from .._gaussnet import gaussnet as _dense
 from .._gaussnet import spgaussnet as _sparse
 
+"""
+Implements the GaussNet path algorithm for Gaussian regression models.
+Provides the GaussNet estimator class using the FastNetMixin base.
+"""
+
 @dataclass
 class GaussNet(FastNetMixin):
+    """
+    GaussNet estimator for Gaussian regression using the FastNet path algorithm.
 
-    covariance : bool = None
+    Parameters
+    ----------
+    covariance : bool, optional
+        Whether to use the covariance update (default: auto based on nvars).
+    """
+
+    covariance : bool | None = None
 
     _dense = _dense
     _sparse = _sparse
@@ -28,6 +41,21 @@ class GaussNet(FastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape):
+        """
+        Extract fitted coefficients, intercepts, and related statistics for Gaussian models.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         self._fit['dev'] = self._fit['rsq'] # gaussian fit calls it rsq
         return super()._extract_fits(X_shape,
                                      response_shape)
@@ -38,6 +66,27 @@ class GaussNet(FastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
+        """
+        Prepare arguments for the C++ backend wrapper for Gaussian regression.
+
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array.
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
 
         if offset is None:
             is_offset = False

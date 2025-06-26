@@ -18,7 +18,7 @@ from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
                           RegressorMixin)
 from sklearn.metrics import mean_absolute_error
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import (LinearRegression, Ridge)
 from sklearn.preprocessing import LabelEncoder
 
 from ._utils import (_parent_dataclass_from_child,
@@ -37,6 +37,192 @@ from .family import (GLMFamilySpec,
 
 @add_dataclass_docstring
 @dataclass
+class GLMFamilySpec(object):
+    
+    base: sm_family.Family = field(default_factory=sm_family.Gaussian)
+
+    def link(self,
+             mu):
+        return self.base.link(mu)
+    
+    def deviance(self,
+                 y,
+                 mu,
+                 sample_weight):
+        if sample_weight is not None:
+            return self.base.deviance(y, mu, freq_weights=sample_weight)
+        else:
+            return self.base.deviance(y, mu)
+
+    def null_fit(self,
+                 y,
+                 sample_weight,
+                 offset,
+                 fit_intercept):
+
+        sample_weight = np.asarray(sample_weight)
+        y = np.asarray(y)
+
+        if offset is None:
+            offset = np.zeros(y.shape[0])
+        if sample_weight is None:
+            sample_weight = np.ones(y.shape[0])
+
+        if fit_intercept:
+
+            # solve a one parameter problem
+
+            X1 = np.ones((y.shape[0], 1))
+            D = _get_design(X1,
+                            sample_weight,
+                            standardize=False,
+                            intercept=False)
+            
+            state = GLMState(coef=np.zeros(1),
+                             intercept=0)
+            state.update(D,
+                         self,
+                         offset,
+                         None)
+
+            for i in range(10):
+
+                z, w = self.get_response_and_weights(state,
+                                                     y,
+                                                     offset,
+                                                     sample_weight)
+                newcoef = (z*w).sum() / w.sum()
+                state = GLMState(coef=np.array([newcoef]),
+                                 intercept=0)
+                state.update(D,
+                             self,
+                             offset,
+                             None)
+
+        else:
+            state = GLMState(coef=np.zeros(1), intercept=0)
+            state.link_parameter = offset
+            state.mean_parameter = self.base.link.inverse(state.link_parameter)
+        return state
+
+    def get_null_deviance(self,
+                          y,
+                          sample_weight,
+                          offset,
+                          fit_intercept):
+        state0 = self.null_fit(y,
+                               sample_weight,
+                               offset,
+                               fit_intercept)
+        D = self.deviance(y, state0.mean_parameter, sample_weight)
+        return state0, D
+
+    def get_null_state(self,
+                       null_fit,
+                       nvars):
+        coefold = np.zeros(nvars)   # initial coefs = 0
+        state = GLMState(coef=coefold,
+                         intercept=null_fit.intercept)
+        state.mean_parameter = null_fit.mean_parameter
+        state.link_parameter = null_fit.link_parameter
+        return state
+    
+    def get_response_and_weights(self,
+                                 state,
+                                 y,
+                                 offset,
+                                 sample_weight):
+
+        family = self.base
+
+        # some checks for NAs/zeros
+        varmu = family.variance(state.mu)
+        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+
+        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+
+        dmu_deta = family.link.inverse_deriv(state.link_parameter)
+        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
+
+        newton_weights = sample_weight * dmu_deta**2 / varmu
+
+        pseudo_response = state.eta + (y - state.mu) / dmu_deta
+
+        return pseudo_response, newton_weights
+        
+    def rvs(self,
+            link_param,
+            scale=None):
+        family = self.base
+        mean_param = family.link.inverse(link_param)
+        dbn = family.get_distribution(mean_param, scale=scale)
+        return dbn.rvs()
+
+    def _default_scorers(self):
+
+        fam_name = self.base.__class__.__name__
+
+        def _dev(y, yhat, sample_weight):
+            return self.deviance(y, yhat, sample_weight) / y.shape[0]
+        dev_scorer = Scorer(name=f'{fam_name} Deviance',
+                            score=_dev,
+                            maximize=False)
+        
+        scorers_ = [dev_scorer,
+                    mse_scorer,
+                    mae_scorer,
+                    ungrouped_mse_scorer,
+                    ungrouped_mae_scorer]
+
+        if isinstance(self.base, sm_family.Binomial):
+            scorers_.extend([accuracy_scorer,
+                             auc_scorer,
+                             aucpr_scorer])
+
+        return scorers_
+
+    def information(self,
+                    state,
+                    sample_weight=None):
+
+        family = self.base
+
+        # some checks for NAs/zeros
+        varmu = family.variance(state.mu)
+        if np.any(np.isnan(varmu)): raise ValueError("NAs in V(mu)")
+
+        if np.any(varmu == 0): raise ValueError("0s in V(mu)")
+
+        dmu_deta = family.link.inverse_deriv(state.link_parameter)
+        if np.any(np.isnan(dmu_deta)): raise ValueError("NAs in d(mu)/d(eta)")
+
+        W = dmu_deta**2 / varmu
+        if sample_weight is not None:
+            W *= sample_weight
+            
+        n = W.shape[0]
+        W = W.reshape(-1)
+        return DiagonalOperator(W)
+
+@dataclass
+class DiagonalOperator(LinearOperator):
+
+    weights: np.ndarray
+
+    def __post_init__(self):
+        self.weights = np.asarray(self.weights).reshape(-1)
+        n = self.weights.shape[0]
+        self.shape = (n, n)
+
+    def _matvec(self, arg):
+        return self.weights * arg.reshape(-1)
+
+    def _adjoint(self, arg):
+        return self._matvec(arg)
+    
+
+@add_dataclass_docstring
+@dataclass
 class GLMControl(object):
 
     mxitnr: int = 25
@@ -49,10 +235,11 @@ class GLMBaseSpec(object):
 
     family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     fit_intercept: bool = True
+    standardize: bool = False
     control: GLMControl = field(default_factory=GLMControl)
-    response_id: Union[str,int] = None
-    weight_id: Union[str,int] = None
     offset_id: Union[str,int] = None
+    weight_id: Union[str,int] = None
+    response_id: Union[str,int] = None
     exclude: list = field(default_factory=list)
 
 add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
@@ -67,12 +254,110 @@ class GLMResult(object):
     boundary: bool
     obj_function: float
 
+@dataclass
+class GLMState(object):
+
+    coef: np.ndarray
+    intercept: np.ndarray
+    obj_val: float = np.inf
+    pmin: float = 1e-9
+    
+    def __post_init__(self):
+
+        self._stack = np.hstack([self.intercept,
+                                 self.coef])
+
+    def update(self,
+               design,
+               family,
+               offset,
+               objective=None):
+        '''pin the mu/eta values to coef/intercept'''
+
+        family = family.base
+        self.linear_predictor = design @ self._stack
+        if offset is None:
+            self.link_parameter = self.linear_predictor
+        else:
+            self.link_parameter = self.linear_predictor + offset
+        self.mean_parameter = family.link.inverse(self.link_parameter)
+
+        # shorthand
+        self.mu = self.mean_parameter 
+        self.eta = self.linear_predictor 
+
+        if isinstance(family, sm_family.Binomial):
+            self.mu = np.clip(self.mu, self.pmin, 1-self.pmin)
+            self.link_parameter = family.link(self.mu)
+
+        if objective is not None:
+            self.obj_val = objective(self)
+        
+    def logl_score(self,
+                   family,
+                   y,
+                   sample_weight):
+
+        family = family.base
+        varmu = family.variance(self.mu)
+        dmu_deta = family.link.inverse_deriv(self.link_parameter)
+        
+        # compute working residual
+        y = np.asarray(y).reshape(-1)
+        r = (y - self.mu) 
+        return sample_weight * r * dmu_deta / varmu 
+
+def compute_grad(glm_obj,
+                 intercept,
+                 coef,
+                 design,
+                 response,
+                 offset=None,
+                 scaled_input=False,
+                 scaled_output=False,
+                 sample_weight=None,
+                 norm_weights=False):
+
+    family = glm_obj._family
+
+    if sample_weight is None:
+        sample_weight = np.ones(design.shape[0])
+        
+    if not scaled_input:
+        raw_state = GLMState(intercept=intercept,
+                             coef=coef)
+        scaled_state = design.raw_to_scaled(raw_state)
+    else:
+        scaled_state = GLMState(intercept=intercept,
+                                coef=coef)
+
+    scaled_state.update(design,
+                        family,
+                        offset=offset)
+
+    saturated_score = scaled_state.logl_score(family,
+                                              response, 
+                                              sample_weight)
+    scaled_score = design.T @ saturated_score
+    if not scaled_output:
+        score = design.scaler_.T @ scaled_score
+    else:
+        score = scaled_score
+        
+    if norm_weights:
+        w_sum = sample_weight.sum()
+        score /= w_sum
+        saturated_score /= w_sum
+
+    return score, saturated_score
 
 @dataclass
 class GLMRegularizer(object):
 
     fit_intercept: bool = False
+    standardize: bool = False
     warm_state: dict = field(default_factory=dict)
+    ridge_coef: float = 0
 
     def half_step(self,
                   state,
@@ -101,29 +386,57 @@ class GLMRegularizer(object):
         z = pseudo_response
         w = sample_weight
 
+        D = np.ones(design.X.shape[1] + 1)
+        D[0] = 0
+
+        # this will produce coefficients on the raw scale
+
         if scipy.sparse.issparse(design.X):
-            lm = LinearRegression(fit_intercept=self.fit_intercept)
+            if self.standardize:
+                raise ValueError('sklearn Ridge cannot fit without using raw standardized matrix')
+            if self.ridge_coef == 0:
+                lm = LinearRegression(fit_intercept=self.fit_intercept)
+            else:
+                lm = Ridge(fit_intercept=self.fit_intercept,
+                           alpha=self.ridge_coef)
             lm.fit(design.X, z, sample_weight=w)
             coefnew = lm.coef_
             intnew = lm.intercept_
 
         else:
             sqrt_w = np.sqrt(w)
-            XW = design.X * sqrt_w[:, None]
+
+            if not self.standardize:
+                XW = design.X * sqrt_w[:, None]
+            else:
+                X = design @ (np.identity(design.shape[1])[:,1:])
+                XW = X * sqrt_w[:, None]
+                
             if self.fit_intercept:
+                D = np.diag(D)
                 Wz = sqrt_w * z
                 XW = np.concatenate([sqrt_w.reshape((-1,1)), XW], axis=1)
                 Q = XW.T @ XW
+                if self.ridge_coef != 0:
+                    Q += self.ridge_coef * D
                 V = XW.T @ Wz
                 try:
                     beta = np.linalg.solve(Q, V)
                 except LinAlgError as e:
                     if self.control.logging: logging.debug("Error in solve: possible singular matrix, trying pseudo-inverse")
+                    if self.ridge_coef != 0:
+                        XW = np.vstack([XW, np.sqrt(self.ridge_coef) * D])
+                        Wz = np.hstack([Wz, np.zeros(Q.shape[0])])
                     beta = np.linalg.pinv(XW) @ Wz
                 coefnew = beta[1:]
                 intnew = beta[0]
 
             else:
+                if self.ridge_coef != 0:
+                    D = np.diag(D[1:])
+                    XW = np.vstack([XW, np.sqrt(self.ridge_coef) * D])
+                    z = np.hstack([z, np.zeros(D.shape[0])])
+                    sqrt_w = np.hstack([sqrt_w, np.zeros(D.shape[0])])
                 coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
                 intnew = 0
 
@@ -144,16 +457,15 @@ class GLMBase(BaseEstimator,
               GLMBaseSpec):
 
     def _get_regularizer(self,
-                         X):
+                         nvars=None):
         return GLMRegularizer(fit_intercept=self.fit_intercept)
 
-    # no standardization for GLM
     def _get_design(self,
                     X,
                     sample_weight):
         return _get_design(X,
                            sample_weight,
-                           standardize=False,
+                           standardize=self.standardize,
                            intercept=self.fit_intercept)
 
     def _get_family_spec(self,
@@ -164,7 +476,7 @@ class GLMBase(BaseEstimator,
         # elif isinstance(self.family, GLMFamilySpec):
         #     return self.family
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
         return _get_data(self,
                          X,
                          y,
@@ -177,7 +489,8 @@ class GLMBase(BaseEstimator,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
-            dispersion=1,
+            warm_state=None,
+            dispersion=None,
             check=True,
             fit_null=True):
 
@@ -191,7 +504,7 @@ class GLMBase(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
 
-        X, y, response, offset, weight = self._check(X, y, check=check)
+        X, y, response, offset, weight = self.get_data_arrays(X, y, check=check)
 
         sample_weight = weight
         self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
@@ -216,9 +529,12 @@ class GLMBase(BaseEstimator,
         # the regularizer stores the warm start
 
         if regularizer is None:
-            regularizer = self._get_regularizer(X)
+            regularizer = self._get_regularizer(nvars=design.X.shape[1])
         self.regularizer_ = regularizer
 
+        if warm_state is not None:
+            self.regularizer_.warm_state = warm_state
+            
         if fit_null or not hasattr(self.regularizer_, 'warm_state'):
             (null_state,
              self.null_deviance_) = self._family.get_null_deviance(
@@ -292,15 +608,16 @@ class GLMBase(BaseEstimator,
 
         self._set_coef_intercept(state)
 
-        self.df_resid_ = np.inf
-        
-        if dispersion is None and self.family.is_gaussian: # Gaussian means identity link, constaint varaiance
+        if (dispersion is None and hasattr(self._family, "base") and 
+            isinstance(self._family.base, sm_family.Gaussian)): # GLM specific
+            # usual estimate of sigma^2
             self.dispersion_ = self.deviance_ / (nobs-nvar-self.fit_intercept) 
             n, p = X.shape
             self.df_resid_ = n - p - self.fit_intercept
         else:
             self.dispersion_ = dispersion
 
+        self.state_ = state
         return self
     fit.__doc__ = '''
 Fit a GLM.
@@ -310,18 +627,14 @@ Parameters
 
 {X}
 {y}
-{sample_weight}
-{regularizer}
-{dispersion}
-{check}
-fit_null: bool
-    Fit a null model if no warm state present in the regularizer.
-
+{weights}
+{summarize}
+    
 Returns
 -------
 
-self: GLMBase
-        Fitted GLM.
+self: object
+        GLM class instance.
         '''.format(**_docstrings)
     
     def predict(self, X, prediction_type='response'):
@@ -368,49 +681,49 @@ score: float
 '''.format(**_docstrings).strip()
 
     def _set_coef_intercept(self, state):
-        self.coef_ = state.coef.copy() # this makes a copy -- important to make this copy because `state.coef` is persistent
-        if hasattr(self, 'standardize') and self.standardize:
-            self.scaling_ = self.design_.scaling_
-            self.coef_ /= self.scaling_ 
-        self.intercept_ = state.intercept - (self.coef_ * self.design_.centers_).sum()
+        raw_state = self.design_.scaled_to_raw(state)
+        self.coef_ = raw_state.coef
+        self.intercept_ = raw_state.intercept
 
 GLMBase.__doc__ = '''
 Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
 
 Parameters
 ----------
-{family}
 {fit_intercept}
+{summarize}
+{family}
 {control_glm}
-{response_id}
-{weight_id}
-{offset_id}
-{exclude}
 
 Attributes
-----------
-
+__________
 {coef_}
 {intercept_}
-{regularizer_}
+{summary_}
+{covariance_}
 {null_deviance_}
 {deviance_}
 {dispersion_}
-
+{regularizer_}
 '''.format(**_docstrings)
-
-
 
 @dataclass
 class GLM(GLMBase):
 
     summarize: bool = False
+    ridge_coef: float = 0
+
+    def _get_regularizer(self,
+                         nvars=None):
+        return GLMRegularizer(fit_intercept=self.fit_intercept,
+                              ridge_coef=self.ridge_coef)
 
     def fit(self,
             X,
             y,
-            sample_weight=None,
+            sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 
@@ -418,18 +731,17 @@ class GLM(GLMBase):
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
+                    warm_state=warm_state,
                     dispersion=dispersion,
                     check=check)
 
-        weight = self._check(X, y, check=False)[-1]
+        weight = self.get_data_arrays(X, y, check=False)[-1]
             
         if self.summarize:
             self.covariance_, self.summary_ = self._summarize(self.exclude,
                                                               self.dispersion_,
                                                               weight,
-                                                              self.df_resid_)
-
-
+                                                              X.shape)
         else:
             self.summary_ = self.covariance_ = None
             
@@ -441,10 +753,18 @@ class GLM(GLMBase):
                    sample_weight,
                    df_resid):
 
+        if self.ridge_coef != 0:
+            warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
+
         # IRLS used normalized weights,
         # this unnormalizes them...
 
-        unscaled_precision_ = self.design_.quadratic_form(self._information)
+        unscaled_precision_ = self.design_.quadratic_form(self._information,
+                                                          transformed=False)
+        if self.ridge_coef != 0:
+            D = np.ones(unscaled_precision_.shape[0])
+            D[0] = 0
+            unscaled_precision_ += self.ridge_coef * np.diag(D)
         
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
@@ -517,9 +837,9 @@ class BinomialGLM(ClassifierMixin, GLM):
 
     family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
 
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = LabelEncoder()
         labels = np.asfortranarray(encoder.fit_transform(response))
         self.classes_ = encoder.classes_
@@ -532,6 +852,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             y,
             sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 
@@ -546,6 +867,7 @@ class BinomialGLM(ClassifierMixin, GLM):
                            y,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
+                           warm_state=warm_state,
                            dispersion=dispersion,
                            check=check)
 

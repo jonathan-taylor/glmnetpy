@@ -57,11 +57,12 @@ class CoxState(GLMState):
                    family,
                    y,
                    sample_weight):
+
         link_parameter = self.link_parameter
         family._result = family._coxdev(link_parameter,
                                         sample_weight)
         # the gradient is the gradient of the deviance
-        # we want deviance of the log-likelihood
+        # we want gradient of the log-likelihood
         return - family._result.gradient / 2
 
 @dataclass
@@ -193,10 +194,10 @@ class CoxLM(GLM):
                              status_id=self.family.status_id,
                              start_id=self.family.start_id)
 
-    def _check(self,
-               X,
-               y,
-               check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
@@ -215,7 +216,8 @@ class CoxLM(GLM):
         # IRLS used normalized weights,
         # this unnormalizes them...
 
-        unscaled_precision_ = self.design_.quadratic_form(self._information)
+        unscaled_precision_ = self.design_.quadratic_form(self._information,
+                                                          transformed=False)
         
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
@@ -246,7 +248,10 @@ class RegCoxLM(RegGLM):
     
     fit_intercept: Literal[False] = False
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
@@ -271,10 +276,10 @@ class CoxNet(GLMNet):
     fit_intercept: Literal[False] = False
     regularized_estimator: BaseEstimator = RegCoxLM
     
-    def _check(self,
-               X,
-               y,
-               check=True):
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
         return _get_data(self,
                          X,
                          y,
@@ -293,6 +298,12 @@ class CoxNet(GLMNet):
                              status_id=self.family.status_id,
                              start_id=self.family.start_id)
     
+    def get_LM(self):
+        return CoxLM(family=self.family,
+                     offset_id=self.offset_id,
+                     weight_id=self.weight_id,
+                     response_id=self.response_id)
+
     def _get_initial_state(self,
                            X,
                            y,
@@ -308,10 +319,7 @@ class CoxNet(GLMNet):
         if keep.sum() > 0:
             X_keep = X[:,keep]
 
-            coxlm = CoxLM(family=self.family,
-                          offset_id=self.offset_id,
-                          weight_id=self.weight_id,
-                          response_id=self.response_id)
+            coxlm = self.get_LM()
             coxlm.fit(X_keep, y)
             coef_[keep] = coxlm.coef_
 

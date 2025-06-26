@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from ..base import _get_design
 from ..glmnet import GLMNet
+from ..glm import GLMState
 from ..elnet import (_check_and_set_limits,
                     _check_and_set_vp,
                     _design_wrapper_args)
@@ -21,6 +22,42 @@ from ..docstrings import (make_docstring,
 
 @dataclass
 class FastNetControl(object):
+    """
+    Control parameters for FastNet path solvers.
+
+    Attributes
+    ----------
+    fdev : float
+        Fractional deviance tolerance for early stopping.
+    eps : float
+        Convergence threshold for coordinate descent.
+    big : float
+        Large value used for numerical stability.
+    mnlam : int
+        Minimum number of lambda values.
+    devmax : float
+        Maximum fraction of deviance explained.
+    pmin : float
+        Minimum value for probabilities.
+    exmx : float
+        Maximum exponent value.
+    itrace : int
+        Trace level for logging.
+    prec : float
+        Precision for calculations.
+    mxit : int
+        Maximum number of iterations.
+    epsnr : float
+        Convergence threshold for Newton-Raphson.
+    mxitnr : int
+        Maximum Newton-Raphson iterations.
+    maxit : int
+        Maximum number of iterations (wrapper only).
+    thresh : float
+        Threshold for convergence (wrapper only).
+    logging : bool
+        Enable logging (wrapper only).
+    """
 
     fdev: float = 1e-5
     eps: float = 1e-6
@@ -41,10 +78,24 @@ class FastNetControl(object):
     
 @dataclass
 class FastNetMixin(GLMNet): # base class for C++ path methods
+    """
+    Mixin for fast path solvers using C++ backend.
 
-    lambda_min_ratio: float = None
+    Parameters
+    ----------
+    lambda_min_ratio : float, optional
+        Minimum lambda ratio.
+    nlambda : int, optional
+        Number of lambda values.
+    df_max : int, optional
+        Maximum degrees of freedom.
+    control : FastNetControl, optional
+        Control parameters for the solver.
+    """
+
+    lambda_min_ratio: float | None = None
     nlambda: int = 100
-    df_max: int = None
+    df_max: int | None = None
     control: FastNetControl = field(default_factory=FastNetControl)
 
     def fit(self,
@@ -52,6 +103,25 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             y,
             sample_weight=None, # ignored
             interpolation_grid=None):
+        """
+        Fit the penalized regression model using the FastNet path algorithm.
+
+        Parameters
+        ----------
+        X : array-like or sparse matrix
+            Feature matrix.
+        y : array-like
+            Target vector or matrix.
+        sample_weight : array-like, optional
+            Sample weights (ignored).
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+
+        Returns
+        -------
+        self : object
+            Fitted estimator.
+        """
     
         if not hasattr(self, "_family"):
             self._family = self._get_family_spec(y)
@@ -61,7 +131,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        X, y, response, offset, weight = self._check(X, y)
+        X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
             X = np.asfortranarray(X)
@@ -109,9 +179,15 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self._args.update(**D)
 
         if scipy.sparse.issparse(design.X):
-            self._fit = self._sparse(**self._args)
+            fit_method = getattr(self, "_sparse", None)
+            if fit_method is None:
+                raise AttributeError(f"{self.__class__.__name__} has no method '_sparse' required for sparse input.")
+            self._fit = fit_method(**self._args)
         else:
-            self._fit = self._dense(**self._args)
+            fit_method = getattr(self, "_dense", None)
+            if fit_method is None:
+                raise AttributeError(f"{self.__class__.__name__} has no method '_dense' required for dense input.")
+            self._fit = fit_method(**self._args)
 
         # if error code > 0, fatal error occurred: stop immediately
         # if error code < 0, non-fatal error occurred: return error code
@@ -128,6 +204,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self.coefs_ = result['coefs']
         self.intercepts_ = result['intercepts']
             
+        if self.coefs_.ndim == 1:
+            self.state_ = GLMState(self.coefs_[-1],
+                                   self.intercepts_[-1])
+
         self.lambda_values_ = result['lambda_values']
         nfits = self.lambda_values_.shape[0]
         dev_ratios_ = self._fit['dev'][:nfits]
@@ -159,6 +239,21 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     def _extract_fits(self,
                       X_shape,
                       response_shape): # getcoef.R
+        """
+        Extract fitted coefficients, intercepts, and related statistics.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         _fit, _args = self._fit, self._args
         nvars = X_shape[1]
         nfits = _fit['lmu']
@@ -197,7 +292,27 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                       sample_weight,
                       offset, # ignored, but subclasses use it
                       exclude=[]):
+        """
+        Prepare arguments for the C++ backend wrapper.
 
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array (ignored here).
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
         sample_weight = np.asfortranarray(sample_weight)
         
         X = design.X
@@ -250,19 +365,22 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # isn't this always nvars?
         # should have a df_max arg
-        nx = min(self.df_max*2+20, nvars)
+        if self.df_max is not None:
+            nx = min(self.df_max*2+20, nvars)
+        else:
+            nx = nvars
 
         _args = {'parm':float(self.alpha),
                  'ni':nvars,
                  'no':nobs,
                  'y':response,
-                 'w':sample_weight.reshape((-1,1)),
-                 'jd':jd,
-                 'vp':self.penalty_factor.reshape((-1,1)),
-                 'cl':np.asfortranarray(cl),
-                 'ne':self.df_max,
-                 'nx':nx,
-                 'nlam':self.nlambda,
+                 'w': np.asarray(sample_weight).reshape((-1, 1)),
+                 'jd': jd,
+                 'vp': np.asarray(self.penalty_factor).reshape((-1, 1)),
+                 'cl': np.asfortranarray(cl),
+                 'ne': self.df_max,
+                 'nx': nx,
+                 'nlam': self.nlambda,
                  'flmin':flmin,
                  'ulam':ulam,
                  'thr':float(self.control.thresh),
@@ -287,12 +405,29 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
 @dataclass
 class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
+    """
+    Mixin for fast path solvers with multiple response variables.
+    """
 
     def predict(self,
                 X,
                 prediction_type='link' # ignored except checking valid
                 ):
+        """
+        Predict using the fitted model for multiple responses.
 
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        prediction_type : str, optional
+            Type of prediction ('response' or 'link').
+
+        Returns
+        -------
+        np.ndarray
+            Predicted values.
+        """
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
         
@@ -326,6 +461,21 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
     def _extract_fits(self,
                       X_shape,
                       response_shape):
+        """
+        Extract fitted coefficients, intercepts, and related statistics for multi-response models.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         _fit, _args = self._fit, self._args
         nvars = X_shape[1]
         nresp = response_shape[1]
@@ -365,7 +515,27 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                       sample_weight,
                       offset,
                       exclude=[]):
-           
+        """
+        Prepare arguments for the C++ backend wrapper for multi-response models.
+
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array.
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
         _args = super()._wrapper_args(design,
                                       response,
                                       sample_weight,

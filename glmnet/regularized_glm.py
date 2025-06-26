@@ -14,9 +14,7 @@ from .docstrings import (add_dataclass_docstring,
 from .elnet import (ElNet,
                     ElNetControl,
                     ElNetSpec)
-from .glm import (GLMState,
-                  BinomFamilySpec,
-                  GLMFamilySpec,
+from .glm import (GLMFamilySpec,
                   GLM)
 
 @add_dataclass_docstring
@@ -111,7 +109,7 @@ class ElNetRegularizer(Penalty):
         
         warm = (cur_state.coef,
                 cur_state.intercept,
-                cur_state.eta) # just X\beta -- doesn't include offset
+                cur_state.linear_predictor) # just X\beta -- doesn't include offset
 
         elnet_fit = self.elnet_estimator.fit(design,
                                              z,
@@ -139,10 +137,21 @@ class RegGLM(GLM,
 
     control: RegGLMControl = field(default_factory=RegGLMControl)
 
+    def get_LM(self):
+        return GLM(family=self.family,
+                   fit_intercept=self.fit_intercept,
+                   offset_id=self.offset_id,
+                   weight_id=self.weight_id,
+                   response_id=self.response_id)
+
     def _get_regularizer(self,
-                         X):
+                         nvars=None):
 
         # self.design_ will have been set by now
+
+        if nvars is None:
+            check_is_fitted(self, ["design_"])
+            nvars = self.design_.X.shape[1]
 
         return ElNetRegularizer(lambda_val=self.lambda_val,
                                 alpha=self.alpha,
@@ -150,11 +159,10 @@ class RegGLM(GLM,
                                 lower_limits=self.lower_limits * self.design_.scaling_,
                                 upper_limits=self.upper_limits * self.design_.scaling_,
                                 fit_intercept=self.fit_intercept,
-                                nvars=X.shape[1],
+                                nvars=nvars,
                                 control=self.control,
                                 exclude=self.exclude)
 
-    # no standardization for GLM
     def _get_design(self,
                     X,
                     sample_weight):
@@ -168,6 +176,7 @@ class RegGLM(GLM,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 3 options non sklearn API
+            warm_state=None,
             check=True,
             fit_null=True):
 
@@ -175,6 +184,7 @@ class RegGLM(GLM,
                     y,
                     sample_weight=sample_weight,
                     regularizer=regularizer,
+                    warm_state=warm_state,
                     dispersion=1,
                     check=check)
 
@@ -209,6 +219,7 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
+            warm_state=None,
             dispersion=1,
             check=True):
 

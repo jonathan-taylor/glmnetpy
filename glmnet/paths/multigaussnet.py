@@ -24,12 +24,27 @@ from ..scoring import Scorer
 
 @dataclass
 class MultiClassFamily(object):
+    """
+    Family specification for multi-response regression.
+    """
 
-    def default_scorers(self):
+    def _default_scorers(self):
         return [mse_scorer, mae_scorer]
 
 @dataclass
 class MultiGaussNet(MultiFastNetMixin):
+    """
+    MultiGaussNet estimator for multi-response Gaussian regression using the FastNet path algorithm.
+
+    Parameters
+    ----------
+    response_id : int, str, or list, optional
+        Identifiers for response columns.
+    offset_id : int, str, or list, optional
+        Identifiers for offset columns.
+    standardize_response : bool, optional
+        Whether to standardize the response.
+    """
 
     response_id: Optional[Union[int,str,list]] = None
     offset_id: Optional[Union[int,str,list]] = None
@@ -43,14 +58,51 @@ class MultiGaussNet(MultiFastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape):
+        """
+        Extract fitted coefficients, intercepts, and related statistics for multi-response Gaussian models.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         # gaussian fit calls it rsq
         # should be `dev` for sumamry
 
         self._fit['dev'] = self._fit['rsq']
         return super()._extract_fits(X_shape, response_shape)
 
-    def _check(self, X, y, check=True):
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+    def get_data_arrays(self,
+                        X,
+                        y,
+                        check=True):
+        """
+        Prepare and validate data arrays for multi-response Gaussian regression.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target matrix.
+        check : bool, optional
+            Whether to check input validity.
+
+        Returns
+        -------
+        tuple
+            Tuple of (X, y, response, offset, weight).
+        """
+        X, y, response, offset, weight = super().get_data_arrays(X,
+                                                                 y,
+                                                                 check=check)
         return X, y, np.asfortranarray(response), offset, weight
 
     def _wrapper_args(self,
@@ -59,6 +111,27 @@ class MultiGaussNet(MultiFastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
+        """
+        Prepare arguments for the C++ backend wrapper for multi-response Gaussian regression.
+
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array.
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
 
         if offset is None:
             is_offset = False

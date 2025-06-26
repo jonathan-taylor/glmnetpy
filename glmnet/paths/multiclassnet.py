@@ -25,8 +25,11 @@ from ..scoring import Scorer
 
 @dataclass
 class MultiClassFamily(object):
+    """
+    Family specification for multinomial classification.
+    """
 
-    def default_scorers(self):
+    def _default_scorers(self):
 
         return [accuracy_scorer,
                 misclass_scorer,
@@ -34,6 +37,20 @@ class MultiClassFamily(object):
 
 @dataclass
 class MultiClassNet(MultiFastNetMixin):
+    """
+    MultiClassNet estimator for multinomial classification using the FastNet path algorithm.
+
+    Parameters
+    ----------
+    standardize_response : bool, optional
+        Whether to standardize the response.
+    grouped : bool, optional
+        Whether to use grouped multinomial loss.
+    univariate_beta : bool, optional
+        Whether to use univariate beta updates.
+    type_logistic : {'Newton', 'modified_Newton'}, optional
+        Type of logistic solver.
+    """
 
     standardize_response: bool = False
     grouped: bool = False
@@ -47,6 +64,21 @@ class MultiClassNet(MultiFastNetMixin):
                 X,
                 prediction_type='response' # ignored except checking valid
                 ):
+        """
+        Predict class probabilities or logits for multinomial classification.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        prediction_type : str, optional
+            Type of prediction ('response' for probabilities, 'link' for logits).
+
+        Returns
+        -------
+        np.ndarray
+            Predicted values.
+        """
 
         value = super().predict(X, prediction_type='link')
         if prediction_type == 'response':
@@ -61,6 +93,21 @@ class MultiClassNet(MultiFastNetMixin):
     def _offset_predictions(self,
                             predictions,
                             offset):
+        """
+        Apply offset to predictions for multinomial classification.
+
+        Parameters
+        ----------
+        predictions : np.ndarray
+            Predicted values before offset.
+        offset : np.ndarray
+            Offset values.
+
+        Returns
+        -------
+        np.ndarray
+            Offset-adjusted predictions.
+        """
         value = np.log(predictions) + offset[:,None,:]
         _max = value.max(-1)
         value = value - _max[:,:,None]
@@ -68,9 +115,26 @@ class MultiClassNet(MultiFastNetMixin):
         value = exp_value / exp_value.sum(-1)[:,:,None]
         return value
 
-    def _check(self, X, y, check=True):
+    def get_data_arrays(self, X, y, check=True):
+        """
+        Prepare and validate data arrays for multinomial classification.
 
-        X, y, response, offset, weight = super()._check(X, y, check=check)
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+        check : bool, optional
+            Whether to check input validity.
+
+        Returns
+        -------
+        tuple
+            Tuple of (X, y, y_onehot, offset, weight).
+        """
+
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = OneHotEncoder(sparse_output=False)
         y_onehot = np.asfortranarray(encoder.fit_transform(response.reshape((-1,1))))
         self.categories_ = encoder.categories_[0]
@@ -79,6 +143,21 @@ class MultiClassNet(MultiFastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape):
+        """
+        Extract fitted coefficients, intercepts, and related statistics for multinomial models.
+
+        Parameters
+        ----------
+        X_shape : tuple
+            Shape of the input feature matrix.
+        response_shape : tuple
+            Shape of the response array.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+        """
         # center the intercepts -- any constant
         # added does not affect class probabilities
         
@@ -91,6 +170,27 @@ class MultiClassNet(MultiFastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
+        """
+        Prepare arguments for the C++ backend wrapper for multinomial classification.
+
+        Parameters
+        ----------
+        design : object
+            Design matrix and related info.
+        response : array-like
+            Response array.
+        sample_weight : array-like
+            Sample weights.
+        offset : array-like
+            Offset array.
+        exclude : list, optional
+            Indices to exclude from penalization.
+
+        Returns
+        -------
+        dict
+            Arguments for the backend solver.
+        """
 
         _args = super()._wrapper_args(design,
                                       response,
