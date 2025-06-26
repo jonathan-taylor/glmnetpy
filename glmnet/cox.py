@@ -108,9 +108,9 @@ class CoxFamilySpec(object):
         else:
             start = None
 
-        self._coxdev = CoxDeviance(event,
+        self._coxdev = CoxDeviance(np.asarray(event, float),
                                    status,
-                                   start=start,
+                                   start=np.asarray(start, float),
                                    tie_breaking=self.tie_breaking)
 
     # GLMFamilySpec API

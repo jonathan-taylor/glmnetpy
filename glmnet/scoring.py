@@ -29,7 +29,7 @@ class Scorer(object):
         W = np.asarray(sample_weight)[split]
         W_sum = W.sum()
         if self.normalize_weights:
-            W /= W.mean()
+            W = W / W.mean()
         return (self.score(response[split],
                            predictions[split],
                            sample_weight=W), W_sum)
