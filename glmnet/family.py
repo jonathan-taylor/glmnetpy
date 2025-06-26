@@ -72,13 +72,13 @@ Returns
     '''.format(**_docstrings).strip()
 
     def null_fit(self,
-                 y,
+                 response,
                  fit_intercept=True,
                  sample_weight=None,
                  offset=None):
 
         sample_weight = np.asarray(sample_weight)
-        y = np.asarray(y)
+        y = np.asarray(response)
 
         if offset is None:
             offset = np.zeros(y.shape[0])

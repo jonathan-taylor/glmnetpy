@@ -8,7 +8,7 @@ for proper R integration in pytest.
 import pytest
 import numpy as np
 import pandas as pd
-from glmnet import GaussNet, GLM, GLMNet
+from glmnet import GaussNet, GLM, GLMNet, GLMFamilySpec
 import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
@@ -51,7 +51,7 @@ def test_glm_comparison_with_offset_weight(sample_data):
     
     # Python GLM
     G2 = GLM(response_id='response', offset_id='offset', weight_id='weight',
-              family=sm.families.Gaussian(), summarize=True)
+              family=GLMFamilySpec(), summarize=True)
     G2.fit(X, Df)
     
     # R glm - create data frame with variables
@@ -77,7 +77,7 @@ def test_glm_comparison_no_weights(sample_data):
     X, Y, O, W, D, Df = sample_data
     
     # Python GLM
-    G4 = GLM(response_id='response', family=sm.families.Gaussian())
+    G4 = GLM(response_id='response', family=GLMFamilySpec())
     G4.fit(X, Df)
     
     # R glm - create data frame with variables
@@ -102,7 +102,7 @@ def test_glm_comparison_weights_only(sample_data):
     X, Y, O, W, D, Df = sample_data
     
     # Python GLM
-    G5 = GLM(response_id='response', weight_id='weight', family=sm.families.Gaussian())
+    G5 = GLM(response_id='response', weight_id='weight', family=GLMFamilySpec())
     G5.fit(X, Df)
     
     # R glm - create data frame with variables
@@ -129,7 +129,7 @@ def test_glm_comparison_offset_only(sample_data):
     X, Y, O, W, D, Df = sample_data
     
     # Python GLM
-    G6 = GLM(response_id='response', offset_id='offset', family=sm.families.Gaussian())
+    G6 = GLM(response_id='response', offset_id='offset', family=GLMFamilySpec())
     G6.fit(X, Df)
     
     # R glm - create data frame with variables
@@ -156,7 +156,7 @@ def test_glmnet_comparison(sample_data):
     
     # Python GLMNet
     GN = GLMNet(response_id='response', offset_id='offset', weight_id='weight',
-                family=sm.families.Gaussian())
+                family=GLMFamilySpec())
     GN.fit(X, Df)
     
     # R glmnet

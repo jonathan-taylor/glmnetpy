@@ -4,6 +4,7 @@ from .glm import (GLM,
                   GLMState)
 from .regularized_glm import (RegGLM,
                               RegGLMControl)
+from .family import GLMFamilySpec
 from .glmnet import GLMNet
 from .elnet import ElNet
 

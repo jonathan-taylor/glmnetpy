@@ -467,9 +467,9 @@ class GLMNet(BaseEstimator,
             if self.fit_intercept:
                 response, offset, weight = self.get_data_arrays(X, y, check=False)[2:]
                 state0 = self._family.null_fit(response,
-                                               weight,
-                                               offset,
-                                               self.fit_intercept)
+                                               fit_intercept=self.fit_intercept,
+                                               sample_weight=weight,
+                                               offset=offset)
                 intercept_ = state0.coef[0] # null state has no intercept
                                             # X a column of 1s
             else:
