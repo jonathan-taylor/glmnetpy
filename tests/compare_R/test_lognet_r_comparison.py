@@ -26,10 +26,16 @@ try:
     stats = importr('stats')
     glmnet = importr('glmnet')
     
-    R_AVAILABLE = True
+    has_rpy2 = True
 except ImportError:
-    R_AVAILABLE = False
-    pytest.skip("rpy2 or R glmnet not available", allow_module_level=True)
+    has_rpy2 = False
+
+# Pytest decorators
+ifrpy = pytest.mark.skipif(not has_rpy2, reason='requires rpy2')
+alpha = pytest.mark.parametrize('alpha', [0, 0.4, 1])
+use_offset = pytest.mark.parametrize('use_offset', [True, False])
+use_weights = pytest.mark.parametrize('use_weights', [True, False])
+alignment = pytest.mark.parametrize('alignment', ['fraction', 'lambda'])
 
 
 def numpy_to_r_matrix(X):
@@ -57,196 +63,148 @@ def sample_data():
     return X, Y, O, W, R, D, Df, L
 
 
-def test_glm_comparison_with_offset_weight(sample_data):
-    """Test GLM comparison with offset and weights."""
+@ifrpy
+@use_offset
+@use_weights
+def test_glm_comparison(sample_data, use_offset, use_weights):
+    """Test GLM comparison with different offset and weight combinations."""
     X, Y, O, W, R, D, Df, L = sample_data
     
-    # Python GLM
-    G1 = GLM(response_id=0, offset_id=1, weight_id=2, family=sm.families.Binomial())
-    G1.fit(X, D)
+    # Configure Python GLM
+    glm_kwargs = {}
+    if use_offset:
+        glm_kwargs['offset_id'] = 'offset'
+    if use_weights:
+        glm_kwargs['weight_id'] = 'weight'
     
-    G2 = BinomialGLM(response_id='response', offset_id='offset', weight_id='weight')
+    G2 = BinomialGLM(response_id='response', **glm_kwargs)
     G2.fit(X, Df)
     
-    # Verify Python implementations match
-    assert np.allclose(G2.coef_, G1.coef_)
-    assert np.allclose(G2.intercept_, G1.intercept_)
-    
-    # R GLM - create individual columns for X matrix
-    notY = 1 - Y.astype(int)
+    # Configure R GLM
     Y_int = Y.astype(int)
     W_numeric = W.astype(float)
     
-    # Create R data frame with individual X columns
-    r_data = {'Y': IntVector(Y_int), 'O': FloatVector(O), 'W': FloatVector(W_numeric)}
+    r_data = {'Y': IntVector(Y_int)}
+    r_kwargs = {'family': stats.binomial()}
+    
+    if use_offset:
+        r_data['O'] = FloatVector(O)
+        r_kwargs['offset'] = FloatVector(O)
+    if use_weights:
+        r_data['W'] = FloatVector(W_numeric)
+        r_kwargs['weights'] = FloatVector(W_numeric)
+    
+    # Add predictor columns
     for i in range(X.shape[1]):
         r_data[f'X{i+1}'] = FloatVector(X[:, i])
     
     r_df = DataFrame(r_data)
-    
-    # Create formula with all X columns
     x_cols = ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
     formula = Formula(f'Y ~ {x_cols}')
     
-    r_model = stats.glm(formula, data=r_df, weights=FloatVector(W_numeric), 
-                       offset=FloatVector(O), family=stats.binomial())
+    r_model = stats.glm(formula, data=r_df, **r_kwargs)
     r_coef = np.array(stats.coef(r_model))
     
-    # Compare Python and R results
+    # Compare results
     assert np.allclose(G2.coef_, r_coef[1:])
     assert np.allclose(G2.intercept_, r_coef[0])
 
 
-def test_glm_comparison_no_weights(sample_data):
-    """Test GLM comparison without weights."""
-    X, Y, O, W, R, D, Df, L = sample_data
-    
-    # Python GLM
-    G4 = BinomialGLM(response_id='binary')
-    G4.fit(X, Df)
-    
-    # R GLM
-    Y_int = Y.astype(int)
-    notY = (1 - Y).astype(int)
-    W_numeric = W.astype(float)
-    
-    r_data = {'Y': IntVector(Y_int)}
-    for i in range(X.shape[1]):
-        r_data[f'X{i+1}'] = FloatVector(X[:, i])
-    
-    r_df = DataFrame(r_data)
-    
-    x_cols = ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
-    formula = Formula(f'Y ~ {x_cols}')
-    
-    r_model = stats.glm(formula, data=r_df, family=stats.binomial())
-    r_coef = np.array(stats.coef(r_model))
-    
-    # Compare results
-    assert np.allclose(G4.coef_, r_coef[1:])
-    assert np.allclose(G4.intercept_, r_coef[0])
-
-
-def test_glm_comparison_weights_only(sample_data):
-    """Test GLM comparison with weights only."""
-    X, Y, O, W, R, D, Df, L = sample_data
-    
-    # Python GLM
-    G5 = BinomialGLM(response_id='binary', weight_id='weight')
-    G5.fit(X, Df)
-    
-    # R GLM
-    Y_int = Y.astype(int)
-    W_numeric = W.astype(float)
-    
-    r_data = {'Y': IntVector(Y_int), 'W': FloatVector(W_numeric)}
-    for i in range(X.shape[1]):
-        r_data[f'X{i+1}'] = FloatVector(X[:, i])
-    
-    r_df = DataFrame(r_data)
-    
-    x_cols = ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
-    formula = Formula(f'Y ~ {x_cols}')
-    
-    r_model = stats.glm(formula, data=r_df, weights=FloatVector(W_numeric), 
-                       family=stats.binomial())
-    r_coef = np.array(stats.coef(r_model))
-    
-    # Compare results
-    assert np.allclose(G5.coef_, r_coef[1:])
-    assert np.allclose(G5.intercept_, r_coef[0])
-
-
-def test_glm_comparison_offset_only(sample_data):
-    """Test GLM comparison with offset only."""
-    X, Y, O, W, R, D, Df, L = sample_data
-    
-    # Python GLM
-    G6 = BinomialGLM(response_id='binary', offset_id='offset')
-    G6.fit(X, Df)
-    
-    # R GLM
-    notY = (1 - Y).astype(int)
-    Y_int = Y.astype(int)
-    W_numeric = W.astype(float)
-    
-    r_data = {'Y': IntVector(Y_int), 'O': FloatVector(O)}
-    for i in range(X.shape[1]):
-        r_data[f'X{i+1}'] = FloatVector(X[:, i])
-    
-    r_df = DataFrame(r_data)
-    
-    x_cols = ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
-    formula = Formula(f'Y ~ {x_cols}')
-    
-    r_model = stats.glm(formula, data=r_df, offset=FloatVector(O), 
-                       family=stats.binomial())
-    r_coef = np.array(stats.coef(r_model))
-    
-    # Compare results
-    assert np.allclose(G6.coef_, r_coef[1:])
-    assert np.allclose(G6.intercept_, r_coef[0])
-
-
-def test_glmnet_comparison(sample_data):
+@ifrpy
+@alpha
+@use_offset
+@use_weights
+def test_glmnet_comparison(sample_data, alpha, use_offset, use_weights):
     """Test GLMNet comparison with R glmnet."""
     X, Y, O, W, R, D, Df, L = sample_data
     
-    # Python GLMNet
-    GN = GLMNet(response_id='binary', offset_id='offset', weight_id='weight',
-                family=sm.families.Binomial())
+    # Configure Python GLMNet
+    glmnet_kwargs = {'family': sm.families.Binomial(), 'alpha': alpha}
+    if use_offset:
+        glmnet_kwargs['offset_id'] = 'offset'
+    if use_weights:
+        glmnet_kwargs['weight_id'] = 'weight'
+    
+    GN = GLMNet(response_id='binary', **glmnet_kwargs)
     GN.fit(X, Df)
     
-    # R glmnet
+    # Configure R glmnet
     Y_int = Y.astype(int)
     W_numeric = W.astype(float)
     
-    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), 
-                        IntVector(Y_int), offset=FloatVector(O), 
-                        weights=FloatVector(W_numeric), family='binomial')
+    r_kwargs = {'family': 'binomial', 'alpha': alpha}
+    if use_offset:
+        r_kwargs['offset'] = FloatVector(O)
+    if use_weights:
+        r_kwargs['weights'] = FloatVector(W_numeric)
+    
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), IntVector(Y_int), **r_kwargs)
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
     
     # Compare results (using index 10 as in original)
-    # Handle the case where r_coef might be 1D
     if r_coef.ndim == 1:
         r_coef = r_coef.reshape(1, -1)
     
     assert np.allclose(r_coef.T[10][1:], GN.coefs_[10], rtol=1e-4, atol=1e-4)
 
 
-def test_lognet_comparison(sample_data):
-    """Test LogNet comparison with R glmnet."""
+@ifrpy
+@alpha
+@use_offset
+@use_weights
+def test_lognet_comparison(sample_data, alpha, use_offset, use_weights):
+    """Test LogNet comparison with different alpha, offset, and weight combinations."""
     X, Y, O, W, R, D, Df, L = sample_data
     
-    # Python LogNet
-    GN2 = LogNet(response_id='response', offset_id='offset', weight_id='weight')
-    GN2.fit(X, Df)
+    # Configure Python LogNet
+    lognet_kwargs = {'alpha': alpha}
+    if use_offset:
+        lognet_kwargs['offset_id'] = 'offset'
+    if use_weights:
+        lognet_kwargs['weight_id'] = 'weight'
     
-    # R glmnet
+    GN = LogNet(response_id='response', **lognet_kwargs)
+    GN.fit(X, Df)
+    
+    # Configure R glmnet
     Y_int = Y.astype(int)
     W_numeric = W.astype(float)
     
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
-                          IntVector(Y_int), weights=FloatVector(W_numeric), 
-                          offset=FloatVector(O), family='binomial')
-    r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn2)))
+    r_kwargs = {'family': 'binomial', 'alpha': alpha}
+    if use_offset:
+        r_kwargs['offset'] = FloatVector(O)
+    if use_weights:
+        r_kwargs['weights'] = FloatVector(W_numeric)
     
-    # Handle the case where r_coef might be 1D
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), IntVector(Y_int), **r_kwargs)
+    r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
+    
     if r_coef.ndim == 1:
         r_coef = r_coef.reshape(1, -1)
     
     # Compare results
-    assert np.allclose(r_coef.T[:, 1:], GN2.coefs_)
-    assert np.allclose(r_coef[0], GN2.intercepts_)
+    assert np.allclose(r_coef.T[:, 1:], GN.coefs_)
+    assert np.allclose(r_coef[0], GN.intercepts_)
 
 
-def test_cross_validation_fraction_alignment(sample_data):
-    """Test cross-validation with fraction alignment."""
+@ifrpy
+@alpha
+@alignment
+@use_offset
+@use_weights
+def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights):
+    """Test cross-validation with different alpha, alignment, offset, weight, and grouped combinations."""
     X, Y, O, W, R, D, Df, L = sample_data
     
-    # Python LogNet with CV
-    GN3 = LogNet(response_id='response', offset_id='offset')
-    GN3.fit(X, Df)
+    # Configure Python LogNet with CV
+    lognet_kwargs = {'response_id': 'response', 'alpha': alpha}
+    if use_offset:
+        lognet_kwargs['offset_id'] = 'offset'
+    if use_weights:
+        lognet_kwargs['weight_id'] = 'weight'
+    
+    GN = LogNet(**lognet_kwargs)
+    GN.fit(X, Df)
     
     # Create fold IDs
     cv = KFold(5, random_state=0, shuffle=True)
@@ -255,134 +213,30 @@ def test_cross_validation_fraction_alignment(sample_data):
         foldid[test] = i + 1
     
     # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='fraction')
+    predictions, scores = GN.cross_validation_path(X, Df, cv=cv, alignment=alignment)
     
-    # R cv.glmnet
+    # Configure R cv.glmnet
     Y_int = Y.astype(int)
     W_numeric = W.astype(float)
     O_numeric = O.astype(float)
-    R_numeric = Y.astype(float)
     
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
-                             IntVector(Y_int), offset=FloatVector(O_numeric), 
-                             foldid=r_foldid, family='binomial', 
-                             alignment="fraction", grouped=True)
+    r_kwargs = {
+        'foldid': IntVector(foldid.astype(int)),
+        'family': 'binomial',
+        'alignment': alignment,
+        'grouped': True,
+        'alpha': alpha
+    }
+    if use_offset:
+        r_kwargs['offset'] = FloatVector(O_numeric)
+    if use_weights:
+        r_kwargs['weights'] = FloatVector(W_numeric)
+    
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), IntVector(Y_int), **r_kwargs)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results
-    assert np.allclose(GN3.cv_scores_['Binomial Deviance'], r_cvm)
-    assert np.allclose(GN3.cv_scores_['SD(Binomial Deviance)'], r_cvsd)
-
-
-def test_cross_validation_lambda_alignment(sample_data):
-    """Test cross-validation with lambda alignment."""
-    X, Y, O, W, R, D, Df, L = sample_data
-    
-    # Python LogNet with CV
-    GN3 = LogNet(response_id='response', offset_id='offset')
-    GN3.fit(X, Df)
-    
-    # Create fold IDs
-    cv = KFold(5, random_state=0, shuffle=True)
-    foldid = np.empty(X.shape[0])
-    for i, (train, test) in enumerate(cv.split(np.arange(X.shape[0]))):
-        foldid[test] = i + 1
-    
-    # Use the correct cross-validation method
-    predictions, scores = GN3.cross_validation_path(X, Df, cv=cv, alignment='lambda')
-    
-    # R cv.glmnet
-    Y_int = Y.astype(int)
-    W_numeric = W.astype(float)
-    O_numeric = O.astype(float)
-    R_numeric = Y.astype(float)
-    
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
-                             IntVector(Y_int), offset=FloatVector(O_numeric), 
-                             foldid=r_foldid, family='binomial', 
-                             alignment="lambda", grouped=True)
-    
-    r_cvm = np.array(r_gcv.rx2('cvm'))
-    r_cvsd = np.array(r_gcv.rx2('cvsd'))
-    
-    # Compare results
-    assert np.allclose(GN3.cv_scores_['Binomial Deviance'], r_cvm)
-    assert np.allclose(GN3.cv_scores_['SD(Binomial Deviance)'], r_cvsd)
-
-
-def test_cross_validation_with_weights_fraction(sample_data):
-    """Test cross-validation with weights using fraction alignment."""
-    X, Y, O, W, R, D, Df, L = sample_data
-    
-    # Python LogNet with CV
-    GN4 = LogNet(response_id='response', offset_id='offset', weight_id='weight')
-    GN4.fit(X, Df)
-    
-    # Create fold IDs
-    cv = KFold(5, random_state=0, shuffle=True)
-    foldid = np.empty(X.shape[0])
-    for i, (train, test) in enumerate(cv.split(np.arange(X.shape[0]))):
-        foldid[test] = i + 1
-    
-    # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='fraction')
-    
-    # R cv.glmnet
-    Y_int = Y.astype(int)
-    W_numeric = W.astype(float)
-    O_numeric = O.astype(float)
-    R_numeric = Y.astype(float)
-    
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
-                             IntVector(Y_int), offset=FloatVector(O_numeric), 
-                             weights=FloatVector(W_numeric), foldid=r_foldid, 
-                             family='binomial', alignment="fraction", grouped=True)
-    
-    r_cvm = np.array(r_gcv.rx2('cvm'))
-    r_cvsd = np.array(r_gcv.rx2('cvsd'))
-    
-    # Compare results
-    assert np.allclose(GN4.cv_scores_['Binomial Deviance'], r_cvm)
-    assert np.allclose(GN4.cv_scores_['SD(Binomial Deviance)'], r_cvsd)
-
-
-def test_cross_validation_with_weights_lambda(sample_data):
-    """Test cross-validation with weights using lambda alignment."""
-    X, Y, O, W, R, D, Df, L = sample_data
-    
-    # Python LogNet with CV
-    GN4 = LogNet(response_id='response', offset_id='offset', weight_id='weight')
-    GN4.fit(X, Df)
-    
-    # Create fold IDs
-    cv = KFold(5, random_state=0, shuffle=True)
-    foldid = np.empty(X.shape[0])
-    for i, (train, test) in enumerate(cv.split(np.arange(X.shape[0]))):
-        foldid[test] = i + 1
-    
-    # Use the correct cross-validation method
-    predictions, scores = GN4.cross_validation_path(X, Df, cv=cv, alignment='lambda')
-    
-    # R cv.glmnet
-    Y_int = Y.astype(int)
-    W_numeric = W.astype(float)
-    O_numeric = O.astype(float)
-    R_numeric = Y.astype(float)
-    
-    r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), 
-                             IntVector(Y_int), offset=FloatVector(O_numeric), 
-                             weights=FloatVector(W_numeric), foldid=r_foldid, 
-                             family='binomial', alignment="lambda", grouped=True)
-    
-    r_cvm = np.array(r_gcv.rx2('cvm'))
-    r_cvsd = np.array(r_gcv.rx2('cvsd'))
-    
-    # Compare results
-    assert np.allclose(GN4.cv_scores_['Binomial Deviance'], r_cvm)
-    assert np.allclose(GN4.cv_scores_['SD(Binomial Deviance)'], r_cvsd) 
+    assert np.allclose(GN.cv_scores_['Binomial Deviance'], r_cvm)
+    assert np.allclose(GN.cv_scores_['SD(Binomial Deviance)'], r_cvsd) 
