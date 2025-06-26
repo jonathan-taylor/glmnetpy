@@ -34,6 +34,15 @@ class GLMFamilySpec(object):
         if isinstance(self.base, sm_family.Binomial):
             self.is_binomial = True
 
+    @staticmethod
+    def from_family(family,
+                    response):
+        if isinstance(family, sm_family.Family):
+            return GLMFamilySpec(base=family)
+        elif isinstance(family, GLMFamilySpec):
+            return family
+
+
     def link(self,
              mean_parameter):
         mu = mean_parameter # shorthand

@@ -77,13 +77,6 @@ class GLMNet(BaseEstimator,
                          weight_id=self.weight_id,
                          check=check)
 
-    def _get_family_spec(self, y):
-        return self.family 
-        # if isinstance(self.family, sm_family.Family):
-        #     return GLMFamilySpec(self.family)
-        # elif isinstance(self.family, GLMFamilySpec):
-        #     return self.family
-
     def fit(self,
             X,
             y,
@@ -93,7 +86,7 @@ class GLMNet(BaseEstimator,
             interpolation_grid=None):
 
         if not hasattr(self, "_family"):
-            self._family = self._get_family_spec(y)
+            self._family = GLMFamilySpec.from_family(self.family, response=y)
 
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 

@@ -282,14 +282,6 @@ class GLMBase(BaseEstimator,
                            standardize=self.standardize,
                            intercept=self.fit_intercept)
 
-    def _get_family_spec(self,
-                         y):
-        return self.family
-        # if isinstance(self.family, sm_family.Family):
-        #     return GLMFamilySpec(self.family)
-        # elif isinstance(self.family, GLMFamilySpec):
-        #     return self.family
-
     def get_data_arrays(self, X, y, check=True):
         return _get_data(self,
                          X,
@@ -316,7 +308,7 @@ class GLMBase(BaseEstimator,
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
         if not hasattr(self, "_family"):
-            self._family = self._get_family_spec(y)
+            self._family = GLMFamilySpec.from_family(self.family, response=y)
 
         X, y, response, offset, weight = self.get_data_arrays(X, y, check=check)
 
@@ -676,7 +668,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             check=True):
 
         if not hasattr(self, "_family"):
-            self._family = self._get_family_spec(y)
+            self._family = GLMFamilySpec.from_family(self.family, response=y)
             if not self._family.is_binomial:
                 msg = f'{self.__class__.__name__} expects a Binomial family.'
                 warnings.warn(msg)
