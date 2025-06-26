@@ -21,8 +21,6 @@ from sklearn.utils import check_X_y
 
 from statsmodels.genmod.families import family as sm_family
 
-from .docstrings import add_dataclass_docstring
-
 from .regularized_glm import (RegGLMControl,
                               RegGLM)
 
@@ -33,15 +31,84 @@ from ._utils import _get_data
 from .scorer import (PathScorer,
                      plot as plot_cv)
 
+
 @dataclass
 class GLMNetControl(RegGLMControl):
-
+    """
+    Control parameters for GLMNet fitting.
+    
+    Parameters
+    ----------
+    fdev: float
+        Fractional deviance tolerance for early stopping.
+    logging: bool
+        Write info and debug messages to log?
+    """
     fdev: float = 1e-5
     logging: bool = False
 
+
 @dataclass
 class GLMNetSpec(object):
-
+    """
+    Specification for GLMNet models.
+    
+    Parameters
+    ----------
+    lambda_values: Optional[np.ndarray]
+        An array of `lambda` hyperparameters.
+    lambda_min_ratio: float
+        Ratio of lambda_max to smallest lambda.
+        Used to set sequence of lamdba values.
+        Values are equally spaced on a log-scale from lambda_max to
+        lambda_max * lambda_min_ratio.
+    nlambda: int
+        Number of values on data-dependent grid of lambda values.
+        Values are equally spaced on a log-scale from lambda_max to
+        lambda_max * lambda_min_ratio.
+    alpha: float
+        The elasticnet mixing parameter in [0,1]. The penalty is
+        defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
+        `alpha=1` is the lasso penalty, and `alpha=0` the ridge
+        penalty. Defaults to 1.
+    lower_limits: float
+        Vector of lower limits for each coefficient; default
+        `-np.inf`. Each of these must be non-positive. Can be
+        presented as a single value (which will then be replicated),
+        else a vector of length `nvars`.
+    upper_limits: float
+        Vector of upper limits for each coefficient; default
+        `np.inf`. See `lower_limits`.
+    penalty_factor: Optional[Union[float, np.ndarray]]
+        Separate penalty factors can be applied to each
+        coefficient. This is a number that multiplies `lambda_val` to
+        allow differential shrinkage. Can be 0 for some variables,
+        which implies no shrinkage, and that variable is always
+        included in the model. Default is 1 for all variables (and
+        implicitly infinity for variables listed in `exclude`). Note:
+        the penalty factors are internally rescaled to sum to
+        `nvars=X.shape[1]`.
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is True.
+    family: GLMFamilySpec
+        Specification of one-parameter exponential family, includes some
+        additional methods.
+    control: GLMNetControl
+        Parameters to control the solver.
+    regularized_estimator: BaseEstimator
+        Estimator class used for fitting each point on path.
+    offset_id: Union[str,int]
+        Column identifier in `y`. (Optional)
+    weight_id: Union[str,int]
+        Weight identifier in `y`. (Optional)
+    response_id: Union[str,int]
+        Response identifier in `y`. (Optional)
+    exclude: list
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+    """
     lambda_values: Optional[np.ndarray] = None
     lambda_min_ratio: float = None
     nlambda: int = 100
@@ -58,17 +125,95 @@ class GLMNetSpec(object):
     weight_id: Union[str,int] = None
     response_id: Union[str,int] = None
     exclude: list = field(default_factory=list)
-    
-add_dataclass_docstring(GLMNetSpec, subs={'control':'control_glmnet'})
+
 
 @dataclass
 class GLMNet(BaseEstimator,
              GLMNetSpec):
+    """
+    GLMNet: Generalized Linear Models with Elastic Net regularization.
+    
+    Parameters
+    ----------
+    lambda_values: Optional[np.ndarray]
+        An array of `lambda` hyperparameters.
+    lambda_min_ratio: float
+        Ratio of lambda_max to smallest lambda.
+        Used to set sequence of lamdba values.
+        Values are equally spaced on a log-scale from lambda_max to
+        lambda_max * lambda_min_ratio.
+    nlambda: int
+        Number of values on data-dependent grid of lambda values.
+        Values are equally spaced on a log-scale from lambda_max to
+        lambda_max * lambda_min_ratio.
+    alpha: float
+        The elasticnet mixing parameter in [0,1]. The penalty is
+        defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
+        `alpha=1` is the lasso penalty, and `alpha=0` the ridge
+        penalty. Defaults to 1.
+    lower_limits: float
+        Vector of lower limits for each coefficient; default
+        `-np.inf`. Each of these must be non-positive. Can be
+        presented as a single value (which will then be replicated),
+        else a vector of length `nvars`.
+    upper_limits: float
+        Vector of upper limits for each coefficient; default
+        `np.inf`. See `lower_limits`.
+    penalty_factor: Optional[Union[float, np.ndarray]]
+        Separate penalty factors can be applied to each
+        coefficient. This is a number that multiplies `lambda_val` to
+        allow differential shrinkage. Can be 0 for some variables,
+        which implies no shrinkage, and that variable is always
+        included in the model. Default is 1 for all variables (and
+        implicitly infinity for variables listed in `exclude`). Note:
+        the penalty factors are internally rescaled to sum to
+        `nvars=X.shape[1]`.
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is True.
+    family: GLMFamilySpec
+        Specification of one-parameter exponential family, includes some
+        additional methods.
+    control: GLMNetControl
+        Parameters to control the solver.
+    regularized_estimator: BaseEstimator
+        Estimator class used for fitting each point on path.
+    offset_id: Union[str,int]
+        Column identifier in `y`. (Optional)
+    weight_id: Union[str,int]
+        Weight identifier in `y`. (Optional)
+    response_id: Union[str,int]
+        Response identifier in `y`. (Optional)
+    exclude: list
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+    """
 
     def get_data_arrays(self,
                         X,
                         y,
                         check=True):
+        """
+        Get data arrays for fitting.
+        
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        check: bool
+            Run the `_check` method to validate `(X,y)`.
+            
+        Returns
+        -------
+        tuple
+            (X, y, response, offset, weight)
+        """
         return _get_data(self,
                          X,
                          y,
@@ -79,6 +224,19 @@ class GLMNet(BaseEstimator,
 
     def _finalize_family(self,
                          response):
+        """
+        Finalize family specification.
+        
+        Parameters
+        ----------
+        response: np.ndarray
+            Response variable.
+            
+        Returns
+        -------
+        GLMFamilySpec
+            Family specification.
+        """
         if not hasattr(self, "_family"):
             return GLMFamilySpec.from_family(self.family, response)
 
@@ -89,7 +247,32 @@ class GLMNet(BaseEstimator,
             regularizer=None,             # last 3 options non sklearn API
             warm_state=None,
             interpolation_grid=None):
+        """
+        Fit GLMNet model.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        sample_weight: Optional[np.ndarray]
+            Sample weights.
+        regularizer: ElNetRegularizer, optional
+            Regularizer used in fitting the model. Allows for inspection of parameters of regularizer.
+        warm_state: GLMState, optional
+            Warm start state.
+        interpolation_grid: np.ndarray, optional
+            Grid for interpolation of coefficients.
+
+        Returns
+        -------
+        self: object
+            GLMNet class instance.
+        """
         if not hasattr(self, "_family"):
             self._family = self._finalize_family(response=y)
 
@@ -226,7 +409,25 @@ class GLMNet(BaseEstimator,
     def predict(self,
                 X,
                 prediction_type='response'):
+        """
+        Predict using the fitted GLMNet model.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        prediction_type: str
+            One of "response" or "link". If "response" return a prediction on the mean scale,
+            "link" on the link scale. Defaults to "response".
+
+        Returns
+        -------
+        np.ndarray
+            Predictions for each lambda value.
+        """
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
         
@@ -252,7 +453,19 @@ class GLMNet(BaseEstimator,
         
     def interpolate_coefs(self,
                           interpolation_grid):
+        """
+        Interpolate coefficients to a new lambda grid.
 
+        Parameters
+        ----------
+        interpolation_grid: np.ndarray
+            New lambda values for interpolation.
+
+        Returns
+        -------
+        tuple
+            (coefs_, intercepts_) interpolated to the new grid.
+        """
         L = self.lambda_values_
         interpolation_grid = np.clip(interpolation_grid, L.min(), L.max())
         idx_ = interp1d(L, np.arange(L.shape[0]).astype(float))(interpolation_grid)
@@ -284,7 +497,40 @@ class GLMNet(BaseEstimator,
                               pre_dispatch='2*n_jobs',
                               alignment='lambda',
                               scorers=[]): # GLMScorer instances
+        """
+        Perform cross-validation along the regularization path.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        cv: int, cross-validation generator or an iterable
+            Determines the cross-validation splitting strategy.
+        groups: array-like, optional
+            Group labels for the samples used while splitting the dataset into train/test set.
+        n_jobs: int, optional
+            Number of jobs to run in parallel.
+        verbose: int
+            The verbosity level.
+        fit_params: dict, optional
+            Parameters to pass to the fit method of the estimator.
+        pre_dispatch: str, optional
+            Controls the number of jobs that get dispatched during parallel execution.
+        alignment: str
+            One of 'lambda' or 'fraction'. How to align predictions across folds.
+        scorers: list
+            List of GLMScorer instances.
+
+        Returns
+        -------
+        tuple
+            (predictions, cv_scores_)
+        """
         check_is_fitted(self, ["coefs_"])
 
         if alignment not in ['lambda', 'fraction']:
@@ -355,6 +601,43 @@ class GLMNet(BaseEstimator,
                               scatter_c='red',
                               scatter_s=None,
                               **plot_args):
+        """
+        Plot cross-validation results.
+
+        Parameters
+        ----------
+        xvar: str, optional
+            Variable to plot on x-axis. One of 'lambda', '-lambda', 'norm', 'dev'.
+        score: str, optional
+            Score to plot on y-axis.
+        ax: matplotlib.axes.Axes, optional
+            Axes to plot on.
+        capsize: int
+            Length of error bar caps.
+        legend: bool
+            Whether to show legend.
+        col_min: str
+            Color for minimum CV score line.
+        ls_min: str
+            Line style for minimum CV score line.
+        col_1se: str
+            Color for 1SE rule line.
+        ls_1se: str
+            Line style for 1SE rule line.
+        c: str
+            Color for CV score lines.
+        scatter_c: str
+            Color for scatter points.
+        scatter_s: float, optional
+            Size of scatter points.
+        **plot_args: dict
+            Additional plotting arguments.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes object.
+        """
         if xvar == 'lambda':
             index = pd.Series(np.log(self.lambda_values_), name=r'$\log(\lambda)$')
         elif xvar == '-lambda':
@@ -394,7 +677,27 @@ class GLMNet(BaseEstimator,
                           legend=False,
                           drop=None,
                           keep=None):
+        """
+        Plot coefficient paths.
 
+        Parameters
+        ----------
+        xvar: str
+            Variable to plot on x-axis. One of 'lambda', '-lambda', 'norm', 'dev'.
+        ax: matplotlib.axes.Axes, optional
+            Axes to plot on.
+        legend: bool
+            Whether to show legend.
+        drop: list, optional
+            Features to drop from the plot.
+        keep: list, optional
+            Features to keep in the plot.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes object.
+        """
         check_is_fitted(self, ["coefs_", "feature_names_in_"])
 
         if xvar == '-lambda':
@@ -435,6 +738,21 @@ class GLMNet(BaseEstimator,
     def _offset_predictions(self,
                             predictions,
                             offset):
+        """
+        Adjust predictions for offset.
+
+        Parameters
+        ----------
+        predictions: np.ndarray
+            Raw predictions.
+        offset: np.ndarray
+            Offset values.
+
+        Returns
+        -------
+        np.ndarray
+            Adjusted predictions.
+        """
         linpred = self._family.link(predictions) + offset[:, None]
         return self._family.predict(linpred, prediction_type='response')
    
@@ -442,7 +760,23 @@ class GLMNet(BaseEstimator,
                            X,
                            y,
                            exclude):
+        """
+        Get initial state for fitting.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix.
+        y: np.ndarray
+            Response variable.
+        exclude: list
+            Indices of variables to exclude.
+
+        Returns
+        -------
+        tuple
+            (state, keep) where state is GLMState and keep is boolean array.
+        """
         n, p = X.shape
         keep = self.reg_glm_est_.regularizer_.penalty_factor == 0
         keep[exclude] = 0
@@ -476,6 +810,19 @@ class GLMNet(BaseEstimator,
 
     def get_GLM(self,
                 ridge_coef=0):
+        """
+        Get a GLM instance with the same parameters.
+
+        Parameters
+        ----------
+        ridge_coef: float
+            Ridge coefficient.
+
+        Returns
+        -------
+        GLM
+            GLM instance.
+        """
         return GLM(family=self.family,
                    fit_intercept=self.fit_intercept,
                    standardize=self.standardize,
@@ -486,7 +833,20 @@ class GLMNet(BaseEstimator,
 
     def get_fixed_lambda(self,
                          lambda_val):
+        """
+        Get a regularized estimator for a fixed lambda value.
 
+        Parameters
+        ----------
+        lambda_val: float
+            Lambda value.
+
+        Returns
+        -------
+        tuple
+            (estimator, state) where estimator is the regularized estimator
+            and state is the fitted state.
+        """
         check_is_fitted(self, ["coefs_", "feature_names_in_"])
 
         estimator = self.regularized_estimator(

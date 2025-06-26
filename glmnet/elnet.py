@@ -20,9 +20,21 @@ from ._utils import _jerr_elnetfit
 from .docstrings import (make_docstring,
                          add_dataclass_docstring)
 
-@add_dataclass_docstring
 @dataclass
 class ElNetControl(object):
+    """Control parameters for ElNet optimization.
+    
+    Parameters
+    ----------
+    thresh : float, default=1e-7
+        Convergence threshold for optimization.
+    maxit : int, default=100000
+        Maximum number of iterations.
+    big : float, default=9.9e35
+        Large number used for bounds.
+    logging : bool, default=False
+        Whether to enable debug logging.
+    """
 
     thresh: float = 1e-7
     maxit: int = 100000
@@ -31,6 +43,19 @@ class ElNetControl(object):
 
 @dataclass
 class ElNetSpec(Penalty):
+    """Specification for ElNet model parameters.
+    
+    Parameters
+    ----------
+    fit_intercept : bool, default=True
+        Whether to fit an intercept term.
+    standardize : bool, default=True
+        Whether to standardize features.
+    control : ElNetControl, optional
+        Control parameters for optimization.
+    exclude : list, default_factory=list
+        List of variable indices to exclude from penalization.
+    """
 
     fit_intercept: bool = True
     standardize: bool = True
@@ -43,6 +68,32 @@ add_dataclass_docstring(ElNetSpec, subs={'control':'control_elnet'})
 class ElNet(BaseEstimator,
             RegressorMixin,
             ElNetSpec):
+    """Elastic Net regression model.
+    
+    This class implements elastic net regression using coordinate descent.
+    It supports both dense and sparse input matrices.
+    
+    Parameters
+    ----------
+    alpha : float, default=1.0
+        Elastic net mixing parameter. alpha=1 is lasso, alpha=0 is ridge.
+    lambda_val : float, default=0.0
+        Regularization strength.
+    fit_intercept : bool, default=True
+        Whether to fit an intercept term.
+    standardize : bool, default=True
+        Whether to standardize features.
+    penalty_factor : array-like, optional
+        Multiplicative factors for penalty for each coefficient.
+    lower_limits : array-like, optional
+        Lower bounds for coefficients.
+    upper_limits : array-like, optional
+        Upper bounds for coefficients.
+    control : ElNetControl, optional
+        Control parameters for optimization.
+    exclude : list, default_factory=list
+        List of variable indices to exclude from penalization.
+    """
 
     def fit(self,
             X,
@@ -50,6 +101,26 @@ class ElNet(BaseEstimator,
             sample_weight=None,
             warm=None,
             check=True):
+        """Fit the elastic net model.
+        
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+            Training data.
+        y : array-like, shape (n_samples,)
+            Target values.
+        sample_weight : array-like, shape (n_samples,), optional
+            Sample weights.
+        warm : tuple, optional
+            Warm start parameters (coef, intercept, eta).
+        check : bool, default=True
+            Whether to perform input validation.
+            
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
 
         if not hasattr(self, "design_"):
             self.design_ = design = _get_design(X,
@@ -184,6 +255,42 @@ def _elnet_wrapper_args(design,
                         exclude=[],
                         lower_limits=-np.inf,
                         upper_limits=np.inf):
+    """Create wrapper arguments for ElNet C++ function.
+    
+    Parameters
+    ----------
+    design : Design
+        Design matrix object.
+    y : array-like, shape (n_samples,)
+        Target values.
+    sample_weight : array-like, shape (n_samples,)
+        Sample weights.
+    lambda_val : float
+        Regularization strength.
+    alpha : float, default=1.0
+        Elastic net mixing parameter.
+    intercept : bool, default=True
+        Whether to fit intercept.
+    thresh : float, default=1e-7
+        Convergence threshold.
+    maxit : int, default=100000
+        Maximum iterations.
+    penalty_factor : array-like, optional
+        Penalty factors for each coefficient.
+    exclude : list, default=[]
+        Variables to exclude from penalization.
+    lower_limits : array-like, optional
+        Lower bounds for coefficients.
+    upper_limits : array-like, optional
+        Upper bounds for coefficients.
+        
+    Returns
+    -------
+    args : dict
+        Arguments for C++ function.
+    nulldev : float
+        Null deviance.
+    """
 
     
     X = design.X
@@ -277,6 +384,15 @@ def _elnet_wrapper_args(design,
     return _args, nulldev
 
 def _check_and_set_limits(spec, nvars):
+    """Check and set coefficient limits.
+    
+    Parameters
+    ----------
+    spec : ElNetSpec
+        Specification object.
+    nvars : int
+        Number of variables.
+    """
 
     lower_limits = np.asarray(spec.lower_limits)
     upper_limits = np.asarray(spec.upper_limits)
@@ -305,6 +421,22 @@ def _check_and_set_limits(spec, nvars):
     spec.lower_limits, spec.upper_limits = lower_limits, upper_limits
 
 def _check_and_set_vp(spec, nvars, exclude):
+    """Check and set penalty factors.
+    
+    Parameters
+    ----------
+    spec : ElNetSpec
+        Specification object.
+    nvars : int
+        Number of variables.
+    exclude : list
+        Variables to exclude.
+        
+    Returns
+    -------
+    exclude : list
+        Updated exclude list.
+    """
 
     penalty_factor = spec.penalty_factor
 
@@ -333,6 +465,18 @@ def _check_and_set_vp(spec, nvars, exclude):
     return exclude
 
 def _design_wrapper_args(design):
+    """Create design wrapper arguments for C++ function.
+    
+    Parameters
+    ----------
+    design : Design
+        Design matrix object.
+        
+    Returns
+    -------
+    dict
+        Arguments for C++ function.
+    """
     if not scipy.sparse.issparse(design.X):
         return {'x':design.X}
     else:
