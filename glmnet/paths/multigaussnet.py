@@ -14,8 +14,6 @@ from sklearn.utils import check_X_y
 from sklearn.metrics import (mean_squared_error,
                              mean_absolute_error)
 from .fastnet import MultiFastNetMixin
-from ..docstrings import (make_docstring,
-                          add_dataclass_docstring)
 
 from .._multigaussnet import multigaussnet as _dense
 from .._multigaussnet import spmultigaussnet as _sparse
@@ -24,17 +22,21 @@ from ..scoring import Scorer
 
 @dataclass
 class MultiClassFamily(object):
-    """
-    Family specification for multi-response regression.
-    """
+    """Family specification for multi-response regression."""
 
     def _default_scorers(self):
+        """Get default scorers for multi-response regression.
+        
+        Returns
+        -------
+        list
+            List of default scorers.
+        """
         return [mse_scorer, mae_scorer]
 
 @dataclass
 class MultiGaussNet(MultiFastNetMixin):
-    """
-    MultiGaussNet estimator for multi-response Gaussian regression using the FastNet path algorithm.
+    """MultiGaussNet estimator for multi-response Gaussian regression using the FastNet path algorithm.
 
     Parameters
     ----------
@@ -42,7 +44,7 @@ class MultiGaussNet(MultiFastNetMixin):
         Identifiers for response columns.
     offset_id : int, str, or list, optional
         Identifiers for offset columns.
-    standardize_response : bool, optional
+    standardize_response : bool, default=False
         Whether to standardize the response.
     """
 
@@ -58,8 +60,7 @@ class MultiGaussNet(MultiFastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape):
-        """
-        Extract fitted coefficients, intercepts, and related statistics for multi-response Gaussian models.
+        """Extract fitted coefficients, intercepts, and related statistics for multi-response Gaussian models.
 
         Parameters
         ----------
@@ -83,8 +84,7 @@ class MultiGaussNet(MultiFastNetMixin):
                         X,
                         y,
                         check=True):
-        """
-        Prepare and validate data arrays for multi-response Gaussian regression.
+        """Prepare and validate data arrays for multi-response Gaussian regression.
 
         Parameters
         ----------
@@ -92,7 +92,7 @@ class MultiGaussNet(MultiFastNetMixin):
             Feature matrix.
         y : array-like
             Target matrix.
-        check : bool, optional
+        check : bool, default=True
             Whether to check input validity.
 
         Returns
@@ -111,8 +111,7 @@ class MultiGaussNet(MultiFastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
-        """
-        Prepare arguments for the C++ backend wrapper for multi-response Gaussian regression.
+        """Prepare arguments for the C++ backend wrapper for multi-response Gaussian regression.
 
         Parameters
         ----------
@@ -159,18 +158,64 @@ class MultiGaussNet(MultiFastNetMixin):
     def _offset_predictions(self,
                             predictions,
                             offset):
+        """Add offset to predictions.
+        
+        Parameters
+        ----------
+        predictions : array-like
+            Predictions array.
+        offset : array-like
+            Offset array.
+            
+        Returns
+        -------
+        array-like
+            Predictions with offset added.
+        """
 
         return predictions + offset[:,None,:]
 
 # for CV scores
 
-def _MSE(y, y_hat, sample_weight): 
+def _MSE(y, y_hat, sample_weight):
+    """Compute mean squared error for multi-response data.
+    
+    Parameters
+    ----------
+    y : array-like
+        True values.
+    y_hat : array-like
+        Predicted values.
+    sample_weight : array-like
+        Sample weights.
+        
+    Returns
+    -------
+    float
+        Mean squared error.
+    """
     return (mean_squared_error(y,
                                y_hat,
                                sample_weight=sample_weight) *
             y_hat.shape[1])
 
-def _MAE(y, y_hat, sample_weight): 
+def _MAE(y, y_hat, sample_weight):
+    """Compute mean absolute error for multi-response data.
+    
+    Parameters
+    ----------
+    y : array-like
+        True values.
+    y_hat : array-like
+        Predicted values.
+    sample_weight : array-like
+        Sample weights.
+        
+    Returns
+    -------
+    float
+        Mean absolute error.
+    """
     return (mean_absolute_error(y,
                                 y_hat,
                                 sample_weight=sample_weight) *

@@ -5,8 +5,6 @@ import numpy as np
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
-from .docstrings import (add_dataclass_docstring,
-                         _docstrings)
 from .base import _get_design, DiagonalOperator
 from .scoring import (Scorer,
                       mae_scorer,
@@ -17,9 +15,15 @@ from .scoring import (Scorer,
                       ungrouped_mse_scorer,
                       ungrouped_mae_scorer)
 
-@add_dataclass_docstring
 @dataclass
 class GLMFamilySpec(object):
+    """Specification for GLM family and link function.
+    
+    Parameters
+    ----------
+    base : sm_family.Family, default=sm_family.Gaussian
+        The base family from statsmodels.
+    """
     
     base: sm_family.Family = field(default_factory=sm_family.Gaussian)
 
@@ -37,6 +41,20 @@ class GLMFamilySpec(object):
     @staticmethod
     def from_family(family,
                     response):
+        """Create GLMFamilySpec from family object.
+        
+        Parameters
+        ----------
+        family : sm_family.Family or GLMFamilySpec
+            Family object or specification.
+        response : array-like
+            Response variable (unused, kept for compatibility).
+            
+        Returns
+        -------
+        GLMFamilySpec
+            Family specification object.
+        """
         if isinstance(family, sm_family.Family):
             return GLMFamilySpec(base=family)
         elif isinstance(family, GLMFamilySpec):
@@ -45,22 +63,41 @@ class GLMFamilySpec(object):
 
     def link(self,
              mean_parameter):
+        """Apply link function to mean parameter.
+        
+        Parameters
+        ----------
+        mean_parameter : array-like
+            Mean parameter values.
+            
+        Returns
+        -------
+        array-like
+            Linear predictor values.
+        """
         mu = mean_parameter # shorthand
         return self.base.link(mu)
-    link.__doc__ = """
-Parameters
-----------
-{mean_parameter}
-
-Returns
--------
-{linear_predictor}
-""".format(**_docstrings).strip()
     
     def deviance(self,
                  response,
                  mean_parameter,
                  sample_weight=None):
+        """Compute deviance.
+        
+        Parameters
+        ----------
+        response : array-like
+            Response variable.
+        mean_parameter : array-like
+            Mean parameter values.
+        sample_weight : array-like, optional
+            Sample weights.
+            
+        Returns
+        -------
+        float
+            Deviance value.
+        """
         if sample_weight is not None:
             return self.base.deviance(response,
                                       mean_parameter,
@@ -68,23 +105,30 @@ Returns
         else:
             return self.base.deviance(response,
                                       mean_parameter)
-    deviance.__doc__ = '''
-Parameters
-----------
-
-{mean_parameter}
-{sample_weight}
-
-Returns
--------
-{deviance}
-    '''.format(**_docstrings).strip()
 
     def null_fit(self,
                  response,
                  fit_intercept=True,
                  sample_weight=None,
                  offset=None):
+        """Fit null model (intercept only).
+        
+        Parameters
+        ----------
+        response : array-like
+            Response variable.
+        fit_intercept : bool, default=True
+            Whether to fit intercept.
+        sample_weight : array-like, optional
+            Sample weights.
+        offset : array-like, optional
+            Offset values.
+            
+        Returns
+        -------
+        GLMState
+            Fitted null state of GLM.
+        """
 
         sample_weight = np.asarray(sample_weight)
         y = np.asarray(response)
@@ -129,26 +173,32 @@ Returns
             state.link_parameter = offset
             state.mean_parameter = self.base.link.inverse(state.link_parameter)
         return state
-    null_fit.__doc__ = '''
-Parameters
-----------
-
-{mean_parameter}
-{fit_intercept}
-{sample_weight}
-{offset}
-    
-Returns
--------
-null_state: GLMState
-    Fitted null state of GLM.
-    '''.format(**_docstrings).strip()
 
     def get_null_deviance(self,
                           response,
                           sample_weight=None,
                           offset=None,
                           fit_intercept=True):
+        """Get null deviance and state.
+        
+        Parameters
+        ----------
+        response : array-like
+            Response variable.
+        sample_weight : array-like, optional
+            Sample weights.
+        offset : array-like, optional
+            Offset values.
+        fit_intercept : bool, default=True
+            Whether to fit intercept.
+            
+        Returns
+        -------
+        null_state : GLMState
+            Fitted null state of GLM.
+        deviance : float
+            Null deviance value.
+        """
         state0 = self.null_fit(response,
                                fit_intercept=fit_intercept,
                                sample_weight=sample_weight,
@@ -158,27 +208,31 @@ null_state: GLMState
                           sample_weight=sample_weight)
         return state0, D
 
-    get_null_deviance.__doc__ = '''
-Parameters
-----------
-
-{mean_parameter}
-{fit_intercept}
-{sample_weight}
-{offset}
-    
-Returns
--------
-null_state: GLMState
-    Fitted null state of GLM.
-{deviance}
-    '''.format(**_docstrings).strip()
-
     def get_response_and_weights(self,
                                  state,
                                  response,
                                  offset,
                                  sample_weight):
+        """Get pseudo-response and weights for Newton step.
+        
+        Parameters
+        ----------
+        state : GLMState
+            State of GLM.
+        response : array-like
+            Response variable.
+        offset : array-like
+            Offset values.
+        sample_weight : array-like
+            Sample weights.
+            
+        Returns
+        -------
+        pseudo_response : np.ndarray
+            Pseudo-response for (quasi) Newton step.
+        newton_weights : np.ndarray
+            Weights to be used for diagonal in Newton step.
+        """
 
         y = response # shorthand
         family = self.base
@@ -197,29 +251,25 @@ null_state: GLMState
         pseudo_response = state.eta + (y - state.mu) / dmu_deta
 
         return pseudo_response, newton_weights
-        
-    get_response_and_weights.__doc__ = '''
-Parameters
-----------
-
-state: GLMState
-    State of GLM.
-{response}
-{offset}
-{sample_weight}
-    
-Returns
--------
-pseudo_response: np.ndarray
-    Pseudo-response for (quasi) Newton step.
-newton_weights: np.ndarray
-    Weights to be used for diagonal in Newton step.
-    
-    '''.format(**_docstrings).strip()
 
     def information(self,
                     state,
                     sample_weight=None):
+        """Compute information matrix.
+        
+        Parameters
+        ----------
+        state : GLMState
+            State of GLM.
+        sample_weight : array-like, optional
+            Sample weights.
+            
+        Returns
+        -------
+        information : DiagonalOperator
+            Diagonal information matrix of the response vector for
+            `state.mean_pararmeter`.
+        """
 
         family = self.base
 
@@ -239,26 +289,16 @@ newton_weights: np.ndarray
         n = W.shape[0]
         W = W.reshape(-1)
         return DiagonalOperator(W)
-    information.__doc__ = '''
-Parameters
-----------
-
-state: GLMState
-    State of GLM.
-{sample_weight}
-    
-Returns
--------
-information: DiagonalOperator
-    Diagonal information matrix of the response vector for
-    `state.mean_pararmeter`.  
-    '''.format(**_docstrings).strip()
 
     # Private methods
 
     def _default_scorers(self):
-        """
-        Construct default scorers for GLM.
+        """Construct default scorers for GLM.
+        
+        Returns
+        -------
+        list
+            List of default scorers.
         """
 
         fam_name = self.base.__class__.__name__
@@ -285,20 +325,44 @@ information: DiagonalOperator
     def _get_null_state(self,
                         null_fit,
                         nvars):
+        """Get null state for given number of variables.
+        
+        Parameters
+        ----------
+        null_fit : GLMState
+            Null fit state.
+        nvars : int
+            Number of variables.
+            
+        Returns
+        -------
+        GLMState
+            Null state with correct dimensions.
+        """
         coefold = np.zeros(nvars)   # initial coefs = 0
         state = GLMState(coef=coefold,
                          intercept=null_fit.intercept)
         state.mean_parameter = null_fit.mean_parameter
         state.link_parameter = null_fit.link_parameter
         return state
-    
-    def link(self,
-             responses):
-        return self.base.link(responses)
 
     def predict(self,
                 linpred,
                 prediction_type='response'):
+        """Make predictions.
+        
+        Parameters
+        ----------
+        linpred : array-like
+            Linear predictor values.
+        prediction_type : str, default='response'
+            Type of prediction ('response' or 'link').
+            
+        Returns
+        -------
+        array-like
+            Predictions.
+        """
 
         if prediction_type == 'link':
             return linpred
@@ -308,15 +372,35 @@ information: DiagonalOperator
             raise ValueError("prediction should be one of 'response' or 'link'")
 
 
-@add_dataclass_docstring
 @dataclass
 class BinomFamilySpec(GLMFamilySpec):
+    """Binomial family specification.
+    
+    Parameters
+    ----------
+    base : sm_family.Family, default=sm_family.Binomial
+        The base family from statsmodels.
+    """
 
     base: sm_family.Family = field(default_factory=sm_family.Binomial)
 
     def predict(self,
                 linpred,
                 prediction_type='response'):
+        """Make predictions for binomial family.
+        
+        Parameters
+        ----------
+        linpred : array-like
+            Linear predictor values.
+        prediction_type : str, default='response'
+            Type of prediction ('response', 'link', or 'class').
+            
+        Returns
+        -------
+        array-like
+            Predictions.
+        """
 
         if prediction_type == 'link':
             return linpred
@@ -332,6 +416,19 @@ class BinomFamilySpec(GLMFamilySpec):
 
 @dataclass
 class GLMState(object):
+    """State of GLM model.
+    
+    Parameters
+    ----------
+    coef : np.ndarray
+        Coefficient vector.
+    intercept : np.ndarray
+        Intercept value.
+    obj_val : float, default=np.inf
+        Objective function value.
+    pmin : float, default=1e-9
+        Minimum probability for binomial family.
+    """
 
     coef: np.ndarray
     intercept: np.ndarray
@@ -348,7 +445,19 @@ class GLMState(object):
                family,
                offset,
                objective=None):
-        '''pin the mu/eta values to coef/intercept'''
+        """Update state with new parameters.
+        
+        Parameters
+        ----------
+        design : Design
+            Design matrix.
+        family : GLMFamilySpec
+            Family specification.
+        offset : array-like, optional
+            Offset values.
+        objective : callable, optional
+            Objective function to evaluate.
+        """
 
         family = family.base
         self.linear_predictor = design @ self._stack
@@ -373,6 +482,22 @@ class GLMState(object):
                    family,
                    y,
                    sample_weight):
+        """Compute log-likelihood score.
+        
+        Parameters
+        ----------
+        family : GLMFamilySpec
+            Family specification.
+        y : array-like
+            Response variable.
+        sample_weight : array-like
+            Sample weights.
+            
+        Returns
+        -------
+        array-like
+            Score values.
+        """
 
         family = family.base
         varmu = family.variance(self.mu)
@@ -380,5 +505,5 @@ class GLMState(object):
         
         # compute working residual
         r = (y - self.mu) 
-        return sample_weight * r * dmu_deta / varmu 
+        return sample_weight * r * dmu_deta / varmu
 

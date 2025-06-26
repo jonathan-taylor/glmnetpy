@@ -1,7 +1,7 @@
 import logging
 import warnings
 
-from typing import Literal
+from typing import Literal, Optional
 from dataclasses import dataclass, field
    
 import numpy as np
@@ -9,8 +9,6 @@ import pandas as pd
 import scipy.sparse
 
 from .fastnet import FastNetMixin
-from ..docstrings import (make_docstring,
-                          add_dataclass_docstring)
 
 from .._gaussnet import gaussnet as _dense
 from .._gaussnet import spgaussnet as _sparse
@@ -22,16 +20,15 @@ Provides the GaussNet estimator class using the FastNetMixin base.
 
 @dataclass
 class GaussNet(FastNetMixin):
-    """
-    GaussNet estimator for Gaussian regression using the FastNet path algorithm.
+    """GaussNet estimator for Gaussian regression using the FastNet path algorithm.
 
     Parameters
     ----------
-    covariance : bool, optional
+    covariance : bool or None, optional
         Whether to use the covariance update (default: auto based on nvars).
     """
 
-    covariance : bool | None = None
+    covariance : Optional[bool] = None
 
     _dense = _dense
     _sparse = _sparse
@@ -41,8 +38,7 @@ class GaussNet(FastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape):
-        """
-        Extract fitted coefficients, intercepts, and related statistics for Gaussian models.
+        """Extract fitted coefficients, intercepts, and related statistics for Gaussian models.
 
         Parameters
         ----------
@@ -66,8 +62,7 @@ class GaussNet(FastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
-        """
-        Prepare arguments for the C++ backend wrapper for Gaussian regression.
+        """Prepare arguments for the C++ backend wrapper for Gaussian regression.
 
         Parameters
         ----------

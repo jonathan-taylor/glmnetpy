@@ -14,6 +14,27 @@ from .glm import GLMFamilySpec
 
 @dataclass
 class PathScorer(object):
+    """Scorer for path-based model evaluation.
+    
+    Parameters
+    ----------
+    data : tuple
+        Tuple of (response, original_y) data.
+    predictions : np.ndarray
+        Array of predictions for all lambda values.
+    family : GLMFamilySpec, optional
+        GLM family specification.
+    sample_weight : np.ndarray, optional
+        Sample weights.
+    splits : list, default_factory=list
+        List of test splits for cross-validation.
+    compute_std_error : bool, default=True
+        Whether to compute standard errors.
+    index : pd.Series, optional
+        Index for the lambda values.
+    complexity_order : str, default='increasing'
+        Order of complexity ('increasing' or 'decreasing').
+    """
 
     data: tuple
     predictions: np.ndarray
@@ -25,13 +46,25 @@ class PathScorer(object):
     complexity_order: str = 'increasing'
     
     def __post_init__(self):
-
+        """Initialize the PathScorer object."""
         if type(self.index) == np.ndarray:
             self.index = pd.Series(self.index,
                                    index=np.arange(self.index.shape[0]))
 
     def compute_scores(self,
                        scorers=[]):
+        """Compute cross-validation scores.
+        
+        Parameters
+        ----------
+        scorers : list, default=[]
+            List of scorers to use.
+            
+        Returns
+        -------
+        tuple
+            Tuple of (cv_scores, index_best, index_1se).
+        """
 
         self.scorers = list(set(scorers).union(self.family._default_scorers()))
 
@@ -74,6 +107,24 @@ class PathScorer(object):
                     sample_weight,
                     test_splits,
                     scorers):
+        """Get scores for all predictions and splits.
+        
+        Parameters
+        ----------
+        predictions : np.ndarray
+            Array of predictions.
+        sample_weight : np.ndarray
+            Sample weights.
+        test_splits : list
+            List of test splits.
+        scorers : list
+            List of scorers.
+            
+        Returns
+        -------
+        dict
+            Dictionary mapping scorers to score arrays.
+        """
 
         response, original_y = self.data
                                       
@@ -126,6 +177,48 @@ def plot(cv_scores,
          scatter_c='red',
          scatter_s=None,
          **plot_args):
+    """Plot cross-validation scores.
+    
+    Parameters
+    ----------
+    cv_scores : pd.DataFrame
+        Cross-validation scores.
+    index_best : pd.Series
+        Best lambda indices for each scorer.
+    index_1se : pd.Series
+        One standard error lambda indices for each scorer.
+    index : pd.Series, optional
+        Lambda values.
+    score : str, optional
+        Score to plot.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on.
+    capsize : int, default=3
+        Cap size for error bars.
+    legend : bool, default=False
+        Whether to show legend.
+    col_min : str, default='#909090'
+        Color for minimum line.
+    ls_min : str, default='--'
+        Line style for minimum line.
+    col_1se : str, default='#909090'
+        Color for one standard error line.
+    ls_1se : str, default='--'
+        Line style for one standard error line.
+    c : str, default='#c0c0c0'
+        Color for main line.
+    scatter_c : str, default='red'
+        Color for scatter points.
+    scatter_s : int, optional
+        Size of scatter points.
+    **plot_args
+        Additional plotting arguments.
+        
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes object.
+    """
 
     if score not in index_best:
         raise ValueError(f'Score "{score}" was not computed in the CV fit.')
@@ -192,6 +285,26 @@ def _tune(index,
           cv_scores,
           complexity_order=None,
           compute_std_error=True):
+    """Tune lambda selection based on cross-validation scores.
+    
+    Parameters
+    ----------
+    index : pd.Series
+        Lambda values.
+    scorers : list
+        List of scorers.
+    cv_scores : pd.DataFrame
+        Cross-validation scores.
+    complexity_order : str, optional
+        Order of complexity ('increasing' or 'decreasing').
+    compute_std_error : bool, default=True
+        Whether standard errors were computed.
+        
+    Returns
+    -------
+    tuple
+        Tuple of (index_best, index_1se).
+    """
 
     if (complexity_order is not None
         and complexity_order not in ['increasing', 'decreasing']):

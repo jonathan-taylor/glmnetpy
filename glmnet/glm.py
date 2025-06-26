@@ -28,26 +28,60 @@ from ._utils import (_parent_dataclass_from_child,
 from .base import (Design,
                    _get_design)
 
-from .docstrings import (make_docstring,
-                         add_dataclass_docstring,
-                         _docstrings)
 from .irls import IRLS
 from .family import (GLMFamilySpec,
                      BinomFamilySpec,
                      GLMState)
 
-@add_dataclass_docstring
+
 @dataclass
 class GLMControl(object):
-
+    """
+    Control parameters for GLM fitting.
+    
+    Parameters
+    ----------
+    mxitnr: int
+        Maximum number of quasi Newton iterations.
+    epsnr: float
+        Tolerance for quasi Newton iterations.
+    big: float
+        A large float, effectively `np.inf`.
+    logging: bool
+        Write info and debug messages to log?
+    """
     mxitnr: int = 25
     epsnr: float = 1e-6
     big: float = 9.9e35
     logging: bool = False
 
+
 @dataclass
 class GLMBaseSpec(object):
-
+    """
+    Base specification for GLM models.
+    
+    Parameters
+    ----------
+    family: GLMFamilySpec
+        Specification of one-parameter exponential family, includes some
+        additional methods.
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    control: GLMControl
+        Parameters to control the solver.
+    offset_id: Union[str,int]
+        Column identifier in `y`. (Optional)
+    weight_id: Union[str,int]
+        Weight identifier in `y`. (Optional)
+    response_id: Union[str,int]
+        Response identifier in `y`. (Optional)
+    exclude: list
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+    """
     family: GLMFamilySpec = field(default_factory=GLMFamilySpec)
     fit_intercept: bool = True
     standardize: bool = False
@@ -57,28 +91,55 @@ class GLMBaseSpec(object):
     response_id: Union[str,int] = None
     exclude: list = field(default_factory=list)
 
-add_dataclass_docstring(GLMBaseSpec, subs={'control':'control_glm'})
 
-@add_dataclass_docstring
 @dataclass
 class GLMResult(object):
-
+    """
+    Result object for GLM fitting.
+    
+    Parameters
+    ----------
+    family: GLMFamilySpec
+        Specification of one-parameter exponential family, includes some
+        additional methods.
+    offset: bool
+        Whether offset was used in fitting.
+    converged: bool
+        Did the algorithm converge?
+    boundary: bool
+        Was backtracking required due to getting near boundary of valid mean / natural parameters.
+    obj_function: float
+        Value of objective function (deviance + penalty).
+    """
     family: GLMFamilySpec
     offset: bool
     converged: bool
     boundary: bool
     obj_function: float
 
+
 @dataclass
 class GLMState(object):
-
+    """
+    State object for GLM fitting.
+    
+    Parameters
+    ----------
+    coef: np.ndarray
+        Coefficient vector.
+    intercept: np.ndarray
+        Intercept value.
+    obj_val: float
+        Current objective value.
+    pmin: float
+        Minimum probability for binomial family.
+    """
     coef: np.ndarray
     intercept: np.ndarray
     obj_val: float = np.inf
     pmin: float = 1e-9
     
     def __post_init__(self):
-
         self._stack = np.hstack([self.intercept,
                                  self.coef])
 
@@ -87,8 +148,20 @@ class GLMState(object):
                family,
                offset,
                objective=None):
-        '''pin the mu/eta values to coef/intercept'''
-
+        """
+        Update the state with new design matrix and family.
+        
+        Parameters
+        ----------
+        design: Design
+            Design matrix.
+        family: GLMFamilySpec
+            GLM family specification.
+        offset: np.ndarray, optional
+            Offset vector.
+        objective: callable, optional
+            Objective function to evaluate.
+        """
         _family = family.base
         self.linear_predictor = design @ self._stack
         if offset is None:
@@ -112,7 +185,23 @@ class GLMState(object):
                    family,
                    y,
                    sample_weight):
-
+        """
+        Compute the score (gradient of log-likelihood).
+        
+        Parameters
+        ----------
+        family: GLMFamilySpec
+            GLM family specification.
+        y: np.ndarray
+            Response variable.
+        sample_weight: np.ndarray
+            Sample weights.
+            
+        Returns
+        -------
+        np.ndarray
+            Score vector.
+        """
         family = family.base
         varmu = family.variance(self.mu)
         dmu_deta = family.link.inverse_deriv(self.link_parameter)
@@ -121,6 +210,7 @@ class GLMState(object):
         y = np.asarray(y).reshape(-1)
         r = (y - self.mu) 
         return sample_weight * r * dmu_deta / varmu 
+
 
 def compute_grad(glm_obj,
                  intercept,
@@ -132,7 +222,37 @@ def compute_grad(glm_obj,
                  scaled_output=False,
                  sample_weight=None,
                  norm_weights=False):
-
+    """
+    Compute gradient for GLM fitting.
+    
+    Parameters
+    ----------
+    glm_obj: GLMBase
+        GLM object.
+    intercept: float
+        Intercept value.
+    coef: np.ndarray
+        Coefficient vector.
+    design: Design
+        Design matrix.
+    response: np.ndarray
+        Response variable.
+    offset: np.ndarray, optional
+        Offset vector.
+    scaled_input: bool
+        Whether input is already scaled.
+    scaled_output: bool
+        Whether to return scaled output.
+    sample_weight: np.ndarray, optional
+        Sample weights.
+    norm_weights: bool
+        Whether to normalize weights.
+        
+    Returns
+    -------
+    tuple
+        (score, saturated_score)
+    """
     family = glm_obj._family
 
     if sample_weight is None:
@@ -166,9 +286,23 @@ def compute_grad(glm_obj,
 
     return score, saturated_score
 
+
 @dataclass
 class GLMRegularizer(object):
-
+    """
+    Regularizer for GLM fitting.
+    
+    Parameters
+    ----------
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    warm_state: dict
+        Warm start state.
+    ridge_coef: float
+        Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
+    """
     fit_intercept: bool = False
     standardize: bool = False
     warm_state: dict = field(default_factory=dict)
@@ -177,16 +311,45 @@ class GLMRegularizer(object):
     def half_step(self,
                   state,
                   oldstate):
+        """
+        Compute half step between two states.
+        
+        Parameters
+        ----------
+        state: GLMState
+            Current state.
+        oldstate: GLMState
+            Previous state.
+            
+        Returns
+        -------
+        GLMState
+            Half step state.
+        """
         klass = oldstate.__class__
         return klass(0.5 * (oldstate.coef + state.coef),
                      0.5 * (oldstate.intercept + state.intercept))
 
     def _debug_msg(self,
                    state):
+        """Return debug message for state."""
         return f'Coef: {state.coef}, Intercept: {state.intercept}, Objective: {state.obj_val}'
 
     def check_state(self,
                     state):
+        """
+        Check state for validity.
+        
+        Parameters
+        ----------
+        state: GLMState
+            State to check.
+            
+        Raises
+        ------
+        ValueError
+            If state contains NaN values.
+        """
         if np.any(np.isnan(state.coef)):
             raise ValueError('coef has NaNs')
         if np.isnan(state.intercept):
@@ -196,8 +359,27 @@ class GLMRegularizer(object):
                     design,
                     pseudo_response,
                     sample_weight,
-                    cur_state):   # ignored for GLM
-
+                    cur_state):
+        """
+        Perform Newton step for GLM fitting.
+        
+        Parameters
+        ----------
+        design: Design
+            Design matrix.
+        pseudo_response: np.ndarray
+            Pseudo response for IRLS.
+        sample_weight: np.ndarray
+            Sample weights.
+        cur_state: GLMState
+            Current state.
+            
+        Returns
+        -------
+        GLMState
+            Updated state.
+        """
+        # ignored for GLM
         z = pseudo_response
         w = sample_weight
 
@@ -262,28 +444,114 @@ class GLMRegularizer(object):
         return self.warm_state
 
     def objective(self, state):
+        """
+        Compute objective value.
+        
+        Parameters
+        ----------
+        state: GLMState
+            Current state.
+            
+        Returns
+        -------
+        float
+            Objective value (0 for GLM).
+        """
         return 0
 
-add_dataclass_docstring(GLMRegularizer, subs={'warm_state':'warm_state'})
-# end of GLMRegularizer
 
 @dataclass
 class GLMBase(BaseEstimator,
               GLMBaseSpec):
+    """
+    Base class for GLM models.
+    
+    Parameters
+    ----------
+    family: GLMFamilySpec
+        Specification of one-parameter exponential family, includes some
+        additional methods.
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    control: GLMControl
+        Parameters to control the solver.
+    offset_id: Union[str,int]
+        Column identifier in `y`. (Optional)
+    weight_id: Union[str,int]
+        Weight identifier in `y`. (Optional)
+    response_id: Union[str,int]
+        Response identifier in `y`. (Optional)
+    exclude: list
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+    """
 
     def _get_regularizer(self,
                          nvars=None):
+        """
+        Get regularizer for fitting.
+        
+        Parameters
+        ----------
+        nvars: int, optional
+            Number of variables.
+            
+        Returns
+        -------
+        GLMRegularizer
+            Regularizer instance.
+        """
         return GLMRegularizer(fit_intercept=self.fit_intercept)
 
     def _get_design(self,
                     X,
                     sample_weight):
+        """
+        Get design matrix.
+        
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        sample_weight: Optional[np.ndarray]
+            Sample weights.
+            
+        Returns
+        -------
+        Design
+            Design matrix.
+        """
         return _get_design(X,
                            sample_weight,
                            standardize=self.standardize,
                            intercept=self.fit_intercept)
 
     def get_data_arrays(self, X, y, check=True):
+        """
+        Get data arrays for fitting.
+        
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        check: bool
+            Run the `_check` method to validate `(X,y)`.
+            
+        Returns
+        -------
+        tuple
+            (X, y, response, offset, weight)
+        """
         return _get_data(self,
                          X,
                          y,
@@ -291,6 +559,7 @@ class GLMBase(BaseEstimator,
                          response_id=self.response_id,
                          weight_id=self.weight_id,
                          check=check)
+    
     def fit(self,
             X,
             y,
@@ -300,7 +569,37 @@ class GLMBase(BaseEstimator,
             dispersion=None,
             check=True,
             fit_null=True):
+        """
+        Fit a GLM.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        sample_weight: Optional[np.ndarray]
+            Sample weights.
+        regularizer: GLMRegularizer, optional
+            Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
+        warm_state: GLMState, optional
+            Warm start state.
+        dispersion: float, optional
+            Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
+            minimized deviance divided by degrees of freedom.
+        check: bool
+            Run the `_check` method to validate `(X,y)`.
+        fit_null: bool
+            Whether to fit null model.
+    
+        Returns
+        -------
+        self: object
+            GLM class instance.
+        """
         nobs, nvar = X.shape
         
         if isinstance(X, pd.DataFrame):
@@ -424,107 +723,137 @@ class GLMBase(BaseEstimator,
 
         self.state_ = state
         return self
-    fit.__doc__ = '''
-Fit a GLM.
-
-Parameters
-----------
-
-{X}
-{y}
-{weights}
-{summarize}
-    
-Returns
--------
-
-self: object
-        GLM class instance.
-        '''.format(**_docstrings)
     
     def predict(self, X, prediction_type='response'):
+        """
+        Predict outcome of corresponding family.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        prediction_type: str
+            One of "response" or "link". If "response" return a prediction on the mean scale,
+            "link" on the link scale. Defaults to "response".
+
+        Returns
+        -------
+        prediction: np.ndarray
+            Predictions on the mean scale for family of a GLM.
+        """
         linpred = X @ self.coef_ + self.intercept_ # often called eta
         return self._family.predict(linpred, prediction_type=prediction_type)
 
-    predict.__doc__ = '''
-Predict outcome of corresponding family.
-
-Parameters
-----------
-
-{X}
-{prediction_type}
-
-Returns
--------
-
-{prediction}'''.format(**_docstrings).strip()
-
     def score(self, X, y, sample_weight=None):
+        """
+        Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
+        default to `np.ones_like(y) / y.shape[0]`.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        sample_weight: Optional[np.ndarray]
+            Sample weights.    
+
+        Returns
+        -------
+        score: float
+            Deviance of family for `(X, y, sample_weight)`.
+        """
         mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
             sample_weight = np.ones_like(y)
         return -self._family.deviance(y, mu, sample_weight) / 2 # GLM specific
-    score.__doc__ = '''
-Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
-default to `np.ones_like(y) / y.shape[0]`.
-
-Parameters
-----------
-
-{X}
-{y}
-{sample_weight}    
-
-Returns
--------
-
-score: float
-    Deviance of family for `(X, y, sample_weight)`.
-'''.format(**_docstrings).strip()
 
     def _set_coef_intercept(self, state):
+        """
+        Set coefficients and intercept from state.
+        
+        Parameters
+        ----------
+        state: GLMState
+            State containing coefficients and intercept.
+        """
         raw_state = self.design_.scaled_to_raw(state)
         self.coef_ = raw_state.coef
         self.intercept_ = raw_state.intercept
 
-GLMBase.__doc__ = '''
-Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
-
-Parameters
-----------
-{fit_intercept}
-{summarize}
-{family}
-{control_glm}
-
-Attributes
-__________
-{coef_}
-{intercept_}
-{summary_}
-{covariance_}
-{null_deviance_}
-{deviance_}
-{dispersion_}
-{regularizer_}
-'''.format(**_docstrings)
 
 @dataclass
 class GLM(GLMBase):
-
+    """
+    Generalized Linear Model.
+    
+    Parameters
+    ----------
+    family: GLMFamilySpec
+        Specification of one-parameter exponential family, includes some
+        additional methods.
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    control: GLMControl
+        Parameters to control the solver.
+    offset_id: Union[str,int]
+        Column identifier in `y`. (Optional)
+    weight_id: Union[str,int]
+        Weight identifier in `y`. (Optional)
+    response_id: Union[str,int]
+        Response identifier in `y`. (Optional)
+    exclude: list
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+    summarize: bool
+        Compute a Wald-type statistical summary from fitted GLM.
+    ridge_coef: float
+        Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
+    """
     summarize: bool = False
     ridge_coef: float = 0
 
     def _get_regularizer(self,
                          nvars=None):
+        """
+        Get regularizer for fitting.
+        
+        Parameters
+        ----------
+        nvars: int, optional
+            Number of variables.
+            
+        Returns
+        -------
+        GLMRegularizer
+            Regularizer instance.
+        """
         return GLMRegularizer(fit_intercept=self.fit_intercept,
                               ridge_coef=self.ridge_coef)
 
     def _finalize_family(self,
                          response):
+        """
+        Finalize family specification.
+        
+        Parameters
+        ----------
+        response: np.ndarray
+            Response variable.
+            
+        Returns
+        -------
+        GLMFamilySpec
+            Family specification.
+        """
         if not hasattr(self, "_family"):
             return GLMFamilySpec.from_family(self.family, response)
 
@@ -536,7 +865,35 @@ class GLM(GLMBase):
             warm_state=None,
             dispersion=1,
             check=True):
+        """
+        Fit a GLM.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        sample_weight: Optional[np.ndarray]
+            Sample weights.
+        regularizer: GLMRegularizer, optional
+            Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
+        warm_state: GLMState, optional
+            Warm start state.
+        dispersion: float
+            Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
+            minimized deviance divided by degrees of freedom.
+        check: bool
+            Run the `_check` method to validate `(X,y)`.
+
+        Returns
+        -------
+        self: object
+            GLM class instance.
+        """
         super().fit(X,
                     y,
                     sample_weight=sample_weight,
@@ -562,7 +919,25 @@ class GLM(GLMBase):
                    dispersion,
                    sample_weight,
                    X_shape):
-
+        """
+        Compute summary statistics.
+        
+        Parameters
+        ----------
+        exclude: list
+            Indices of variables to exclude.
+        dispersion: float
+            Dispersion parameter.
+        sample_weight: np.ndarray
+            Sample weights.
+        X_shape: tuple
+            Shape of design matrix.
+            
+        Returns
+        -------
+        tuple
+            (covariance_, summary_)
+        """
         if self.ridge_coef != 0:
             warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
 
@@ -613,49 +988,93 @@ class GLM(GLMBase):
                                      'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
                                     index=index)
         return covariance_, summary_
-        
-GLM.__doc__ = '''
-Base class to fit a Generalized Linear Model (GLM). Base class for `GLMNet`.
 
-Parameters
-----------
-{family}
-{fit_intercept}
-{control_glm}
-{response_id}
-{weight_id}
-{offset_id}
-{exclude}
 
-Notes
------
-
-This is a test
-
-Attributes
-----------
-
-{coef_}
-{intercept_}
-{regularizer_}
-{null_deviance_}
-{deviance_}
-{dispersion_}
-{summary_}
-{covariance_}
-'''.format(**_docstrings)
-   
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
+    """
+    Gaussian GLM for regression.
+    
+    Parameters
+    ----------
+    family: GLMFamilySpec
+        Specification of one-parameter exponential family, includes some
+        additional methods.
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    control: GLMControl
+        Parameters to control the solver.
+    offset_id: Union[str,int]
+        Column identifier in `y`. (Optional)
+    weight_id: Union[str,int]
+        Weight identifier in `y`. (Optional)
+    response_id: Union[str,int]
+        Response identifier in `y`. (Optional)
+    exclude: list
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+    summarize: bool
+        Compute a Wald-type statistical summary from fitted GLM.
+    ridge_coef: float
+        Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
+    """
     pass
+
 
 @dataclass
 class BinomialGLM(ClassifierMixin, GLM):
-
+    """
+    Binomial GLM for classification.
+    
+    Parameters
+    ----------
+    family: BinomFamilySpec
+        Specification of binomial family.
+    fit_intercept: bool
+        Should intercept be fitted (default=True) or set to zero (False)?
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    control: GLMControl
+        Parameters to control the solver.
+    offset_id: Union[str,int]
+        Column identifier in `y`. (Optional)
+    weight_id: Union[str,int]
+        Weight identifier in `y`. (Optional)
+    response_id: Union[str,int]
+        Response identifier in `y`. (Optional)
+    exclude: list
+        Indices of variables to be excluded from the model. Default is
+        `[]`. Equivalent to an infinite penalty factor.
+    summarize: bool
+        Compute a Wald-type statistical summary from fitted GLM.
+    ridge_coef: float
+        Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
+    """
     family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
     def get_data_arrays(self, X, y, check=True):
+        """
+        Get data arrays for fitting.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        check: bool
+            Run the `_check` method to validate `(X,y)`.
+
+        Returns
+        -------
+        tuple
+            (X, y, labels, offset, weight)
+        """
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = LabelEncoder()
         labels = np.asfortranarray(encoder.fit_transform(response))
@@ -666,6 +1085,19 @@ class BinomialGLM(ClassifierMixin, GLM):
 
     def _finalize_family(self,
                          response):
+        """
+        Finalize family specification.
+        
+        Parameters
+        ----------
+        response: np.ndarray
+            Response variable.
+            
+        Returns
+        -------
+        GLMFamilySpec
+            Family specification.
+        """
         if not hasattr(self, "_family"):
             _family = GLMFamilySpec.from_family(self.family, response)
             if not _family.is_binomial:
@@ -682,7 +1114,35 @@ class BinomialGLM(ClassifierMixin, GLM):
             warm_state=None,
             dispersion=1,
             check=True):
+        """
+        Fit a Binomial GLM.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        y: np.ndarray
+            Response variable.
+        sample_weight: Optional[np.ndarray]
+            Sample weights.
+        regularizer: GLMRegularizer, optional
+            Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
+        warm_state: GLMState, optional
+            Warm start state.
+        dispersion: float
+            Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
+            minimized deviance divided by degrees of freedom.
+        check: bool
+            Run the `_check` method to validate `(X,y)`.
+
+        Returns
+        -------
+        self: object
+            BinomialGLM class instance.
+        """
         self._family = self._finalize_family(response=y)
 
         return super().fit(X,
@@ -694,7 +1154,25 @@ class BinomialGLM(ClassifierMixin, GLM):
                            check=check)
 
     def predict(self, X, prediction_type='class'):
+        """
+        Predict outcome of corresponding family.
 
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized.  If it is not a sparse matrix, a copy is made and
+            standardized.
+        prediction_type: str
+            One of "response", "link" or "class". If "response" return a prediction on the mean scale,
+            "link" on the link scale, and "class" as a class label. Defaults to "class".
+
+        Returns
+        -------
+        prediction: np.ndarray
+            Predictions on the mean scale for family of a GLM.
+        """
         linpred = X @ self.coef_ + self.intercept_ # often called eta
         pred = self._family.predict(linpred,
                                     prediction_type=prediction_type)
@@ -702,24 +1180,8 @@ class BinomialGLM(ClassifierMixin, GLM):
             pred = self._classes[pred]
         return pred
 
-    predict.__doc__ = '''
-Predict outcome of corresponding family.
-
-Parameters
-----------
-
-{X}
-{prediction_type_binomial}
-
-Returns
--------
-
-{prediction}'''.format(**_docstrings).strip()
-
     def predict_proba(self, X):
-
-        '''
-
+        """
         Probability estimates for a BinomialGLM.
 
         Parameters
@@ -734,8 +1196,7 @@ Returns
             Returns the probability of the sample for each class in the model,
             where classes are ordered as they are in ``self.classes_``.
  
-        '''
-
+        """
         prob_1 = self.predict(X, prediction_type='response')
         result = np.empty((prob_1.shape[0], 2))
         result[:,1] = prob_1

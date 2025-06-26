@@ -6,16 +6,28 @@ import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator
 
-from .docstrings import add_dataclass_docstring
 
-@add_dataclass_docstring
 @dataclass
 class Design(LinearOperator):
-
     """
     Linear map representing multiply with [1,X] and its transpose.
+    
+    Parameters
+    ----------
+    X: Union[np.ndarray, scipy.sparse.csc_array]
+        Input matrix, of shape `(nobs, nvars)`; each row is an observation
+        vector. If it is a sparse matrix, it is assumed to be
+        unstandardized.  If it is not a sparse matrix, a copy is made and
+        standardized.
+    weights: Optional[np.ndarray]
+        Observation weights. These are not standardized in the fit.
+    dtype: np.dtype
+        The dtype for Design as a LinearOperator.
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    intercept: bool
+        For a Design, is there an intercept?
     """
-
     X: Union[np.ndarray, scipy.sparse.csc_array]
     weights: Optional[np.ndarray] = None
     dtype: np.dtype = float
@@ -23,7 +35,16 @@ class Design(LinearOperator):
     intercept: InitVar[bool] = True
 
     def __post_init__(self, standardize, intercept):
-
+        """
+        Initialize the Design matrix after creation.
+        
+        Parameters
+        ----------
+        standardize: bool
+            Whether to standardize the columns.
+        intercept: bool
+            Whether to include an intercept.
+        """
         self.shape = (self.X.shape[0], self.X.shape[1]+1)
         n = self.shape[0]
 
@@ -62,6 +83,19 @@ class Design(LinearOperator):
     # LinearOperator API
 
     def _matvec(self, x):
+        """
+        Matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        x: np.ndarray
+            Input vector.
+            
+        Returns
+        -------
+        np.ndarray
+            Result of matrix-vector multiplication.
+        """
         intercept = x[0]
         coef = x[1:]
         
@@ -80,7 +114,19 @@ class Design(LinearOperator):
         return prod_
 
     def _rmatvec(self, r):
-
+        """
+        Transpose matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        r: np.ndarray
+            Input vector.
+            
+        Returns
+        -------
+        np.ndarray
+            Result of transpose matrix-vector multiplication.
+        """
         X = self.X
         if scipy.sparse.issparse(X):
             xm, xs = self.centers_, self.scaling_
@@ -101,23 +147,37 @@ class Design(LinearOperator):
                        G=None,
                        columns=None,
                        transformed=False):
-        '''
+        """
+        Compute quadratic form.
+        
         if transformed is False: compute
-
+        
         [1 X]'G[1 X[:,E]]
-
+        
         if transformed is True: compute
-
+        
         A'GA[:,E]
-
+        
         where A is the effective matrix
-
+        
         [1, XS^{-1} - 1 (xm/xs)']
-
+        
         and E is a subset of columns
-
-        '''
-
+        
+        Parameters
+        ----------
+        G: np.ndarray, optional
+            Matrix for quadratic form.
+        columns: slice or array, optional
+            Subset of columns to use.
+        transformed: bool
+            Whether to use transformed coordinates.
+            
+        Returns
+        -------
+        np.ndarray
+            Quadratic form matrix.
+        """
         # A is effective matrix
         # A = XS^{-1} - 1 (xm/xs)' = (X - 1 xm')S^{-1}
         # GA = G(X - 1 xm')S^{-1}
@@ -198,7 +258,22 @@ class Design(LinearOperator):
                       intercept=None):
         """
         Take a "scaled" (intercept, coef) (these are the params
-        used by glmnet) and return a (intercept, coef) on "raw" scale.
+        that GLMNet uses in its objective) and return a (intercept, coef)
+        on "raw" scale (i.e. the scale of the original data).
+        
+        Parameters
+        ----------
+        state: GLMState, optional
+            State object containing coefficients and intercept.
+        coef: np.ndarray, optional
+            Coefficient vector.
+        intercept: float, optional
+            Intercept value.
+            
+        Returns
+        -------
+        tuple or GLMState
+            Raw scale coefficients and intercept.
         """
         if coef is not None or intercept is not None:
             if coef is None:
@@ -211,7 +286,7 @@ class Design(LinearOperator):
         else:
             raise ValueError("must specify (coef, intercept) or a state")
 
-        unscaled = self.unscaler_ @ state._stack
+        unscaled = self.unscaler_ @ _stack
         coef = unscaled[1:]
         intercept = unscaled[0]
         if state is not None:
@@ -228,6 +303,20 @@ class Design(LinearOperator):
         """
         Take a "raw" (intercept, coef) and return a (intercept, coef)
         on "scaled" scale (i.e. the scale GLMnet uses in its objective).
+        
+        Parameters
+        ----------
+        state: GLMState, optional
+            State object containing coefficients and intercept.
+        coef: np.ndarray, optional
+            Coefficient vector.
+        intercept: float, optional
+            Intercept value.
+            
+        Returns
+        -------
+        tuple or GLMState
+            Scaled coefficients and intercept.
         """
         if coef is not None or intercept is not None:
             if coef is None:
@@ -249,20 +338,43 @@ class Design(LinearOperator):
         else:
             return (intercept, coef)
 
+
 @dataclass
 class UnscaleOperator(LinearOperator):
-
+    """
+    Linear operator for unscaling coefficients.
+    
+    Parameters
+    ----------
+    scaling: np.ndarray
+        Scaling factors.
+    centers: np.ndarray
+        Centering factors.
+    """
     scaling : np.ndarray
     centers: np.ndarray
 
     def __post_init__(self):
+        """Initialize the operator after creation."""
         ncoef = self.scaling.shape[0]
         self.shape = (ncoef+1,)*2
         self.dtype = float
 
     # LinearOperator API
     def _matvec(self, stacked):
-
+        """
+        Matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        stacked: np.ndarray
+            Input vector [intercept, coef].
+            
+        Returns
+        -------
+        np.ndarray
+            Unscaled coefficients.
+        """
         intercept = float(stacked[0])
         coef = np.squeeze(stacked[1:])
 
@@ -273,7 +385,19 @@ class UnscaleOperator(LinearOperator):
         return result
 
     def _rmatvec(self, stacked):
-
+        """
+        Transpose matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        stacked: np.ndarray
+            Input vector [intercept, coef].
+            
+        Returns
+        -------
+        np.ndarray
+            Result of transpose multiplication.
+        """
         intercept = float(stacked[0])
         coef = np.squeeze(stacked[1:])
 
@@ -284,20 +408,43 @@ class UnscaleOperator(LinearOperator):
 
         return result
 
+
 @dataclass
 class ScaleOperator(LinearOperator):
-
+    """
+    Linear operator for scaling coefficients.
+    
+    Parameters
+    ----------
+    scaling: np.ndarray
+        Scaling factors.
+    centers: np.ndarray
+        Centering factors.
+    """
     scaling : np.ndarray
     centers: np.ndarray
 
     def __post_init__(self):
+        """Initialize the operator after creation."""
         ncoef = self.scaling.shape[0]
         self.shape = (ncoef+1,)*2
         self.dtype = float
 
     # LinearOperator API
     def _matvec(self, stacked):
-
+        """
+        Matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        stacked: np.ndarray
+            Input vector [intercept, coef].
+            
+        Returns
+        -------
+        np.ndarray
+            Scaled coefficients.
+        """
         intercept = float(stacked[0])
         coef = np.squeeze(stacked[1:])
 
@@ -308,7 +455,19 @@ class ScaleOperator(LinearOperator):
         return result
 
     def _rmatvec(self, stacked):
-
+        """
+        Transpose matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        stacked: np.ndarray
+            Input vector [intercept, coef].
+            
+        Returns
+        -------
+        np.ndarray
+            Result of transpose multiplication.
+        """
         intercept = float(stacked[0])
         coef = np.squeeze(stacked[1:])
 
@@ -318,37 +477,90 @@ class ScaleOperator(LinearOperator):
         result[1:] += intercept * self.centers
 
         return result
-    
-@add_dataclass_docstring
+
+
 @dataclass
 class DiagonalOperator(LinearOperator):
-
-    """LinearOperator implementing multiplication by a diagonal matrix.
+    """
+    LinearOperator implementing multiplication by a diagonal matrix.
 
     >>> x = np.array([3,4,5])
     >>> D = DiagonalOperator([1,2,3])
     >>> D @ x
     array([ 3,  8, 15])
+    
+    Parameters
+    ----------
+    weights: np.ndarray
+        Diagonal elements of the matrix.
     """
-
     weights: np.ndarray
 
     def __post_init__(self):
+        """Initialize the operator after creation."""
         self.weights = np.asarray(self.weights).reshape(-1)
         n = self.weights.shape[0]
         self.shape = (n, n)
 
     def _matvec(self, arg):
+        """
+        Matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        arg: np.ndarray
+            Input vector.
+            
+        Returns
+        -------
+        np.ndarray
+            Result of multiplication.
+        """
         return self.weights * arg.reshape(-1)
 
     def _adjoint(self, arg):
+        """
+        Adjoint (transpose) matrix-vector multiplication.
+        
+        Parameters
+        ----------
+        arg: np.ndarray
+            Input vector.
+            
+        Returns
+        -------
+        np.ndarray
+            Result of adjoint multiplication.
+        """
         return self._matvec(arg)
-    
+
 
 def _get_design(X,
                 sample_weight,
                 standardize=False,
                 intercept=True):
+    """
+    Get a Design matrix.
+    
+    Parameters
+    ----------
+    X: Union[np.ndarray, scipy.sparse, DesignSpec]
+        Input matrix, of shape `(nobs, nvars)`; each row is an observation
+        vector. If it is a sparse matrix, it is assumed to be
+        unstandardized.  If it is not a sparse matrix, a copy is made and
+        standardized.
+    sample_weight: Optional[np.ndarray]
+        Sample weights.
+    standardize: bool
+        Standardize columns of X according to weights? Default is False.
+    intercept: bool
+        For a Design, is there an intercept?
+        
+    Returns
+    -------
+    Design
+        Design matrix.
+    """
     if isinstance(X, Design):
         return X
     else:
@@ -359,17 +571,58 @@ def _get_design(X,
                       standardize=standardize,
                       intercept=intercept)
 
-@add_dataclass_docstring
+
 @dataclass
 class Base(object):
+    """
+    Base class for data containers.
     
+    Parameters
+    ----------
+    X: Union[np.ndarray, scipy.sparse.csc_array, Design]
+        Input matrix, of shape `(nobs, nvars)`; each row is an observation
+        vector. If it is a sparse matrix, it is assumed to be
+        unstandardized.  If it is not a sparse matrix, a copy is made and
+        standardized.
+    y: np.ndarray
+        Response variable.
+    """
     X: Union[np.ndarray, scipy.sparse.csc_array, Design]
     y : np.ndarray
 
-@add_dataclass_docstring
+
 @dataclass
 class Penalty(object):
+    """
+    Base class for penalty functions.
     
+    Parameters
+    ----------
+    lambda_val: float
+        A single value for the `lambda` hyperparameter.
+    alpha: float
+        The elasticnet mixing parameter in [0,1]. The penalty is
+        defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
+        `alpha=1` is the lasso penalty, and `alpha=0` the ridge
+        penalty. Defaults to 1.
+    lower_limits: float
+        Vector of lower limits for each coefficient; default
+        `-np.inf`. Each of these must be non-positive. Can be
+        presented as a single value (which will then be replicated),
+        else a vector of length `nvars`.
+    upper_limits: float
+        Vector of upper limits for each coefficient; default
+        `np.inf`. See `lower_limits`.
+    penalty_factor: Optional[Union[float, np.ndarray]]
+        Separate penalty factors can be applied to each
+        coefficient. This is a number that multiplies `lambda_val` to
+        allow differential shrinkage. Can be 0 for some variables,
+        which implies no shrinkage, and that variable is always
+        included in the model. Default is 1 for all variables (and
+        implicitly infinity for variables listed in `exclude`). Note:
+        the penalty factors are internally rescaled to sum to
+        `nvars=X.shape[1]`.
+    """
     lambda_val : float
     alpha: float = 1.0
     lower_limits: float = -np.inf
@@ -377,12 +630,23 @@ class Penalty(object):
     penalty_factor: Optional[Union[float, np.ndarray]] = None
 
     def penalty(self, coef):
-
-        if np.any(coef < self.lower_limits - 1e-3) or np.any(self > self.upper_limits + 1e-3):
+        """
+        Compute penalty value.
+        
+        Parameters
+        ----------
+        coef: np.ndarray
+            Coefficient vector.
+            
+        Returns
+        -------
+        float
+            Penalty value.
+        """
+        if np.any(coef < self.lower_limits - 1e-3) or np.any(coef > self.upper_limits + 1e-3):
             return np.inf
         val = self.lambda_val * (
             self.alpha * (self.penalty_factor * np.fabs(coef)).sum() + 
             (1 - self.alpha) * np.linalg.norm(coef)**2)
         return val
-
     
