@@ -15,8 +15,6 @@ from sklearn.metrics import (accuracy_score,
                              log_loss)
 
 from .fastnet import MultiFastNetMixin
-from ..docstrings import (make_docstring,
-                          add_dataclass_docstring)
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -25,30 +23,33 @@ from ..scoring import Scorer
 
 @dataclass
 class MultiClassFamily(object):
-    """
-    Family specification for multinomial classification.
-    """
+    """Family specification for multinomial classification."""
 
     def _default_scorers(self):
-
+        """Get default scorers for multinomial classification.
+        
+        Returns
+        -------
+        list
+            List of default scorers.
+        """
         return [accuracy_scorer,
                 misclass_scorer,
                 deviance_scorer]
 
 @dataclass
 class MultiClassNet(MultiFastNetMixin):
-    """
-    MultiClassNet estimator for multinomial classification using the FastNet path algorithm.
+    """MultiClassNet estimator for multinomial classification using the FastNet path algorithm.
 
     Parameters
     ----------
-    standardize_response : bool, optional
+    standardize_response : bool, default=False
         Whether to standardize the response.
-    grouped : bool, optional
+    grouped : bool, default=False
         Whether to use grouped multinomial loss.
-    univariate_beta : bool, optional
+    univariate_beta : bool, default=True
         Whether to use univariate beta updates.
-    type_logistic : {'Newton', 'modified_Newton'}, optional
+    type_logistic : {'Newton', 'modified_Newton'}, default='Newton'
         Type of logistic solver.
     """
 
@@ -64,14 +65,13 @@ class MultiClassNet(MultiFastNetMixin):
                 X,
                 prediction_type='response' # ignored except checking valid
                 ):
-        """
-        Predict class probabilities or logits for multinomial classification.
+        """Predict class probabilities or logits for multinomial classification.
 
         Parameters
         ----------
         X : array-like
             Feature matrix.
-        prediction_type : str, optional
+        prediction_type : str, default='response'
             Type of prediction ('response' for probabilities, 'link' for logits).
 
         Returns
@@ -93,8 +93,7 @@ class MultiClassNet(MultiFastNetMixin):
     def _offset_predictions(self,
                             predictions,
                             offset):
-        """
-        Apply offset to predictions for multinomial classification.
+        """Apply offset to predictions for multinomial classification.
 
         Parameters
         ----------
@@ -116,8 +115,7 @@ class MultiClassNet(MultiFastNetMixin):
         return value
 
     def get_data_arrays(self, X, y, check=True):
-        """
-        Prepare and validate data arrays for multinomial classification.
+        """Prepare and validate data arrays for multinomial classification.
 
         Parameters
         ----------
@@ -125,7 +123,7 @@ class MultiClassNet(MultiFastNetMixin):
             Feature matrix.
         y : array-like
             Target vector.
-        check : bool, optional
+        check : bool, default=True
             Whether to check input validity.
 
         Returns
@@ -143,8 +141,7 @@ class MultiClassNet(MultiFastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape):
-        """
-        Extract fitted coefficients, intercepts, and related statistics for multinomial models.
+        """Extract fitted coefficients, intercepts, and related statistics for multinomial models.
 
         Parameters
         ----------
@@ -170,8 +167,7 @@ class MultiClassNet(MultiFastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
-        """
-        Prepare arguments for the C++ backend wrapper for multinomial classification.
+        """Prepare arguments for the C++ backend wrapper for multinomial classification.
 
         Parameters
         ----------
@@ -224,19 +220,67 @@ class MultiClassNet(MultiFastNetMixin):
 
 # for CV scores
 
-def _misclass(y, p_hat, sample_weight): 
+def _misclass(y, p_hat, sample_weight):
+    """Compute misclassification error for multinomial classification.
+    
+    Parameters
+    ----------
+    y : array-like
+        True one-hot encoded labels.
+    p_hat : array-like
+        Predicted probabilities.
+    sample_weight : array-like
+        Sample weights.
+        
+    Returns
+    -------
+    float
+        Misclassification error.
+    """
     return zero_one_loss(np.argmax(y, -1),
                          np.argmax(p_hat, -1),
                          sample_weight=sample_weight,
                          normalize=True)
 
-def _accuracy_score(y, p_hat, sample_weight): 
+def _accuracy_score(y, p_hat, sample_weight):
+    """Compute accuracy for multinomial classification.
+    
+    Parameters
+    ----------
+    y : array-like
+        True one-hot encoded labels.
+    p_hat : array-like
+        Predicted probabilities.
+    sample_weight : array-like
+        Sample weights.
+        
+    Returns
+    -------
+    float
+        Accuracy score.
+    """
     return accuracy_score(np.argmax(y, -1),
                           np.argmax(p_hat, -1),
                           sample_weight=sample_weight,
                           normalize=True)
 
-def _deviance(y, p_hat, sample_weight): 
+def _deviance(y, p_hat, sample_weight):
+    """Compute deviance for multinomial classification.
+    
+    Parameters
+    ----------
+    y : array-like
+        True one-hot encoded labels.
+    p_hat : array-like
+        Predicted probabilities.
+    sample_weight : array-like
+        Sample weights.
+        
+    Returns
+    -------
+    float
+        Deviance value.
+    """
     return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
 
 misclass_scorer = Scorer(name='Misclassification Error',

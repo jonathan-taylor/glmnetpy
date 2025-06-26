@@ -1,7 +1,7 @@
 import logging
 import warnings
 
-from typing import Literal
+from typing import Literal, Optional
 from dataclasses import dataclass, field, asdict
    
 import numpy as np
@@ -23,40 +23,39 @@ from ..docstrings import (make_docstring,
 
 @dataclass
 class FastNetControl(object):
-    """
-    Control parameters for FastNet path solvers.
+    """Control parameters for FastNet path solvers.
 
-    Attributes
+    Parameters
     ----------
-    fdev : float
+    fdev : float, default=1e-5
         Fractional deviance tolerance for early stopping.
-    eps : float
+    eps : float, default=1e-6
         Convergence threshold for coordinate descent.
-    big : float
+    big : float, default=9.9e35
         Large value used for numerical stability.
-    mnlam : int
+    mnlam : int, default=5
         Minimum number of lambda values.
-    devmax : float
+    devmax : float, default=0.999
         Maximum fraction of deviance explained.
-    pmin : float
+    pmin : float, default=1e-9
         Minimum value for probabilities.
-    exmx : float
+    exmx : float, default=250.
         Maximum exponent value.
-    itrace : int
+    itrace : int, default=0
         Trace level for logging.
-    prec : float
+    prec : float, default=1e-10
         Precision for calculations.
-    mxit : int
+    mxit : int, default=100
         Maximum number of iterations.
-    epsnr : float
+    epsnr : float, default=1e-6
         Convergence threshold for Newton-Raphson.
-    mxitnr : int
+    mxitnr : int, default=25
         Maximum Newton-Raphson iterations.
-    maxit : int
+    maxit : int, default=100000
         Maximum number of iterations (wrapper only).
-    thresh : float
+    thresh : float, default=1e-7
         Threshold for convergence (wrapper only).
-    logging : bool
+    logging : bool, default=False
         Enable logging (wrapper only).
     """
 
@@ -79,14 +78,13 @@ class FastNetControl(object):
     
 @dataclass
 class FastNetMixin(GLMNet): # base class for C++ path methods
-    """
-    Mixin for fast path solvers using C++ backend.
+    """Mixin for fast path solvers using C++ backend.
 
     Parameters
     ----------
     lambda_min_ratio : float, optional
         Minimum lambda ratio.
-    nlambda : int, optional
+    nlambda : int, default=100
         Number of lambda values.
     df_max : int, optional
         Maximum degrees of freedom.
@@ -94,9 +92,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         Control parameters for the solver.
     """
 
-    lambda_min_ratio: float | None = None
+    lambda_min_ratio: Optional[float] = None
     nlambda: int = 100
-    df_max: int | None = None
+    df_max: Optional[int] = None
     control: FastNetControl = field(default_factory=FastNetControl)
 
     def fit(self,

@@ -11,8 +11,6 @@ from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
 from ..glm import GLMFamilySpec
-from ..docstrings import (make_docstring,
-                          add_dataclass_docstring)
 
 from .._fishnet import fishnet as _dense
 from .._fishnet import spfishnet as _sparse
@@ -24,9 +22,7 @@ Provides the FishNet estimator class using the FastNetMixin base.
 
 @dataclass
 class FishNet(FastNetMixin):
-    """
-    FishNet estimator for Poisson regression using the FastNet path algorithm.
-    """
+    """FishNet estimator for Poisson regression using the FastNet path algorithm."""
 
     _dense = _dense
     _sparse = _sparse
@@ -34,17 +30,14 @@ class FishNet(FastNetMixin):
     # private methods
 
     def __post_init__(self):
-        """
-        Initialize the FishNet estimator and set the GLM family to Poisson.
-        """
+        """Initialize the FishNet estimator and set the GLM family to Poisson."""
         self._family = GLMFamilySpec(base=sm_family.Poisson())
 
     def get_data_arrays(self,
                         X,
                         y,
                         check=True):
-        """
-        Prepare and validate data arrays for Poisson regression.
+        """Prepare and validate data arrays for Poisson regression.
 
         Parameters
         ----------
@@ -52,7 +45,7 @@ class FishNet(FastNetMixin):
             Feature matrix.
         y : array-like
             Target vector.
-        check : bool, optional
+        check : bool, default=True
             Whether to check input validity.
 
         Returns
@@ -72,8 +65,7 @@ class FishNet(FastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
-        """
-        Prepare arguments for the C++ backend wrapper for Poisson regression.
+        """Prepare arguments for the C++ backend wrapper for Poisson regression.
 
         Parameters
         ----------

@@ -13,8 +13,6 @@ from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
 from ..glm import GLMFamilySpec
-from ..docstrings import (make_docstring,
-                          add_dataclass_docstring)
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -26,12 +24,11 @@ Provides the LogNet estimator class using the FastNetMixin base.
 
 @dataclass
 class LogNet(FastNetMixin):
-    """
-    LogNet estimator for binomial (logistic) regression using the FastNet path algorithm.
+    """LogNet estimator for binomial (logistic) regression using the FastNet path algorithm.
 
     Parameters
     ----------
-    modified_newton : bool, optional
+    modified_newton : bool, default=False
         Whether to use the modified Newton method.
     """
 
@@ -40,9 +37,7 @@ class LogNet(FastNetMixin):
     _sparse = _sparse
 
     def __post_init__(self):
-        """
-        Initialize the LogNet estimator and set the GLM family to Binomial.
-        """
+        """Initialize the LogNet estimator and set the GLM family to Binomial."""
         self._family = GLMFamilySpec(base=sm_family.Binomial())
 
     # private methods
@@ -50,8 +45,7 @@ class LogNet(FastNetMixin):
     def _extract_fits(self,
                       X_shape,
                       response_shape): # getcoef.R
-        """
-        Extract fitted coefficients, intercepts, and related statistics for binary models.
+        """Extract fitted coefficients, intercepts, and related statistics for binary models.
 
         Parameters
         ----------
@@ -76,8 +70,7 @@ class LogNet(FastNetMixin):
                         X,
                         y,
                         check=True):
-        """
-        Prepare and validate data arrays for binomial regression.
+        """Prepare and validate data arrays for binomial regression.
 
         Parameters
         ----------
@@ -85,7 +78,7 @@ class LogNet(FastNetMixin):
             Feature matrix.
         y : array-like
             Target vector.
-        check : bool, optional
+        check : bool, default=True
             Whether to check input validity.
 
         Returns
@@ -107,8 +100,7 @@ class LogNet(FastNetMixin):
                       sample_weight,
                       offset,
                       exclude=[]):
-        """
-        Prepare arguments for the C++ backend wrapper for binomial regression.
+        """Prepare arguments for the C++ backend wrapper for binomial regression.
 
         Parameters
         ----------
