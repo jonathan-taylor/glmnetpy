@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42",
+requires = ["setuptools>=61",
             "wheel",
             "pybind11",
             "numpy",
@@ -13,7 +13,7 @@ requires = ["setuptools>=42",
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "glmnet"
+name = "glmstar"
 readme = "README.md"
 requires-python = ">=3.9"
 description  = "GlmNet for Python"
@@ -22,9 +22,9 @@ authors = [
 {name="Trevor Hastie", email="hastie@stanford.edu"},
 {name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
-dependencies = ["numpy>=1.7.1", # max version for numba
+dependencies = ["numpy", # max version for numba
                "scipy>=1.8,<1.16.0",
-               "pandas>=0.20",
+               "pandas",
                "scikit-learn>=1.2",
                "joblib",
                "statsmodels>=0.13",
@@ -48,4 +48,5 @@ versionfile_source = "glmnet/_version.py"
 versionfile_build = "glmnet/_version.py"
 tag_prefix = "v"
 parentdir_prefix = "glmnet-"
+
 
