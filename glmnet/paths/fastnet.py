@@ -312,6 +312,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         dict
             Arguments for the backend solver.
         """
+
+        if self.lambda_values is not None:
+            self.lambda_values = np.asarray(self.lambda_values)
+            
         sample_weight = np.asfortranarray(sample_weight)
         
         X = design.X
@@ -330,6 +334,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             ulam = np.zeros((1, 1))
         else:
             flmin = 1.
+            # Convert to array if it's a list
+            self.lambda_values = np.asarray(self.lambda_values)
             if np.any(self.lambda_values < 0):
                 raise ValueError('lambdas should be non-negative')
             ulam = np.asfortranarray(np.sort(self.lambda_values)[::-1].reshape((-1, 1)))
