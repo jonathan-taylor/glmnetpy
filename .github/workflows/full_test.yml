@@ -1,6 +1,6 @@
-# Run tests comparing results to R
+# Run all tests
 
-name: Compare to R
+name: Full test suite (Linux)
 
 # Controls when the workflow will run
 on:
