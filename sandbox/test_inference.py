@@ -458,7 +458,7 @@ def main(sampler,
     if len(dfs) > 0:
         return all_df
         
-def test_truncated_inference(B=1000,
+def truncated_inference(B=1000,
                              smoothing_sigma=np.sqrt(1/3),
                              sigma=1,
                              upper_bound=None,

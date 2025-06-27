@@ -261,24 +261,25 @@ def plot(cv_scores,
     
     # add the lines indicating best and 1se choice
 
-    if score in index_best.index:
-        _best_idx = list(cv_scores.index).index(index_best[score])
-        ax.axvline(index[_best_idx],
-                   c=col_min,
-                   ls=ls_min,
-                   label=r'Best')
+    if index_best is not None:
+        if score in index_best.index:
+            _best_idx = list(cv_scores.index).index(index_best[score])
+            ax.axvline(index[_best_idx],
+                       c=col_min,
+                       ls=ls_min,
+                       label=r'Best')
         
-    if score in index_1se.index:
-        _1se_idx = list(cv_scores.index).index(index_1se[score])
-        ax.axvline(index[_1se_idx],
-                   c=col_min,
-                   ls=ls_min,
-                   label=r'1SE')
+    if index_1se is not None:
+        if score in index_1se.index:
+            _1se_idx = list(cv_scores.index).index(index_1se[score])
+            ax.axvline(index[_1se_idx],
+                       c=col_min,
+                       ls=ls_min,
+                       label=r'1SE')
         
     if legend:
         ax.legend()
     return ax
-
 
 def _tune(index,
           scorers,
@@ -365,5 +366,100 @@ def _tune(index,
                                name='index_1se')
         if complexity_order == 'decreasing':
             index_1se_ = npath - 1 - index_1se_
-
+    else:
+        index_1se_ = None
+        
     return index_best_, index_1se_
+
+@dataclass
+class ScorePath(object):
+    """
+    Container for cross-validation results along the regularization path.
+
+    This class stores the results of cross-validation performed by GLMNet models.
+    It provides access to cross-validated scores, standard errors, best/1se indices,
+    lambda values, and other relevant information for model selection and diagnostics.
+
+    Attributes
+    ----------
+    scores : pd.DataFrame
+        DataFrame of cross-validated scores for each metric and lambda value.
+        For example, scores['Mean Squared Error'] gives the mean CV MSE for each lambda.
+    index_best : pd.Series
+        Indices of the best lambda value for each score metric (e.g., minimum error).
+    index_1se : pd.Series
+        Indices of the lambda value within one standard error of the best for each metric.
+    lambda_values : np.ndarray
+        Array of lambda values used in the regularization path.
+    norm : np.ndarray
+        L1 norm (or other norm) of the coefficients at each lambda value.
+    fracdev : np.ndarray
+        Fraction of deviance explained at each lambda value.
+    family : GLMFamilySpec
+        The GLM family specification used for fitting.
+    score : str or None
+        The primary score metric (optional, used for plotting).
+
+    Methods
+    -------
+    plot(...):
+        Plot the cross-validation results for a given score metric.
+    """
+
+    scores: pd.DataFrame
+    index_best: pd.Series
+    index_1se: pd.Series
+    lambda_values: np.ndarray
+    norm: np.ndarray
+    fracdev: np.ndarray
+    family: GLMFamilySpec
+    score: str | None = None
+
+    def plot(self,
+             score=None,
+             xvar='-lambda',
+             ax=None,
+             capsize=3,
+             legend=False,
+             col_min='#909090',
+             ls_min='--',
+             col_1se='#909090',
+             ls_1se='--',
+             c='#c0c0c0',
+             scatter_c='red',
+             scatter_s=None,
+             **plot_args):
+
+        if xvar == 'lambda':
+            self.index = pd.Series(np.log(self.lambda_values), name=r'$\log(\lambda)$')
+        elif xvar == '-lambda':
+            self.index = pd.Series(-np.log(self.lambda_values), name=r'$-\log(\lambda)$')
+        elif xvar == 'norm':
+            self.index = pd.Index(self.norm)
+            self.index.name = r'$\|\beta(\lambda)\|$'
+        elif xvar == 'dev':
+            self.index = pd.Index(self.fracdev)
+            self.index.name = 'Fraction Deviance Explained'
+        else:
+            raise ValueError("xvar should be in ['lambda', '-lambda', 'norm', 'dev']")
+
+        if score is None:
+            score = self.family._default_scorers()[0].name
+
+        score = score or self.score
+        return plot(self.scores,
+                    self.index_best,
+                    self.index_1se,
+                    score=score,
+                    index=self.index,
+                    ax=ax,
+                    capsize=capsize,
+                    legend=legend,
+                    col_min=col_min,
+                    ls_min=ls_min,
+                    col_1se=col_1se,
+                    ls_1se=ls_1se,
+                    c=c,
+                    scatter_c=scatter_c,
+                    scatter_s=scatter_s,
+                    **plot_args)

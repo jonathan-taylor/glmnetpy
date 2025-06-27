@@ -15,15 +15,18 @@ jobs:
       max-parallel: 5
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.10
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set up Python 3.12
       uses: actions/setup-python@v3
       with:
-        python-version: '3.10'
+        python-version: '3.12'
+
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-        git clone https://github.com/libigl/eigen.git --depth 5
         pip install .
 
     - name: Test pyglmnet
@@ -31,7 +34,6 @@ jobs:
         pip install pytest
         sudo apt-get install r-cran-glmnet
         pip install rpy2
-        pytest tests/paths/test*py
-        pytest tests/flex/test*py
-        pytest tests/test_design.py
+        pytest tests
+
 

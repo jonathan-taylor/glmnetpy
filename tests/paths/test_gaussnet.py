@@ -89,7 +89,10 @@ class RGLMNet(object):
                 rpy.r.assign('intercept', False)
             args['intercept'] = 'intercept'
 
-            rpy.r.assign('exclude', np.array(self.exclude))
+            if len(self.exclude) > 1:
+                rpy.r.assign('exclude', np.array(self.exclude) + 1)
+            else:
+                rpy.r.assign('exclude', np.array(self.exclude))
             args['exclude'] = 'exclude'
 
             self.args = args
@@ -443,8 +446,8 @@ def test_CV(offset,
                             D,
                             alignment=alignment,
                             cv=cv)
-    CVM_ = L.cv_scores_['Mean Squared Error']
-    CVSD_ = L.cv_scores_['SD(Mean Squared Error)']
+    CVM_ = L.score_path_.scores['Mean Squared Error']
+    CVSD_ = L.score_path_.scores['SD(Mean Squared Error)']
     C, CVM, CVSD = get_glmnet_soln(RGaussNet,
                                    X,
                                    Y.copy(),

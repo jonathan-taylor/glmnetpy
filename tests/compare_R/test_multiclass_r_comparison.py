@@ -10,7 +10,6 @@ import string
 import numpy as np
 import pandas as pd
 from glmnet import MultiClassNet
-import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import OneHotEncoder
 import statsmodels.api as sm
@@ -151,7 +150,7 @@ def test_multiclassnet_cross_validation(sample_data, alpha, use_offset, use_weig
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 50 as in original)
-    assert np.allclose(GN3.cv_scores_['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.score_path_.scores['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_fraction_alignment(sample_data):
@@ -184,8 +183,8 @@ def test_cross_validation_fraction_alignment(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 50 as in original)
-    assert np.allclose(GN3.cv_scores_['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN3.cv_scores_['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.score_path_.scores['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.score_path_.scores['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_lambda_alignment(sample_data):
@@ -218,8 +217,8 @@ def test_cross_validation_lambda_alignment(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 50 as in original)
-    assert np.allclose(GN3.cv_scores_['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN3.cv_scores_['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.score_path_.scores['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.score_path_.scores['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_with_weights_fraction(sample_data):
@@ -253,8 +252,8 @@ def test_cross_validation_with_weights_fraction(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 50 as in original)
-    assert np.allclose(GN4.cv_scores_['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN4.cv_scores_['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.score_path_.scores['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.score_path_.scores['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_with_weights_lambda(sample_data):
@@ -288,5 +287,5 @@ def test_cross_validation_with_weights_lambda(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 50 as in original)
-    assert np.allclose(GN4.cv_scores_['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN4.cv_scores_['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3) 
+    assert np.allclose(GN4.score_path_.scores['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.score_path_.scores['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3) 

@@ -10,11 +10,12 @@ import scipy.sparse
 from tqdm import tqdm
 
 from ..base import _get_design
-from ..glmnet import GLMNet
 from ..glm import GLMState
 from ..elnet import (_check_and_set_limits,
                     _check_and_set_vp,
                     _design_wrapper_args)
+from ..glmnet import (GLMNet,
+                      CoefPath)
 from ..family import GLMFamilySpec
 
 from .._utils import _jerr_elnetfit
@@ -147,7 +148,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             design = self.design_
 
-
         if self.df_max is None:
             self.df_max = X.shape[1] + 1
             
@@ -160,6 +160,14 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         
         _check_and_set_limits(self, nvars)
         self.exclude = _check_and_set_vp(self, nvars, self.exclude)
+
+        self.lower_limits = np.asarray(self.lower_limits)
+        if self.lower_limits.shape == (): # a single float 
+            self.lower_limits = np.ones(nvars) * self.lower_limits
+        
+        self.upper_limits = np.asarray(self.upper_limits)
+        if self.upper_limits.shape == (): # a single float 
+            self.upper_limits = np.ones(nvars) * self.upper_limits
 
         self.pb = tqdm(total=self.nlambda)
         self._args = self._wrapper_args(design,
@@ -230,6 +238,14 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         if interpolation_grid is not None:
             self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
+
+        self.coef_path_ = CoefPath(
+            coefs=self.coefs_,
+            intercepts=self.intercepts_,
+            lambda_values=self.lambda_values_,
+            feature_names=self.feature_names_in_,
+            fracdev=np.array(dev_ratios_)
+        )
 
         return self
 
@@ -312,6 +328,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         dict
             Arguments for the backend solver.
         """
+
+        if self.lambda_values is not None:
+            self.lambda_values = np.asarray(self.lambda_values)
+            
         sample_weight = np.asfortranarray(sample_weight)
         
         X = design.X
@@ -330,6 +350,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             ulam = np.zeros((1, 1))
         else:
             flmin = 1.
+            # Convert to array if it's a list
+            self.lambda_values = np.asarray(self.lambda_values)
             if np.any(self.lambda_values < 0):
                 raise ValueError('lambdas should be non-negative')
             ulam = np.asfortranarray(np.sort(self.lambda_values)[::-1].reshape((-1, 1)))
@@ -356,7 +378,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         cl = np.asarray([self.lower_limits,
                          self.upper_limits], float)
-
+        
         if np.any(cl[0] == 0) or np.any(cl[-1] == 0):
             self.control.fdev = 0
 
@@ -410,7 +432,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
     def predict(self,
                 X,
-                prediction_type='link' # ignored except checking valid
+                prediction_type='link', # ignored except checking valid
+                interpolation_grid=None,
                 ):
         """
         Predict using the fitted model for multiple responses.
@@ -427,13 +450,25 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         np.ndarray
             Predicted values.
         """
+
+        if interpolation_grid is not None:
+            grid_ = np.asarray(interpolation_grid)
+            squeeze = grid_.ndim == 0
+            grid_ = np.atleast_1d(grid_)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_)
+        else:
+            grid_ = None
+            squeeze = False
+            coefs_, intercepts_ = self.coefs_, self.intercepts_
+
+            
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
         
         term1 = np.einsum('ijk,lj->ilk',
-                          self.coefs_,
+                          coefs_,
                           X)
-        fits = term1 + self.intercepts_[:, None, :]
+        fits = term1 + intercepts_[:, None, :]
         fits = np.transpose(fits, [1,0,2])
 
         # make return based on original
@@ -442,8 +477,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
         # if possible we might want to do less than `self.nlambda`
         
-        if self.lambda_values is not None:
-            nlambda = self.lambda_values.shape[0]
+        if interpolation_grid is not None:
+            nlambda = coefs_.shape[0]
         else:
             nlambda = self.nlambda
 
@@ -453,7 +488,10 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         value[:,:fits.shape[1]] = fits
         value[:,fits.shape[1]:] = fits[:,-1][:,None]
 
-        return value
+        if not squeeze:
+            return value
+        else:
+            return value[:,0,:]
 
     # private methods
 

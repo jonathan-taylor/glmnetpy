@@ -29,7 +29,8 @@ from .glm import (GLM,
                   GLMFamilySpec)
 from ._utils import _get_data
 from .scorer import (PathScorer,
-                     plot as plot_cv)
+                     ScorePath)
+
 
 
 @dataclass
@@ -404,11 +405,20 @@ class GLMNet(BaseEstimator,
         if interpolation_grid is not None:
             self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
            
+        self.coef_path_ = CoefPath(
+            coefs=self.coefs_,
+            intercepts=self.intercepts_,
+            lambda_values=self.lambda_values_,
+            feature_names=self.feature_names_in_,
+            fracdev=np.array(dev_ratios_)
+        )
+
         return self
     
     def predict(self,
                 X,
-                prediction_type='response'):
+                prediction_type='response',
+                interpolation_grid=None):
         """
         Predict using the fitted GLMNet model.
 
@@ -422,33 +432,52 @@ class GLMNet(BaseEstimator,
         prediction_type: str
             One of "response" or "link". If "response" return a prediction on the mean scale,
             "link" on the link scale. Defaults to "response".
+        interpolation_grid: np.ndarray, optional
+            Grid of lambda values for interpolation. If provided, coefficients are interpolated
+            to these values before prediction.
 
         Returns
         -------
         np.ndarray
             Predictions for each lambda value.
         """
-        if prediction_type not in ['response', 'link']:
-            raise ValueError("prediction should be one of 'response' or 'link'")
         
-        linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
+        if interpolation_grid is not None:
+            grid_ = np.asarray(interpolation_grid)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_)
+        else:
+            grid_ = None
+            coefs_, intercepts_ = self.coefs_, self.intercepts_
+
+        intercepts_ = np.atleast_1d(intercepts_)
+        coefs_ = np.atleast_2d(coefs_)
+        linear_pred_ = coefs_ @ X.T + intercepts_[:, None]
         linear_pred_ = linear_pred_.T
-        if prediction_type == 'response':
-            fits = self._family.predict(linear_pred_, prediction_type='response')
+        if prediction_type != 'link':
+            fits = self._family.predict(linear_pred_, prediction_type=prediction_type)
         else:
             fits = linear_pred_
 
         # make return based on original
         # promised number of lambdas
         # pad with last value
-        if self.lambda_values is not None:
-            nlambda = self.lambda_values.shape[0]
+
+        if grid_ is not None:
+            if grid_.shape:
+                nlambda = coefs_.shape[0]
+                squeeze = False
+            else:
+                nlambda = 1
+                squeeze = True
         else:
             nlambda = self.nlambda
-
+            squeeze = False
+            
         value = np.zeros((fits.shape[0], nlambda), float) * np.nan
         value[:,:fits.shape[1]] = fits
         value[:,fits.shape[1]:] = fits[:,-1][:,None]
+        if squeeze:
+            value = np.squeeze(value)
         return value
         
     def interpolate_coefs(self,
@@ -467,6 +496,9 @@ class GLMNet(BaseEstimator,
             (coefs_, intercepts_) interpolated to the new grid.
         """
         L = self.lambda_values_
+        interpolation_grid = np.asarray(interpolation_grid)
+        shape = interpolation_grid.shape
+        interpolation_grid = np.atleast_1d(interpolation_grid)
         interpolation_grid = np.clip(interpolation_grid, L.min(), L.max())
         idx_ = interp1d(L, np.arange(L.shape[0]).astype(float))(interpolation_grid)
         coefs_ = []
@@ -484,7 +516,10 @@ class GLMNet(BaseEstimator,
                 coefs_.append(self.coefs_[0])
                 intercepts_.append(self.intercepts_[0])
 
-        return np.asarray(coefs_), np.asarray(intercepts_)
+        if shape == interpolation_grid.shape:
+            return np.asarray(coefs_), np.asarray(intercepts_)
+        else:
+            return np.asarray(coefs_)[0], np.asarray(intercepts_)[0]
 
     def cross_validation_path(self,
                               X,
@@ -529,7 +564,13 @@ class GLMNet(BaseEstimator,
         Returns
         -------
         tuple
-            (predictions, cv_scores_)
+            (predictions, score_path_)
+            predictions: np.ndarray
+                Cross-validated predictions for each sample and lambda value.
+            score_path_: ScorePath
+                An object containing cross-validation results, including scores (as a DataFrame),
+                standard errors, best/1se indices, lambda values, and more. Access scores via
+                score_path_.scores, e.g. score_path_.scores['Mean Squared Error'].
         """
         check_is_fitted(self, ["coefs_"])
 
@@ -558,6 +599,7 @@ class GLMNet(BaseEstimator,
                                         verbose=verbose,
                                         params=fit_params,
                                         pre_dispatch=pre_dispatch)
+
         # truncate to the size we got
         predictions = predictions[:,:self.lambda_values_.shape[0]]
 
@@ -581,159 +623,81 @@ class GLMNet(BaseEstimator,
                             complexity_order='increasing',
                             compute_std_error=True)
 
-        (self.cv_scores_,
-         self.index_best_,
-         self.index_1se_) = scorer.compute_scores(scorers=scorers)
+        (cv_scores_,
+         index_best_,
+         index_1se_) = scorer.compute_scores(scorers=scorers)
 
-        return predictions, self.cv_scores_
+        self.score_path_ = ScorePath(scores=cv_scores_,
+                                     index_best=index_best_,
+                                     index_1se=index_1se_,
+                                     lambda_values=self.lambda_values_,
+                                     norm=np.fabs(self.coefs_).sum(1),
+                                     fracdev=self.summary_['Fraction Deviance Explained'],
+                                     family=self._family)
 
-    def plot_cross_validation(self,
-                              xvar=None,
-                              score=None,
-                              ax=None,
-                              capsize=3,
-                              legend=False,
-                              col_min='#909090',
-                              ls_min='--',
-                              col_1se='#909090',
-                              ls_1se='--',
-                              c='#c0c0c0',
-                              scatter_c='red',
-                              scatter_s=None,
-                              **plot_args):
+        return predictions, self.score_path_
+    
+    def score_path(self,
+                   X,
+                   y,
+                   scorers=[],
+                   plot=True):
         """
-        Plot cross-validation results.
+        Compute scores for a fitted regularization path on provided data.
+
+        This method evaluates the fitted GLMNet model's path (for all lambda values)
+        on the given data using one or more scoring metrics. It does not perform cross-validation;
+        instead, it computes scores for the entire dataset (or a provided split) as a single group.
 
         Parameters
         ----------
-        xvar: str, optional
-            Variable to plot on x-axis. One of 'lambda', '-lambda', 'norm', 'dev'.
-        score: str, optional
-            Score to plot on y-axis.
-        ax: matplotlib.axes.Axes, optional
-            Axes to plot on.
-        capsize: int
-            Length of error bar caps.
-        legend: bool
-            Whether to show legend.
-        col_min: str
-            Color for minimum CV score line.
-        ls_min: str
-            Line style for minimum CV score line.
-        col_1se: str
-            Color for 1SE rule line.
-        ls_1se: str
-            Line style for 1SE rule line.
-        c: str
-            Color for CV score lines.
-        scatter_c: str
-            Color for scatter points.
-        scatter_s: float, optional
-            Size of scatter points.
-        **plot_args: dict
-            Additional plotting arguments.
+        X : array-like or sparse matrix
+            Feature matrix to score, shape (n_samples, n_features).
+        y : array-like
+            Target values or structured data for scoring.
+        scorers : list, optional
+            List of GLMScorer instances or compatible scoring objects. If empty, uses default scorers for the family.
+        plot : bool, optional
+            If True, may trigger plotting of the score path (not implemented in this method, but available via ValidationPath.plot).
 
         Returns
         -------
-        matplotlib.axes.Axes
-            The axes object.
+        ValidationPath
+            An object containing the computed scores for each lambda value, as well as indices for best/1se selection, lambda values, norms, and deviance explained. Use the .scores attribute to access the DataFrame of scores.
+
+        Examples
+        --------
+        >>> model.fit(X, y)
+        >>> val_path = model.score_path(X, y)
+        >>> val_path.scores['Mean Squared Error']
         """
-        if xvar == 'lambda':
-            index = pd.Series(np.log(self.lambda_values_), name=r'$\log(\lambda)$')
-        elif xvar == '-lambda':
-            index = pd.Series(-np.log(self.lambda_values_), name=r'$-\log(\lambda)$')
-        elif xvar == 'norm':
-            index = pd.Index(np.fabs(self.coefs_).sum(1))
-            index.name = r'$\|\beta(\lambda)\|_1$'
-        elif xvar == 'dev':
-            index = pd.Index(self.summary_['Fraction Deviance Explained'])
-            index.name = 'Fraction Deviance Explained'
-        else:
-            raise ValueError("xvar should be in ['lambda', '-lambda', 'norm', 'dev']")
+        check_is_fitted(self, ["coefs_"])
 
-        if score is None:
-            score = self._family._default_scorers()[0]
+        predictions = self.predict(X, interpolation_grid=self.lambda_values_)
+        response, offset, weight = clone(self).get_data_arrays(X, y, check=False)[2:]
 
-        return plot_cv(self.cv_scores_,
-                       self.index_best_,
-                       self.index_1se_,
-                       score=score,
-                       index=index,
-                       ax=None,
-                       capsize=3,
-                       legend=False,
-                       col_min='#909090',
-                       ls_min='--',
-                       col_1se='#909090',
-                       ls_1se='--',
-                       c='#c0c0c0',
-                       scatter_c='red',
-                       scatter_s=None,
-                       **plot_args)
+        splits = [np.arange(X.shape[0])]
 
-    def plot_coefficients(self,
-                          xvar='-lambda',
-                          ax=None,
-                          legend=False,
-                          drop=None,
-                          keep=None):
-        """
-        Plot coefficient paths.
+        scorer = PathScorer(predictions=predictions,
+                            sample_weight=weight,
+                            data=(response, y),
+                            splits=splits,
+                            family=self._family,
+                            index=self.lambda_values_,
+                            complexity_order='increasing',
+                            compute_std_error=False)
 
-        Parameters
-        ----------
-        xvar: str
-            Variable to plot on x-axis. One of 'lambda', '-lambda', 'norm', 'dev'.
-        ax: matplotlib.axes.Axes, optional
-            Axes to plot on.
-        legend: bool
-            Whether to show legend.
-        drop: list, optional
-            Features to drop from the plot.
-        keep: list, optional
-            Features to keep in the plot.
+        (scores_,
+         index_best_,
+         index_1se_) = scorer.compute_scores(scorers=scorers)
 
-        Returns
-        -------
-        matplotlib.axes.Axes
-            The axes object.
-        """
-        check_is_fitted(self, ["coefs_", "feature_names_in_"])
-
-        if xvar == '-lambda':
-            index = pd.Index(-np.log(self.lambda_values_))
-            index.name = r'$-\log(\lambda)$'
-        if xvar == 'lambda':
-            index = pd.Index(np.log(self.lambda_values_))
-            index.name = r'$\log(\lambda)$'
-        elif xvar == 'norm':
-            index = pd.Index(np.fabs(self.coefs_).sum(1))
-            index.name = r'$\|\beta(\lambda)\|_1$'
-        elif xvar == 'dev':
-            index = pd.Index(self.summary_['Fraction Deviance Explained'])
-            index.name = 'Fraction Deviance Explained'
-        else:
-            raise ValueError("xvar should be one of 'lambda', 'norm', 'dev'")
-
-        soln_path = pd.DataFrame(self.coefs_,
-                                 columns=self.feature_names_in_,
-                                 index=index)
-        if drop is not None:
-            soln_path = soln_path.drop(columns=drop)
-        if keep is not None:
-            soln_path = soln_path.loc[:,keep]
-        ax = soln_path.plot(ax=ax, legend=False)
-        ax.set_xlabel(index.name)
-        ax.set_ylabel(r'Coefficients ($\beta$)')
-        ax.axhline(0, c='k', ls='--')
-
-        if legend:
-            fig = ax.figure
-            if fig.get_layout_engine() is not None:
-                warnings.warn('If plotting a legend, layout of figure will be set to "constrained".')
-            fig.set_layout_engine('constrained')
-            fig.legend(loc='outside right upper')
-        return ax
+        return ScorePath(scores=scores_,
+                          index_best=index_best_,
+                          index_1se=index_1se_,
+                          lambda_values=self.lambda_values_,
+                          norm=np.fabs(self.coefs_).sum(1),
+                          fracdev=self.summary_['Fraction Deviance Explained'],
+                          family=self._family)
 
     def _offset_predictions(self,
                             predictions,
@@ -869,3 +833,104 @@ class GLMNet(BaseEstimator,
         cls = self.state_.__class__
         state = cls(coefs[0], intercepts[0])
         return estimator, state
+
+
+@dataclass
+class CoefPath(object):
+    """
+    Container for coefficient paths along the regularization path.
+
+    Stores the coefficients, intercepts, lambda values, and feature names for each step in the path.
+    Provides a plot method to visualize the coefficient trajectories as a function of lambda, norm, or deviance explained.
+
+    Attributes
+    ----------
+    coefs : np.ndarray
+        Array of coefficients for each lambda value (n_lambdas, n_features).
+    intercepts : np.ndarray
+        Array of intercepts for each lambda value (n_lambdas,).
+    lambda_values : np.ndarray
+        Array of lambda values along the path.
+    feature_names : list or np.ndarray
+        Names of the features (columns).
+    fracdev : np.ndarray, optional
+        Fraction of deviance explained at each lambda value.
+    """
+    coefs: np.ndarray
+    intercepts: np.ndarray
+    lambda_values: np.ndarray
+    feature_names: list | np.ndarray
+    fracdev: np.ndarray | None = None
+
+    def plot(self,
+             xvar='-lambda',
+             ax=None,
+             legend=False,
+             drop=None,
+             keep=None):
+        """
+        Plot coefficient paths.
+
+        Parameters
+        ----------
+        xvar: str
+            Variable to plot on x-axis. One of 'lambda', '-lambda', 'norm', 'dev'.
+        ax: matplotlib.axes.Axes, optional
+            Axes to plot on.
+        legend: bool
+            Whether to show legend.
+        drop: list, optional
+            Features to drop from the plot.
+        keep: list, optional
+            Features to keep in the plot.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes object.
+        """
+        if xvar == '-lambda':
+            index = pd.Index(-np.log(self.lambda_values))
+            index.name = r'$-\log(\lambda)$'
+        elif xvar == 'lambda':
+            index = pd.Index(np.log(self.lambda_values))
+            index.name = r'$\log(\lambda)$'
+        elif xvar == 'norm':
+            index = pd.Index(np.fabs(self.coefs).sum(1))
+            index.name = r'$\|\beta(\lambda)\|_1$'
+        elif xvar == 'dev':
+            if self.fracdev is None:
+                raise ValueError("fracdev must be set to use xvar='dev'")
+            index = pd.Index(self.fracdev)
+            index.name = 'Fraction Deviance Explained'
+        else:
+            raise ValueError("xvar should be one of 'lambda', '-lambda', 'norm', 'dev'")
+
+        coefs_ = self.coefs
+        if coefs_.ndim > 2:
+            # compute the l2 norm
+            coefs_ = np.sqrt((coefs_**2).sum(-1))
+            label = r'Coefficient norms ($\|\beta\|_2$)'
+        else:
+            label = r'Coefficients ($\beta$)'
+        soln_path = pd.DataFrame(coefs_,
+                                 columns=self.feature_names,
+                                 index=index)
+        if drop is not None:
+            soln_path = soln_path.drop(columns=drop)
+        if keep is not None:
+            soln_path = soln_path.loc[:, keep]
+        ax = soln_path.plot(ax=ax, legend=False)
+        ax.set_xlabel(index.name)
+        ax.set_ylabel(label)
+        ax.axhline(0, c='k', ls='--')
+
+        if legend:
+            fig = ax.figure
+            if hasattr(fig, 'get_layout_engine') and fig.get_layout_engine() is not None:
+                import warnings
+                warnings.warn('If plotting a legend, layout of figure will be set to "constrained".')
+            if hasattr(fig, 'set_layout_engine'):
+                fig.set_layout_engine('constrained')
+            fig.legend(loc='outside right upper')
+        return ax

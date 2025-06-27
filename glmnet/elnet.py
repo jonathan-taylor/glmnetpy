@@ -324,9 +324,9 @@ def _check_and_set_limits(spec, nvars):
     lower_limits = np.asarray(lower_limits)
     upper_limits = np.asarray(upper_limits)
     if lower_limits.shape in [(), (1,)]:
-        lower_limits = -np.inf * np.ones(nvars)
+        lower_limits = lower_limits * np.ones(nvars)
     if upper_limits.shape in [(), (1,)]:
-        upper_limits = np.inf * np.ones(nvars)
+        upper_limits = upper_limits * np.ones(nvars)
     lower_limits = lower_limits[:nvars]
     upper_limits = upper_limits[:nvars]
     if lower_limits.shape[0] < nvars:
@@ -354,7 +354,7 @@ def _check_and_set_vp(spec, nvars, exclude):
     Returns
     -------
     exclude : list
-        Updated exclude list.
+        Updated exclude list to 1-based for C++ code.
     """
     penalty_factor = spec.penalty_factor
     if penalty_factor is None:
@@ -371,6 +371,7 @@ def _check_and_set_vp(spec, nvars, exclude):
     vp = np.maximum(0, penalty_factor).reshape((-1,1))
     vp = (vp * nvars / vp.sum())
     spec.penalty_factor = vp
+    exclude = list(np.asarray(exclude, int) + 1)
     return exclude
 
 def _design_wrapper_args(design):

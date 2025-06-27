@@ -12,7 +12,7 @@ from sklearn.preprocessing import (OneHotEncoder,
 from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
-from ..glm import GLMFamilySpec
+from ..glm import BinomFamilySpec
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -38,7 +38,7 @@ class LogNet(FastNetMixin):
 
     def __post_init__(self):
         """Initialize the LogNet estimator and set the GLM family to Binomial."""
-        self._family = GLMFamilySpec(base=sm_family.Binomial())
+        self._family = BinomFamilySpec(base=sm_family.Binomial())
 
     # private methods
 

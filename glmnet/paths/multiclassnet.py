@@ -63,7 +63,8 @@ class MultiClassNet(MultiFastNetMixin):
 
     def predict(self,
                 X,
-                prediction_type='response' # ignored except checking valid
+                prediction_type='response', # ignored except checking valid
+                interpolation_grid=None
                 ):
         """Predict class probabilities or logits for multinomial classification.
 
@@ -80,12 +81,17 @@ class MultiClassNet(MultiFastNetMixin):
             Predicted values.
         """
 
-        value = super().predict(X, prediction_type='link')
+        value = super().predict(X,
+                                interpolation_grid=interpolation_grid,
+                                prediction_type='link')
         if prediction_type == 'response':
             _max = value.max(-1)
             value = value - _max[:,:,None]
             exp_value = np.exp(value)
             value = exp_value / exp_value.sum(-1)[:,:,None]
+        elif prediction_type == 'class':
+            int_class = np.argmax(value, 1)
+            value = self.categories_[int_class]
         return value
         
     # private methods

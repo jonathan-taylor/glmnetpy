@@ -375,12 +375,13 @@ class UnscaleOperator(LinearOperator):
         np.ndarray
             Unscaled coefficients.
         """
-        intercept = float(stacked[0])
+
+        intercept = stacked[0]
         coef = np.squeeze(stacked[1:])
 
         result = np.zeros(stacked.shape[0])
         result[1:] = coef / self.scaling
-        result[0] = intercept - (result[1:] * self.centers).sum()
+        result[0] = intercept.reshape(()) - (result[1:] * self.centers).sum()
 
         return result
 
@@ -398,11 +399,11 @@ class UnscaleOperator(LinearOperator):
         np.ndarray
             Result of transpose multiplication.
         """
-        intercept = float(stacked[0])
+        intercept = stacked[0]
         coef = np.squeeze(stacked[1:])
 
         result = np.zeros(stacked.shape[0])
-        result[0] = intercept
+        result[0] = intercept.reshape(())
         result[1:] = coef / self.scaling
         result[1:] -= intercept * self.centers / self.scaling
 
@@ -445,12 +446,12 @@ class ScaleOperator(LinearOperator):
         np.ndarray
             Scaled coefficients.
         """
-        intercept = float(stacked[0])
+        intercept = stacked[0]
         coef = np.squeeze(stacked[1:])
 
         result = np.zeros(stacked.shape[0])
         result[1:] = coef * self.scaling
-        result[0] = intercept + (coef * self.centers).sum()
+        result[0] = intercept.reshape(()) + (coef * self.centers).sum()
 
         return result
 
@@ -468,11 +469,11 @@ class ScaleOperator(LinearOperator):
         np.ndarray
             Result of transpose multiplication.
         """
-        intercept = float(stacked[0])
+        intercept = stacked[0]
         coef = np.squeeze(stacked[1:])
 
         result = np.zeros(stacked.shape[0])
-        result[0] = intercept
+        result[0] = intercept.reshape(())
         result[1:] = coef * self.scaling
         result[1:] += intercept * self.centers
 

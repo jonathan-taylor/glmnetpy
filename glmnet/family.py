@@ -356,7 +356,7 @@ class GLMFamilySpec(object):
         linpred : array-like
             Linear predictor values.
         prediction_type : str, default='response'
-            Type of prediction ('response' or 'link').
+            Type of prediction ('response', 'link' or 'class').
             
         Returns
         -------
