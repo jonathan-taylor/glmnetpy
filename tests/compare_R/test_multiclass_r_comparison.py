@@ -10,7 +10,6 @@ import string
 import numpy as np
 import pandas as pd
 from glmnet import MultiClassNet
-import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import OneHotEncoder
 import statsmodels.api as sm

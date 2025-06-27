@@ -9,7 +9,6 @@ import pytest
 import numpy as np
 import pandas as pd
 from glmnet.cox import CoxLM, CoxNet, CoxFamilySpec
-import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 import statsmodels.api as sm
 from glmnet.glm import GLMControl

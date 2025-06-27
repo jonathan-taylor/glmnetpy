@@ -9,7 +9,6 @@ import pytest
 import numpy as np
 import pandas as pd
 from glmnet import GaussNet, GLM, GLMNet
-import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
 import statsmodels.api as sm

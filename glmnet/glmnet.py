@@ -432,6 +432,9 @@ class GLMNet(BaseEstimator,
         prediction_type: str
             One of "response" or "link". If "response" return a prediction on the mean scale,
             "link" on the link scale. Defaults to "response".
+        interpolation_grid: np.ndarray, optional
+            Grid of lambda values for interpolation. If provided, coefficients are interpolated
+            to these values before prediction.
 
         Returns
         -------

@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 from glmnet.glm import BinomialGLM
 from glmnet import GLM, GLMNet
-import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
 import statsmodels.api as sm
