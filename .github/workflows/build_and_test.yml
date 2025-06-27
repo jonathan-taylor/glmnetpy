@@ -26,8 +26,8 @@ jobs:
 
     - name: Test pyglmnet
       run: |
-        pip install pytest
-        pytest tests/test_*py
+        pip install pytest rpy2
+        pytest tests
 
   build-linux:
     runs-on: ubuntu-latest
@@ -50,6 +50,6 @@ jobs:
     - name: Test pyglmnet
       run: |
         pip install pytest rpy2 
-        pytest tests
+        pytest tests/test*py
 
 
