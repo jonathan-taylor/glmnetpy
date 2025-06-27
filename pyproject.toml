@@ -49,6 +49,4 @@ versionfile_build = "glmnet/_version.py"
 tag_prefix = "v"
 parentdir_prefix = "glmnet-"
 
-[tool.setuptools]
-use-scm-version = false
 
