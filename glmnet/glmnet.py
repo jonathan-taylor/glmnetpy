@@ -29,8 +29,7 @@ from .glm import (GLM,
                   GLMFamilySpec)
 from ._utils import _get_data
 from .scorer import (PathScorer,
-                     ValidationPath,
-                     plot as plot_cv)
+                     ValidationPath)
 
 
 @dataclass
@@ -552,7 +551,13 @@ class GLMNet(BaseEstimator,
         Returns
         -------
         tuple
-            (predictions, cv_scores_)
+            (predictions, cv_path_)
+            predictions: np.ndarray
+                Cross-validated predictions for each sample and lambda value.
+            cv_path_: ValidationPath
+                An object containing cross-validation results, including scores (as a DataFrame),
+                standard errors, best/1se indices, lambda values, and more. Access scores via
+                cv_path_.scores, e.g. cv_path_.scores['Mean Squared Error'].
         """
         check_is_fitted(self, ["coefs_"])
 
@@ -624,7 +629,35 @@ class GLMNet(BaseEstimator,
                    y,
                    scorers=[],
                    plot=True):
+        """
+        Compute scores for a fitted regularization path on provided data.
 
+        This method evaluates the fitted GLMNet model's path (for all lambda values)
+        on the given data using one or more scoring metrics. It does not perform cross-validation;
+        instead, it computes scores for the entire dataset (or a provided split) as a single group.
+
+        Parameters
+        ----------
+        X : array-like or sparse matrix
+            Feature matrix to score, shape (n_samples, n_features).
+        y : array-like
+            Target values or structured data for scoring.
+        scorers : list, optional
+            List of GLMScorer instances or compatible scoring objects. If empty, uses default scorers for the family.
+        plot : bool, optional
+            If True, may trigger plotting of the score path (not implemented in this method, but available via ValidationPath.plot).
+
+        Returns
+        -------
+        ValidationPath
+            An object containing the computed scores for each lambda value, as well as indices for best/1se selection, lambda values, norms, and deviance explained. Use the .scores attribute to access the DataFrame of scores.
+
+        Examples
+        --------
+        >>> model.fit(X, y)
+        >>> val_path = model.score_path(X, y)
+        >>> val_path.scores['Mean Squared Error']
+        """
         check_is_fitted(self, ["coefs_"])
 
         predictions = self.predict(X)

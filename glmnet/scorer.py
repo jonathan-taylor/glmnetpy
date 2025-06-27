@@ -373,6 +373,38 @@ def _tune(index,
 
 @dataclass
 class ValidationPath(object):
+    """
+    Container for cross-validation results along the regularization path.
+
+    This class stores the results of cross-validation performed by GLMNet models.
+    It provides access to cross-validated scores, standard errors, best/1se indices,
+    lambda values, and other relevant information for model selection and diagnostics.
+
+    Attributes
+    ----------
+    scores : pd.DataFrame
+        DataFrame of cross-validated scores for each metric and lambda value.
+        For example, scores['Mean Squared Error'] gives the mean CV MSE for each lambda.
+    index_best : pd.Series
+        Indices of the best lambda value for each score metric (e.g., minimum error).
+    index_1se : pd.Series
+        Indices of the lambda value within one standard error of the best for each metric.
+    lambda_values : np.ndarray
+        Array of lambda values used in the regularization path.
+    norm : np.ndarray
+        L1 norm (or other norm) of the coefficients at each lambda value.
+    fracdev : np.ndarray
+        Fraction of deviance explained at each lambda value.
+    family : GLMFamilySpec
+        The GLM family specification used for fitting.
+    score : str or None
+        The primary score metric (optional, used for plotting).
+
+    Methods
+    -------
+    plot(...):
+        Plot the cross-validation results for a given score metric.
+    """
 
     scores: pd.DataFrame
     index_best: pd.Series
