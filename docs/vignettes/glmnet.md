@@ -18,31 +18,13 @@ kernelspec:
 
 The original authors of glmnet are Jerome Friedman, Trevor Hastie, Rob Tibshirani, Balasubramanian Narasimhan, Kenneth Tay and Noah Simon, with contribution from Junyang Qian. This document adapts the R vignette for the Python `glmnet` package.
 
-## Table of Contents
-
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Linear Regression: family = "gaussian"](#linear-regression-family--gaussian-)
-- [Linear Regression: family = "mgaussian"](#linear-regression-family--mgaussian--multi-response)
-- [Logistic Regression: family = "binomial"](#logistic-regression-family--binomial-)
-- [Multinomial Regression: family = "multinomial"](#multinomial-regression-family--multinomial-)
-- [Poisson Regression: family = "poisson"](#poisson-regression-family--poisson-)
-- [Cox Regression: family = "cox"](#cox-regression-family--cox-)
-- [Programmable GLM families](#programmable-glm-families-family--family-)
-- [Assessing models on test data](#assessing-models-on-test-data)
-- [Filtering variables](#filtering-variables)
-- [Other Package Features](#other-package-features)
-- [Appendix: Convergence Criteria and Internal Parameters](#appendix-0-convergence-criteria)
-- [References](#references)
-
----
 
 # Installation
 
 You can install the Python `glmnet` package using pip:
 
 ```{code-cell} ipython3
-!pip install glmnetpy
+#!pip install glmnetpy
 ```
 
 ---
@@ -70,16 +52,7 @@ y = X @ beta + np.random.randn(n)
 # Fit a Gaussian model (linear regression)
 fit = GaussNet().fit(X, y)
 
-# Plot the coefficient paths
-plt.figure(figsize=(8, 5))
-for i in range(p):
-    plt.plot(np.log(fit.lambda_values_), fit.coefs_[:,i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Regularization Paths (Lasso)")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit.plot_coefficients();
 ```
 
 ---
@@ -108,26 +81,18 @@ fit = GaussNet().fit(X, y)
 `fit` is an object that contains all the relevant information of the fitted model for further use. We can visualize the coefficients by plotting the regularization paths:
 
 ```{code-cell} ipython3
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit.lambda_values_), fit.coefs_[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Regularization Paths (Lasso)")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit.plot_coefficients();
 ```
 
 Each curve corresponds to a variable. It shows the path of its coefficient against the $\ell_1$-norm of the whole coefficient vector as $\lambda$ varies.
 
-We can obtain the model coefficients at specific $\lambda$ values:
+We can obtain the model coefficients at specific $\lambda$ values by interpolations:
 
 ```{code-cell} ipython3
 # Get coefficients at lambda = 0.1
-lambda_idx = np.argmin(np.abs(fit.lambda_values_ - 0.1))
-print("Coefficients at lambda = 0.1:")
-print(fit.coefs_[lambda_idx])
+coefs, int = fit.interpolate_coefs(0.1)
+coefs
+                                   
 ```
 
 Users can also make predictions at specific $\lambda$ values with new input data:
@@ -136,44 +101,35 @@ Users can also make predictions at specific $\lambda$ values with new input data
 # Generate new data for prediction
 np.random.seed(29)
 new_X = np.random.randn(5, 20)
-
 # Make predictions at specific lambda values
-lambda_vals = [0.1, 0.05]
-for lam in lambda_vals:
-    lambda_idx = np.argmin(np.abs(fit.lambda_values_ - lam))
-    predictions = fit.predict(new_X, lambda_idx)
-    print(f"Predictions at lambda = {lam}:")
-    print(predictions)
-    print()
+lambda_values = [0.1, 0.05]
+predictions = fit.predict(new_X, lambda_values=lambda_values)
+predictions.shape
+```
+
+```{code-cell} ipython3
+predictions2 = fit.predict(new_X, lambda_values=0.1)
+predictions2.shape
+```
+
+```{code-cell} ipython3
+np.allclose(predictions[:,0], predictions2)
 ```
 
 ## Cross-validation
 
-Cross-validation is perhaps the simplest and most widely used method for selecting the optimal $\lambda$. We can perform cross-validation using the `cv` method:
+Cross-validation is perhaps the simplest and most widely used method for selecting the optimal $\lambda$. We can perform cross-validation using the `cross_validation_path` method:
 
 ```{code-cell} ipython3
 from glmnet import GaussNet
 
 # Perform cross-validation
 cvfit = GaussNet().fit(X, y)
-cv_results = cvfit.cv(X, y, nfolds=10)
+_, cvpath = cvfit.cross_validation_path(X, y, cv=5)
+```
 
-# Plot cross-validation results
-plt.figure(figsize=(8, 6))
-plt.errorbar(np.log(cv_results['lambda']), cv_results['cvm'], 
-             yerr=cv_results['cvup'] - cv_results['cvm'], 
-             fmt='o-', capsize=3)
-plt.axvline(np.log(cv_results['lambda_min']), color='red', linestyle='--', label='lambda.min')
-plt.axvline(np.log(cv_results['lambda_1se']), color='blue', linestyle='--', label='lambda.1se')
-plt.xlabel('log(lambda)')
-plt.ylabel('Mean Squared Error')
-plt.title('Cross-validation Results')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()
-
-print(f"lambda.min: {cv_results['lambda_min']:.4f}")
-print(f"lambda.1se: {cv_results['lambda_1se']:.4f}")
+```{code-cell} ipython3
+cvpath.plot(score='Gaussian Deviance');
 ```
 
 The cross-validation curve shows the mean squared error (red dotted line) along with upper and lower standard deviation curves. Two special values are indicated:
@@ -185,8 +141,8 @@ We can get the model coefficients at these optimal values:
 
 ```{code-cell} ipython3
 # Get coefficients at lambda.min
-lambda_min_idx = np.argmin(np.abs(fit.lambda_values_ - cv_results['lambda_min']))
-coef_min = fit.coefs_[lambda_min_idx]
+lambda_min = cvfit.index_best_['Gaussian Deviance']
+coef_min, intercept_min = cvfit.interpolate_coefs(lambda_min)
 print("Coefficients at lambda.min:")
 print(coef_min)
 ```
@@ -214,17 +170,7 @@ weights[n//2:] = 2
 
 # Fit with alpha=0.2 and custom weights
 fit_ridge = GaussNet(alpha=0.2, nlambda=20).fit(X, y, sample_weight=weights)
-
-# Plot the results
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit_ridge.lambda_values_), fit_ridge.coefs_[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Regularization Paths (Elastic Net, α=0.2)")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit_ridge.plot_coefficients();
 ```
 
 ## Predicting and plotting with fitted objects
@@ -256,8 +202,7 @@ Users can make predictions from the fitted object. The `predict` method allows u
 For example, the following code gives the fitted values for the first 5 observations at $\lambda = 0.05$:
 
 ```{code-cell} ipython3
-lambda_idx = np.argmin(np.abs(fit.lambda_values_ - 0.05))
-predictions = fit.predict(X[:5], lambda_idx)
+predictions = fit.predict(X[:5], lambda_values=0.05)
 print("Fitted values for first 5 observations at λ = 0.05:")
 print(predictions)
 ```
@@ -270,18 +215,8 @@ Suppose we want to fit our model but limit the coefficients to be bigger than -0
 
 ```{code-cell} ipython3
 # Fit with coefficient limits
-fit_limited = GaussNet(lower_limits=-0.7, upper_limits=0.5).fit(X, y)
-
-# Plot the results
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit_limited.lambda_values_), fit_limited.coefs_[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Regularization Paths with Coefficient Limits")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit_limited = GaussNet(lower_limits=-0.1, upper_limits=1.2).fit(X, y)
+fit_limited.plot_coefficients();
 ```
 
 Often we want the coefficients to be positive: to do so, we just need to specify `lower_limits = 0`:
@@ -289,17 +224,8 @@ Often we want the coefficients to be positive: to do so, we just need to specify
 ```{code-cell} ipython3
 # Fit with non-negative coefficients
 fit_positive = GaussNet(lower_limits=0).fit(X, y)
-
-# Plot the results
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit_positive.lambda_values_), fit_positive.coefs_[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Regularization Paths (Non-negative Coefficients)")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit_positive.plot_coefficients()
+fit_positive.lower_limits
 ```
 
 The `penalty_factor` argument allows users to apply separate penalty factors to each coefficient. This is very useful when we have prior knowledge or preference over the variables:
@@ -310,17 +236,7 @@ penalty_factor = np.ones(p)
 penalty_factor[[0, 2, 4]] = 0  # Variables 1, 3, 5 (0-indexed)
 
 fit_penalty = GaussNet(penalty_factor=penalty_factor).fit(X, y)
-
-# Plot the results
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit_penalty.lambda_values_), fit_penalty.coefs_[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Regularization Paths with Custom Penalty Factors")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit_penalty.plot_coefficients();
 ```
 
 We see from the plot that the three variables with zero penalty factors always stay in the model, while the others follow typical regularization paths and are shrunk to zero eventually.
@@ -329,14 +245,14 @@ The `intercept` argument allows the user to decide if an intercept should be inc
 
 ```{code-cell} ipython3
 # Fit without intercept
-fit_no_intercept = GaussNet(intercept=False).fit(X, y)
+fit_no_intercept = GaussNet(fit_intercept=False).fit(X, y)
 
 # Compare with intercept
-fit_with_intercept = GaussNet(intercept=True).fit(X, y)
+fit_with_intercept = GaussNet(fit_intercept=True).fit(X, y)
 
 print("Intercept values:")
-print(f"With intercept: {fit_with_intercept.intercept_[0]:.4f}")
-print(f"Without intercept: {fit_no_intercept.intercept_[0]:.4f}")
+print(f"With intercept: {fit_with_intercept.intercepts_[0]:.4f}")
+print(f"Without intercept: {fit_no_intercept.intercepts_[0]:.4f}")
 ```
 
 # Linear Regression: family = "mgaussian" (multi-response)
@@ -373,18 +289,7 @@ mfit = MultiGaussNet().fit(X, y)
 We can visualize the coefficients by plotting the $\ell_2$ norm of each variable's coefficient vector:
 
 ```{code-cell} ipython3
-# Calculate L2 norm of coefficients for each variable
-coef_norms = np.linalg.norm(mfit.coefs_, axis=2)  # Shape: (n_lambda, p)
-
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(mfit.lambda_values_), coef_norms[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("L2 norm of coefficients")
-plt.title("Multi-response Gaussian: Coefficient Norms")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+mfit.plot_coefficients();
 ```
 
 We can extract the coefficients and make predictions at requested values of $\lambda$:
@@ -392,13 +297,7 @@ We can extract the coefficients and make predictions at requested values of $\la
 ```{code-cell} ipython3
 # Make predictions at specific lambda values
 lambda_vals = [0.1, 0.01]
-for lam in lambda_vals:
-    lambda_idx = np.argmin(np.abs(mfit.lambda_values_ - lam))
-    predictions = mfit.predict(X[:5], lambda_idx)
-    print(f"Predictions at lambda = {lam}:")
-    print(f"Shape: {predictions.shape}")
-    print(predictions)
-    print()
+predictions = mfit.predict(X[:5], lambda_values=[0.1,0.01])
 ```
 
 # Logistic Regression: family = "binomial"
@@ -441,16 +340,7 @@ fit = LogNet().fit(X, y)
 As before, we can print and plot the fitted object, extract the coefficients at specific $\lambda$'s and also make predictions:
 
 ```{code-cell} ipython3
-# Plot coefficient paths
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit.lambda_values_), fit.coefs_[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Logistic Regression: Regularization Paths")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit.plot_coefficients();
 ```
 
 Prediction is a little different for logistic regression, mainly in the function argument `type`:
@@ -461,20 +351,19 @@ Prediction is a little different for logistic regression, mainly in the function
 
 ```{code-cell} ipython3
 # Make predictions of different types
-lambda_idx = np.argmin(np.abs(fit.lambda_values_ - 0.05))
 
 # Linear predictors
-link_pred = fit.predict(X[:5], lambda_idx, type="link")
+link_pred = fit.predict(X[:5], lambda_values=0.05, prediction_type="link")
 print("Linear predictors (link):")
 print(link_pred)
 
 # Probabilities
-prob_pred = fit.predict(X[:5], lambda_idx, type="response")
+prob_pred = fit.predict(X[:5], lambda_values=0.05, prediction_type="response")
 print("\nFitted probabilities (response):")
 print(prob_pred)
 
 # Class predictions
-class_pred = fit.predict(X[:5], lambda_idx, type="class")
+class_pred = fit.predict(X[:5], lambda_values=0.05, prediction_type="class")
 print("\nClass predictions:")
 print(class_pred)
 ```
@@ -484,24 +373,8 @@ For logistic regression, cross-validation has similar arguments and usage as Gau
 ```{code-cell} ipython3
 # Perform cross-validation
 cvfit = LogNet().fit(X, y)
-cv_results = cvfit.cv(X, y, nfolds=10, type_measure="class")
-
-# Plot cross-validation results
-plt.figure(figsize=(8, 6))
-plt.errorbar(np.log(cv_results['lambda']), cv_results['cvm'], 
-             yerr=cv_results['cvup'] - cv_results['cvm'], 
-             fmt='o-', capsize=3)
-plt.axvline(np.log(cv_results['lambda_min']), color='red', linestyle='--', label='lambda.min')
-plt.axvline(np.log(cv_results['lambda_1se']), color='blue', linestyle='--', label='lambda.1se')
-plt.xlabel('log(lambda)')
-plt.ylabel('Misclassification Error')
-plt.title('Cross-validation Results (Logistic Regression)')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()
-
-print(f"lambda.min: {cv_results['lambda_min']:.4f}")
-print(f"lambda.1se: {cv_results['lambda_1se']:.4f}")
+_, cvpath = cvfit.cross_validation_path(X, y, cv=5)
+cvpath.plot(score='Accuracy');
 ```
 
 # Multinomial Regression: family = "multinomial"
@@ -537,54 +410,34 @@ probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
 y = np.array([np.random.choice(K, p=prob) for prob in probs])
 
 # Fit multinomial regression with grouped lasso penalty
-fit = MultiClassNet(type_multinomial="grouped").fit(X, y)
+fit = MultiClassNet().fit(X, y)
 ```
 
 For the `plot` method, we can produce a figure showing the $\ell_2$-norm in one figure:
 
 ```{code-cell} ipython3
-# Calculate L2 norm of coefficients for each variable
-coef_norms = np.linalg.norm(fit.coefs_, axis=2)  # Shape: (n_lambda, p)
-
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit.lambda_values_), coef_norms[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("L2 norm of coefficients")
-plt.title("Multinomial Regression: Coefficient Norms (Grouped)")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit.plot_coefficients()
 ```
 
 We can also do cross-validation:
 
 ```{code-cell} ipython3
 # Perform cross-validation
-cvfit = MultiClassNet(type_multinomial="grouped").fit(X, y)
-cv_results = cvfit.cv(X, y, nfolds=10)
+cvfit = MultiClassNet().fit(X, y)
+_, cvpath = cvfit.cross_validation_path(X, y, cv=10);
+```
 
-# Plot cross-validation results
-plt.figure(figsize=(8, 6))
-plt.errorbar(np.log(cv_results['lambda']), cv_results['cvm'], 
-             yerr=cv_results['cvup'] - cv_results['cvm'], 
-             fmt='o-', capsize=3)
-plt.axvline(np.log(cv_results['lambda_min']), color='red', linestyle='--', label='lambda.min')
-plt.axvline(np.log(cv_results['lambda_1se']), color='blue', linestyle='--', label='lambda.1se')
-plt.xlabel('log(lambda)')
-plt.ylabel('Cross-validation Error')
-plt.title('Cross-validation Results (Multinomial)')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()
+```{code-cell} ipython3
+print(cvpath.scores.columns)
+cvpath.plot(score='Multinomial Deviance');
 ```
 
 Users may wish to predict at the optimally selected $\lambda$:
 
 ```{code-cell} ipython3
-# Make predictions at lambda.min
-lambda_min_idx = np.argmin(np.abs(fit.lambda_values_ - cv_results['lambda_min']))
-predictions = fit.predict(X[:10], lambda_min_idx, type="class")
+predictions = fit.predict(X[:10], 
+                          lambda_values=cvfit.index_best_['Accuracy'], 
+                          prediction_type="class")
 print("Class predictions at lambda.min:")
 print(predictions)
 ```
@@ -626,33 +479,14 @@ fit = FishNet().fit(X, y)
 We plot the coefficients to have a first sense of the result:
 
 ```{code-cell} ipython3
-plt.figure(figsize=(10, 6))
-for i in range(p):
-    plt.plot(np.log(fit.lambda_values_), fit.coefs_[:, i], label=f"V{i+1}")
-plt.xlabel("log(lambda)")
-plt.ylabel("Coefficients")
-plt.title("Poisson Regression: Regularization Paths")
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-plt.tight_layout()
-plt.show()
+fit.plot_coefficients();
 ```
 
 As before, we can extract the coefficients and make predictions at certain $\lambda$'s:
 
 ```{code-cell} ipython3
-# Get coefficients at lambda = 1
-lambda_idx = np.argmin(np.abs(fit.lambda_values_ - 1))
-coef_1 = fit.coefs_[lambda_idx]
-print("Coefficients at lambda = 1:")
-print(coef_1)
-
-# Make predictions
-lambda_vals = [0.1, 1]
-for lam in lambda_vals:
-    lambda_idx = np.argmin(np.abs(fit.lambda_values_ - lam))
-    predictions = fit.predict(X[:5], lambda_idx, type="response")
-    print(f"\nPredictions at lambda = {lam}:")
-    print(predictions)
+fit.interpolate_coefs(interpolation_grid=1)
+predictions = fit.predict(X[:5], lambda_values=[1, 0.1], prediction_type="response")
 ```
 
 We may also use cross-validation to find the optimal $\lambda$'s:
@@ -660,21 +494,8 @@ We may also use cross-validation to find the optimal $\lambda$'s:
 ```{code-cell} ipython3
 # Perform cross-validation
 cvfit = FishNet().fit(X, y)
-cv_results = cvfit.cv(X, y, nfolds=10)
-
-# Plot cross-validation results
-plt.figure(figsize=(8, 6))
-plt.errorbar(np.log(cv_results['lambda']), cv_results['cvm'], 
-             yerr=cv_results['cvup'] - cv_results['cvm'], 
-             fmt='o-', capsize=3)
-plt.axvline(np.log(cv_results['lambda_min']), color='red', linestyle='--', label='lambda.min')
-plt.axvline(np.log(cv_results['lambda_1se']), color='blue', linestyle='--', label='lambda.1se')
-plt.xlabel('log(lambda)')
-plt.ylabel('Deviance')
-plt.title('Cross-validation Results (Poisson)')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()
+_, cvpath = cvfit.cross_validation_path(X, y, cv=10)
+cvpath.plot(score='Poisson Deviance');
 ```
 
 # Cox Regression: family = "cox"
@@ -696,61 +517,25 @@ Once we have fit a series of models using `glmnet`, we often assess their perfor
 We can compute performance measures on a validation or test dataset. Here's an example for logistic regression:
 
 ```{code-cell} ipython3
-# Split data into train and test
+from sklearn.model_selection import train_test_split
+# Generate binary classification data
 np.random.seed(1)
-n_train = 70
-train_idx = np.random.choice(n, n_train, replace=False)
-test_idx = np.setdiff1d(np.arange(n), train_idx)
+n, p = 100, 20
+X = np.random.randn(n, p)
+beta = np.zeros(p)
+beta[:5] = [1, 0.5, 0.5, 0, 2]
+logits = X @ beta
+probs = 1 / (1 + np.exp(-logits))
+y = np.random.binomial(1, probs)
 
-X_train, X_test = X[train_idx], X[test_idx]
-y_train, y_test = y[train_idx], y[test_idx]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5)
 
-# Fit model on training data
-fit = LogNet(nlambda=5).fit(X_train, y_train)
+fit = LogNet().fit(X_train, y_train)
+```
 
-# Make predictions on test data
-predictions = fit.predict(X_test)
-
-# Calculate performance measures
-from sklearn.metrics import accuracy_score, log_loss
-
-# For each lambda, calculate accuracy and log loss
-lambda_indices = range(len(fit.lambda_values_))
-accuracies = []
-log_losses = []
-
-for i in lambda_indices:
-    pred_probs = fit.predict(X_test, i, type="response")
-    pred_classes = fit.predict(X_test, i, type="class")
-    
-    acc = accuracy_score(y_test, pred_classes)
-    ll = log_loss(y_test, pred_probs)
-    
-    accuracies.append(acc)
-    log_losses.append(ll)
-
-# Plot results
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-ax1.plot(np.log(fit.lambda_values_), accuracies, 'o-')
-ax1.set_xlabel('log(lambda)')
-ax1.set_ylabel('Accuracy')
-ax1.set_title('Test Accuracy')
-ax1.grid(True, alpha=0.3)
-
-ax2.plot(np.log(fit.lambda_values_), log_losses, 'o-')
-ax2.set_xlabel('log(lambda)')
-ax2.set_ylabel('Log Loss')
-ax2.set_title('Test Log Loss')
-ax2.grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.show()
-
-# Find best lambda based on accuracy
-best_idx = np.argmax(accuracies)
-print(f"Best lambda for accuracy: {fit.lambda_values_[best_idx]:.4f}")
-print(f"Best accuracy: {accuracies[best_idx]:.4f}")
+```{code-cell} ipython3
+score_path = fit.score_path(X_test, y_test)
+score_path.plot(score='Accuracy');
 ```
 
 ## ROC curves for binomial data
@@ -762,7 +547,7 @@ from sklearn.metrics import roc_curve, auc
 
 # Calculate ROC curve for the best lambda
 best_lambda_idx = np.argmax(accuracies)
-pred_probs = fit.predict(X_test, best_lambda_idx, type="response")
+pred_probs = fit.predict(X_test, lambda_values=, type="response")
 
 fpr, tpr, _ = roc_curve(y_test, pred_probs)
 roc_auc = auc(fpr, tpr)

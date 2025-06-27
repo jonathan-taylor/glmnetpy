@@ -261,24 +261,25 @@ def plot(cv_scores,
     
     # add the lines indicating best and 1se choice
 
-    if score in index_best.index:
-        _best_idx = list(cv_scores.index).index(index_best[score])
-        ax.axvline(index[_best_idx],
-                   c=col_min,
-                   ls=ls_min,
-                   label=r'Best')
+    if index_best is not None:
+        if score in index_best.index:
+            _best_idx = list(cv_scores.index).index(index_best[score])
+            ax.axvline(index[_best_idx],
+                       c=col_min,
+                       ls=ls_min,
+                       label=r'Best')
         
-    if score in index_1se.index:
-        _1se_idx = list(cv_scores.index).index(index_1se[score])
-        ax.axvline(index[_1se_idx],
-                   c=col_min,
-                   ls=ls_min,
-                   label=r'1SE')
+    if index_1se is not None:
+        if score in index_1se.index:
+            _1se_idx = list(cv_scores.index).index(index_1se[score])
+            ax.axvline(index[_1se_idx],
+                       c=col_min,
+                       ls=ls_min,
+                       label=r'1SE')
         
     if legend:
         ax.legend()
     return ax
-
 
 def _tune(index,
           scorers,
@@ -365,5 +366,68 @@ def _tune(index,
                                name='index_1se')
         if complexity_order == 'decreasing':
             index_1se_ = npath - 1 - index_1se_
-
+    else:
+        index_1se_ = None
+        
     return index_best_, index_1se_
+
+@dataclass
+class ValidationPath(object):
+
+    scores: pd.DataFrame
+    index_best: pd.Series
+    index_1se: pd.Series
+    lambda_values: np.ndarray
+    norm: np.ndarray
+    fracdev: np.ndarray
+    family: GLMFamilySpec
+    score: str | None = None
+
+    def plot(self,
+             score=None,
+             xvar='-lambda',
+             ax=None,
+             capsize=3,
+             legend=False,
+             col_min='#909090',
+             ls_min='--',
+             col_1se='#909090',
+             ls_1se='--',
+             c='#c0c0c0',
+             scatter_c='red',
+             scatter_s=None,
+             **plot_args):
+
+        if xvar == 'lambda':
+            self.index = pd.Series(np.log(self.lambda_values), name=r'$\log(\lambda)$')
+        elif xvar == '-lambda':
+            self.index = pd.Series(-np.log(self.lambda_values), name=r'$-\log(\lambda)$')
+        elif xvar == 'norm':
+            self.index = pd.Index(self.norm)
+            self.index.name = r'$\|\beta(\lambda)\|$'
+        elif xvar == 'dev':
+            self.index = pd.Index(self.fracdev)
+            self.index.name = 'Fraction Deviance Explained'
+        else:
+            raise ValueError("xvar should be in ['lambda', '-lambda', 'norm', 'dev']")
+
+        if score is None:
+            score = self.family._default_scorers()[0].name
+
+        score = score or self.score
+        return plot(self.scores,
+                    self.index_best,
+                    self.index_1se,
+                    score=score,
+                    index=self.index,
+                    ax=ax,
+                    capsize=capsize,
+                    legend=legend,
+                    col_min=col_min,
+                    ls_min=ls_min,
+                    col_1se=col_1se,
+                    ls_1se=ls_1se,
+                    c=c,
+                    scatter_c=scatter_c,
+                    scatter_s=scatter_s,
+                    **plot_args)

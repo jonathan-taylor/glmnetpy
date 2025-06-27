@@ -147,7 +147,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             design = self.design_
 
-
         if self.df_max is None:
             self.df_max = X.shape[1] + 1
             
@@ -160,6 +159,14 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         
         _check_and_set_limits(self, nvars)
         self.exclude = _check_and_set_vp(self, nvars, self.exclude)
+
+        self.lower_limits = np.asarray(self.lower_limits)
+        if self.lower_limits.shape == (): # a single float 
+            self.lower_limits = np.ones(nvars) * self.lower_limits
+        
+        self.upper_limits = np.asarray(self.upper_limits)
+        if self.upper_limits.shape == (): # a single float 
+            self.upper_limits = np.ones(nvars) * self.upper_limits
 
         self.pb = tqdm(total=self.nlambda)
         self._args = self._wrapper_args(design,
@@ -362,7 +369,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         cl = np.asarray([self.lower_limits,
                          self.upper_limits], float)
-
+        
         if np.any(cl[0] == 0) or np.any(cl[-1] == 0):
             self.control.fdev = 0
 
@@ -416,7 +423,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
     def predict(self,
                 X,
-                prediction_type='link' # ignored except checking valid
+                prediction_type='link', # ignored except checking valid
+                lambda_values=None,
                 ):
         """
         Predict using the fitted model for multiple responses.
@@ -433,13 +441,25 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         np.ndarray
             Predicted values.
         """
+
+        if lambda_values is not None:
+            lambda_values = np.asarray(lambda_values)
+            squeeze = lambda_values.ndim == 0
+            lambda_values = np.atleast_1d(lambda_values)
+            coefs_, intercepts_ = self.interpolate_coefs(lambda_values)
+        else:
+            lambda_values = self.lambda_values
+            squeeze = False
+            coefs_, intercepts_ = self.coefs_, self.intercepts_
+
+            
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
         
         term1 = np.einsum('ijk,lj->ilk',
-                          self.coefs_,
+                          coefs_,
                           X)
-        fits = term1 + self.intercepts_[:, None, :]
+        fits = term1 + intercepts_[:, None, :]
         fits = np.transpose(fits, [1,0,2])
 
         # make return based on original
@@ -448,8 +468,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
         # if possible we might want to do less than `self.nlambda`
         
-        if self.lambda_values is not None:
-            nlambda = self.lambda_values.shape[0]
+        if lambda_values is not None:
+            nlambda = lambda_values.shape[0]
         else:
             nlambda = self.nlambda
 
@@ -459,7 +479,10 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         value[:,:fits.shape[1]] = fits
         value[:,fits.shape[1]:] = fits[:,-1][:,None]
 
-        return value
+        if not squeeze:
+            return value
+        else:
+            return value[:,0,:]
 
     # private methods
 

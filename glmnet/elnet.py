@@ -323,10 +323,11 @@ def _check_and_set_limits(spec, nvars):
     upper_limits = np.asarray(spec.upper_limits)
     lower_limits = np.asarray(lower_limits)
     upper_limits = np.asarray(upper_limits)
+
     if lower_limits.shape in [(), (1,)]:
-        lower_limits = -np.inf * np.ones(nvars)
+        lower_limits = lower_limits * np.ones(nvars)
     if upper_limits.shape in [(), (1,)]:
-        upper_limits = np.inf * np.ones(nvars)
+        upper_limits = upper_limits * np.ones(nvars)
     lower_limits = lower_limits[:nvars]
     upper_limits = upper_limits[:nvars]
     if lower_limits.shape[0] < nvars:
