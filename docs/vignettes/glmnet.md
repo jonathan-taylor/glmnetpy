@@ -34,75 +34,138 @@ Below is a quick demonstration of the main functions and outputs using the Pytho
 
 ```{code-cell} ipython3
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.datasets import make_regression
-from glmnet import GaussNet
-
-# Set random seed for reproducibility
-np.random.seed(42)
-
-# Generate synthetic regression data
-X_gaussian, y_gaussian, coef = make_regression(n_samples=100, n_features=20, n_informative=5, 
-                            noise=3.0, coef=True, random_state=42)
-
-# Fit a Gaussian model (linear regression)
-fit = GaussNet().fit(X_gaussian, y_gaussian)
-
-# Plot the coefficient paths
-fit.coef_path_.plot();
-plt.title('Coefficient Paths for Linear Regression');
+from sklearn.datasets import make_regression, make_classification
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_curve, auc
 ```
 
----
+The following are the `GLMNet` estimators:
+
+```{code-cell} ipython3
+from glmnet import (GaussNet, 
+                    LogNet, 
+                    MultiClassNet, 
+                    FishNet, 
+                    MultiGaussNet)
+```
+
+Let's generate some synthetic regression data:
+
+```{code-cell} ipython3
+X_gaussian, y_gaussian = make_regression(n_samples=100, 
+                                         n_features=20, 
+                                         n_informative=5, 
+                                         noise=3.0, 
+                                         random_state=42)
+```
+
+All of the `GLMNet` objects are `sklearn` estimators
+which use the `fit / predict` methods:
+
+```{code-cell} ipython3
+fit_gaussian = GaussNet().fit(X_gaussian, y_gaussian)
+```
+
+It is common to plot LASSO coefficient paths. The `GLMNet` objects
+have a `coef_path_` object after fitting that can be plotted:
+
+```{code-cell} ipython3
+# Plot the coefficient paths
+ax = fit_gaussian.coef_path_.plot();
+ax.set_title('Coefficient Paths for Linear Regression');
+```
+
+## Caveat: using weights
+
+For several `GLMNet` estimators we may have to pass several columns to specify
+the response (e.g. for `CoxNet`). We also may want to specify offset
+and possibly sample weights. For this reason, weights are specified
+as a column of the `y` argument to fit, typically a `pd.DataFrame`.
+
+Using this approach allows construction of several columns from `y` that are not simply the
+response. This potentially use other uses beyond weights and offsets.
+
+```{warning}
+Since weights are found through the response, the `sample_weights` argument to `fit` is ignored!
+```
+
+Here's an example of using weight with this approach. The `X` argument will still typically
+be an `np.ndarray`.
+
+```{code-cell} ipython3
+# Create offset and weights
+weights = np.random.uniform(0.5, 2.0, size=X_gaussian.shape[0])
+Df = pd.DataFrame({'response':y_gaussian,
+                   'weight': weights})
+```
+
+Now fit with `response_id`, and `weight_id`:
+
+```{code-cell} ipython3
+fit_gaussian = GaussNet(response_id="response", weight_id="weight").fit(X_gaussian, Df)
+```
 
 # Linear Regression: GaussNet
 
-The default model used in the package is the Gaussian linear model or "least squares". We'll demonstrate this using synthetic data for illustration:
+The `R` package `glmnet` uses a single function to fit all versions of `GLMNet`. This package
+follows the `sklearn` model more closely, using data-type specific estimators instead
+of a single function to dispatch based on the data.
+
+Perhaps the most model used in the package is the Gaussian linear model or "least squares". 
+We'll just reimport the object here for emphasis.
 
 ```{code-cell} ipython3
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.datasets import make_regression
 from glmnet import GaussNet
+```
 
-# Generate synthetic regression data
-X_gaussian, y_gaussian, coef = make_regression(n_samples=100, n_features=20, n_informative=5, 
-                             noise=3.0, coef=True, random_state=42)
+We'll demonstrate this using synthetic data for illustration:
 
-# Fit the model using the most basic call
-fit = GaussNet().fit(X_gaussian, y_gaussian)
+```{code-cell} ipython3
+X_gaussian, y_gaussian = make_regression(n_samples=100, 
+                                         n_features=20, 
+                                         n_informative=5, 
+                                         noise=3.0, 
+                                         random_state=42)
+```
+
+Fit the model using the basic call:
+
+```{code-cell} ipython3
+fit_gaussian = GaussNet().fit(X_gaussian, y_gaussian)
 ```
 
 The fitted object contains all the relevant information of the fitted model for further use. We can visualize the coefficients by plotting the regularization paths:
 
 ```{code-cell} ipython3
-fit.coef_path_.plot();
-plt.title('Coefficient Paths for Linear Regression');
+ax = fit_gaussian.coef_path_.plot();
+ax.set_title('Coefficient Paths for Linear Regression');
 ```
 
 Each curve corresponds to a variable. It shows the path of its coefficient against the $\ell_1$-norm of the whole coefficient vector as $\lambda$ varies.
 
-We can obtain the model coefficients at specific $\lambda$ values by interpolation:
+We can obtain the model coefficients at specific $\lambda$ values by interpolation.
+Let's get coefficients at $\lambda=0.1$:
 
 ```{code-cell} ipython3
-# Get coefficients at lambda = 0.1
-coefs, intercept = fit.interpolate_coefs(0.1)
-print("Coefficients at lambda = 0.1:")
-print(coefs)
+coefs, intercept = fit_gaussian.interpolate_coefs(0.1)
+coefs
 ```
 
 Users can also make predictions at specific $\lambda$ values with new input data:
 
 ```{code-cell} ipython3
-# Generate new data for prediction
-from sklearn.datasets import make_regression
-new_X, _ = make_regression(n_samples=5, n_features=20, n_informative=5, 
-                             noise=3.0, random_state=123)
+rng = np.random.default_rng(0)
+new_X = rng.standard_normal((5, X_gaussian.shape[1]))
+```
 
-# Make predictions at specific lambda values
+We can of course make predictions at specific $\lambda$ values:
+
+```{code-cell} ipython3
 lambda_values = [0.1, 0.05]
-predictions = fit.predict(new_X, interpolation_grid=lambda_values)
-print(f"Prediction shape: {predictions.shape}")
+predictions = fit_gaussian.predict(new_X, interpolation_grid=lambda_values)
+predictions.shape
 ```
 
 ## Cross-validation
@@ -110,11 +173,9 @@ print(f"Prediction shape: {predictions.shape}")
 Cross-validation is perhaps the simplest and most widely used method for selecting the optimal $\lambda$. We can perform cross-validation using the `cross_validation_path` method:
 
 ```{code-cell} ipython3
-from glmnet import GaussNet
-
 # Perform cross-validation
-cvfit = GaussNet().fit(X_gaussian, y_gaussian)
-_, cvpath = cvfit.cross_validation_path(X_gaussian, y_gaussian, cv=5)
+cvfit_gaussian = GaussNet().fit(X_gaussian, y_gaussian)
+_, cvpath = cvfit_gaussian.cross_validation_path(X_gaussian, y_gaussian, cv=5)
 ```
 
 ```{code-cell} ipython3
@@ -130,56 +191,18 @@ The cross-validation curve shows the mean squared error (red dotted line) along 
 We can get the model coefficients at these optimal values:
 
 ```{code-cell} ipython3
-# Get coefficients at lambda.min
 lambda_min = cvpath.index_best['Mean Squared Error']
-coef_min, intercept_min = cvfit.interpolate_coefs(lambda_min)
-print("Coefficients at lambda.min:")
-print(coef_min)
+coef_min, intercept_min = cvfit_gaussian.interpolate_coefs(lambda_min)
+coef_min
 ```
 
-## Commonly used function arguments
-
-`GaussNet` provides various arguments for users to customize the fit:
-
-- `alpha`: the elastic net mixing parameter $\alpha$, with range $\alpha \in [0,1]$. $\alpha = 1$ is lasso regression (default) and $\alpha = 0$ is ridge regression.
-- `sample_weight`: observation weights, default is 1 for each observation.
-- `nlambda`: the number of $\lambda$ values in the sequence (default is 100).
-- `lambda_values`: can be provided if the user wants to specify the lambda sequence.
-- `standardize`: logical flag for $x$ variable standardization prior to fitting the model sequence.
-
-As an example, we set $\alpha = 0.2$ (more like a ridge regression), and give double weight to the latter half of the observations:
-
-**for weights, use the weight_id!!!!**
-
-```{code-cell} ipython3
-# Create weights: double weight for latter half
-weights = np.ones(len(X_gaussian))
-weights[len(X_gaussian)//2:] = 2
-
-# Fit with alpha=0.2 and custom weights
-fit_ridge = GaussNet(alpha=0.2, nlambda=20).fit(X_gaussian, y_gaussian, sample_weight=weights)
-fit_ridge.coef_path_.plot();
-plt.title('Ridge Regression (α=0.2) with Custom Weights');
-```
-
-## Predicting and plotting with fitted objects
+## Predicting with fitted objects
 
 We can extract the coefficients and make predictions for a fitted object at certain values of $\lambda$. Here is a simple example:
 
 ```{code-cell} ipython3
-# Check if 0.5 is in the original lambda sequence
-lambda_05_idx = np.where(np.abs(fit.lambda_values_ - 0.5) < 1e-10)[0]
-if len(lambda_05_idx) > 0:
-    print("0.5 is in the original lambda sequence")
-    coef_exact = fit.coefs_[lambda_05_idx[0]]
-else:
-    print("0.5 is not in the original lambda sequence")
-    # Find closest lambda
-    closest_idx = np.argmin(np.abs(fit.lambda_values_ - 0.5))
-    coef_approx = fit.coefs_[closest_idx]
-    print(f"Using closest lambda: {fit.lambda_values_[closest_idx]:.4f}")
-    print("Approximate coefficients:")
-    print(coef_approx)
+coef, intercept = fit_gaussian.interpolate_coefs(0.5)
+coef, intercept
 ```
 
 Users can make predictions from the fitted object. The `predict` method allows users to choose the type of prediction returned:
@@ -190,21 +213,58 @@ Users can make predictions from the fitted object. The `predict` method allows u
 For example, the following code gives the fitted values for the first 5 observations at $\lambda = 0.05$:
 
 ```{code-cell} ipython3
-predictions = fit.predict(X_gaussian[:5], interpolation_grid=0.05)
-print("Fitted values for first 5 observations at λ = 0.05:")
-print(predictions)
+linpred = fit_gaussian.predict(X_gaussian[:5], 
+                               interpolation_grid=0.05)
+response = fit_gaussian.predict(X_gaussian[:5], 
+                                interpolation_grid=0.05,
+                                prediction_type='response')
+assert np.allclose(linpred, response)
 ```
 
-## Other function arguments
+For classification problems, one can also ask for `class`.
+
+# Commonly used function arguments
 
 In this section we briefly describe some other useful arguments when calling `GaussNet`: `upper_limits`, `lower_limits`, `penalty_factor`, and `fit_intercept`.
+
+
+`GaussNet` and other `GLMNet` objects provide various arguments for users to customize the fit:
+
+- `alpha`: the elastic net mixing parameter $\alpha$, with range $\alpha \in [0,1]$. $\alpha = 1$ is lasso regression (default) and $\alpha = 0$ is ridge regression.
+- `nlambda`: the number of $\lambda$ values in the sequence (default is 100).
+- `lambda_values`: can be provided if the user wants to specify the lambda sequence.
+- `standardize`: logical flag for $x$ variable standardization prior to fitting the model sequence.
+
+## Setting the ElasticNet parameter $\alpha$
+
+As an example, we set $\alpha = 0.2$ (more like a ridge regression), and give double weight to the latter half of the observations:
+
++++
+
+Create the weights with double weight for latter half:
+
+```{code-cell} ipython3
+weights = np.ones(len(X_gaussian))
+weights[len(X_gaussian)//2:] = 2
+Df['weight'] = weights
+```
+
+Fit with $\alpha=0.2$ and custom weights:
+
+```{code-cell} ipython3
+fit_ridge_gaussian = GaussNet(alpha=0.2, nlambda=20, weight_id='weight').fit(X_gaussian, Df)
+ax = fit_ridge_gaussian.coef_path_.plot();
+ax.set_title('Ridge Regression (α=0.2) with Custom Weights');
+```
+
+## Upper and lower limits 
 
 Suppose we want to fit our model but limit the coefficients to be bigger than -0.1 and less than 1.2:
 
 ```{code-cell} ipython3
 # Fit with coefficient limits
-fit_limited = GaussNet(lower_limits=-0.1, upper_limits=1.2).fit(X_gaussian, y_gaussian)
-fit_limited.coef_path_.plot();
+fit_limited_gaussian = GaussNet(lower_limits=-0.1, upper_limits=1.2).fit(X_gaussian, y_gaussian)
+fit_limited_gaussian.coef_path_.plot();
 plt.title('Coefficient Paths with Limits [-0.1, 1.2]');
 ```
 
@@ -212,8 +272,8 @@ Often we want the coefficients to be positive: to do so, we just need to specify
 
 ```{code-cell} ipython3
 # Fit with non-negative coefficients
-fit_positive = GaussNet(lower_limits=0).fit(X_gaussian, y_gaussian)
-fit_positive.coef_path_.plot();
+fit_positive_gaussian = GaussNet(lower_limits=0).fit(X_gaussian, y_gaussian)
+fit_positive_gaussian.coef_path_.plot();
 plt.title('Non-negative Coefficient Paths');
 ```
 
@@ -224,72 +284,27 @@ The `penalty_factor` argument allows users to apply separate penalty factors to 
 penalty_factor = np.ones(X_gaussian.shape[1])
 penalty_factor[[0, 2, 4]] = 0  # Variables 1, 3, 5 (0-indexed)
 
-fit_penalty = GaussNet(penalty_factor=penalty_factor).fit(X_gaussian, y_gaussian)
-fit_penalty.coef_path_.plot();
+fit_penalty_gaussian = GaussNet(penalty_factor=penalty_factor).fit(X_gaussian, y_gaussian)
+fit_penalty_gaussian.coef_path_.plot();
 plt.title('Coefficient Paths with Custom Penalty Factors');
 ```
 
 We see from the plot that the three variables with zero penalty factors always stay in the model, while the others follow typical regularization paths and are shrunk to zero eventually.
 
+## Fitting with or without an intercept
+
 The `fit_intercept` argument allows the user to decide if an intercept should be included in the model or not (it is never penalized). The default is `fit_intercept = True`:
 
 ```{code-cell} ipython3
 # Fit without intercept
-fit_no_intercept = GaussNet(fit_intercept=False).fit(X_gaussian, y_gaussian)
+fit_no_intercept_gaussian = GaussNet(fit_intercept=False).fit(X_gaussian, y_gaussian)
 
 # Compare with intercept
-fit_with_intercept = GaussNet(fit_intercept=True).fit(X_gaussian, y_gaussian)
+fit_with_intercept_gaussian = GaussNet(fit_intercept=True).fit(X_gaussian, y_gaussian)
 
 print("Intercept values:")
-print(f"With intercept: {fit_with_intercept.intercepts_[0]:.4f}")
-print(f"Without intercept: {fit_no_intercept.intercepts_[0]:.4f}")
-```
-
-# Linear Regression: family = "mgaussian" (multi-response)
-
-The multi-response Gaussian family is useful when there are a number of (correlated) responses, also known as the "multi-task learning" problem. Here, a variable is either included in the model for all the responses, or excluded for all the responses.
-
-As the name suggests, the response $y$ is not a vector but a matrix of quantitative responses. As a result, the coefficients at each value of lambda are also a matrix.
-
-`glmnet` solves the problem
-$$
-\min_{(\beta_0, \beta) \in \mathbb{R}^{(p+1)\times K}}\frac{1}{2N} \sum_{i=1}^N \|y_i -\beta_0-\beta^T x_i\|^2_F+\lambda \left[ (1-\alpha)\|\beta\|_F^2/2 + \alpha\sum_{j=1}^p\|\beta_j\|_2\right].
-$$
-Here $\beta_j$ is the $j$th row of the $p\times K$ coefficient matrix $\beta$, and we replace the absolute penalty on each single coefficient by a group-lasso penalty on each coefficient $K$-vector $\beta_j$ for a single predictor.
-
-We use synthetic data for illustration:
-
-```{code-cell} ipython3
-import numpy as np
-from glmnet import MultiGaussNet
-import matplotlib.pyplot as plt
-
-# Generate multi-response data
-np.random.seed(42)
-n, p, K = 100, 20, 3
-X = np.random.randn(n, p)
-beta = np.zeros((p, K))
-beta[:5, :] = np.random.randn(5, K)  # First 5 variables are active
-y = X @ beta + np.random.randn(n, K)
-
-# Fit a regularized multi-response Gaussian model
-mfit = MultiGaussNet().fit(X, y)
-```
-
-We can visualize the coefficients by plotting the $\ell_2$ norm of each variable's coefficient vector:
-
-```{code-cell} ipython3
-mfit.coef_path_.plot();
-plt.title('Multi-response Linear Regression Coefficient Paths');
-```
-
-We can extract the coefficients and make predictions at requested values of $\lambda$:
-
-```{code-cell} ipython3
-# Make predictions at specific lambda values
-lambda_vals = [0.1, 0.01]
-predictions = mfit.predict(X[:5], interpolation_grid=lambda_vals)
-print(f"Prediction shape: {predictions.shape}")
+print(f"With intercept: {fit_with_intercept_gaussian.intercepts_[0]:.4f}")
+print(f"Without intercept: {fit_no_intercept_gaussian.intercepts_[0]:.4f}")
 ```
 
 # Logistic Regression: LogNet
@@ -308,16 +323,13 @@ $$
 \min_{(\beta_0, \beta) \in \mathbb{R}^{p+1}} -\left[\frac{1}{N} \sum_{i=1}^N y_i \cdot (\beta_0 + x_i^T \beta) - \log (1+e^{(\beta_0+x_i^T \beta)})\right] + \lambda \big[ (1-\alpha)\|\beta\|_2^2/2 + \alpha\|\beta\|_1\big].
 $$
 
+```{code-cell} ipython3
+from glmnet import LogNet
+```
+
 For illustration purposes, we generate synthetic data:
 
 ```{code-cell} ipython3
-import numpy as np
-from glmnet import LogNet
-import matplotlib.pyplot as plt
-from sklearn.datasets import make_classification
-from sklearn.model_selection import train_test_split
-
-# Generate binary classification data for testing
 X_binomial, y_binomial = make_classification(n_samples=200, n_features=20, n_informative=5, 
                            n_redundant=5, n_clusters_per_class=1, 
                            flip_y=0.3,
@@ -326,15 +338,18 @@ X_binomial, y_binomial = make_classification(n_samples=200, n_features=20, n_inf
 # Use the existing binomial data for testing
 X_train, X_test, y_train, y_test = train_test_split(X_binomial, y_binomial, test_size=0.5, random_state=42)
 
-fit = LogNet().fit(X_train, y_train)
+# Fit logistic regression
+fit_logistic = LogNet().fit(X_binomial, y_binomial)
 ```
 
 As before, we can print and plot the fitted object, extract the coefficients at specific $\lambda$'s and also make predictions:
 
 ```{code-cell} ipython3
-fit.coef_path_.plot();
-plt.title('Logistic Regression Coefficient Paths');
+ax = fit_logistic.coef_path_.plot();
+ax.set_title('Logistic Regression Coefficient Paths');
 ```
+
+## Predicting classes for `LogNet`
 
 Prediction is a little different for logistic regression, mainly in the function argument `prediction_type`:
 
@@ -342,31 +357,29 @@ Prediction is a little different for logistic regression, mainly in the function
 - "response" gives the fitted probabilities
 - "class" produces the class label corresponding to the maximum probability
 
+First, we'll produce the usual linear predictors:
+
 ```{code-cell} ipython3
-# Make predictions of different types
+fit_logistic.predict(X_test[:5], interpolation_grid=0.05, prediction_type="link")
+```
 
-# Linear predictors
-link_pred = fit.predict(X_test[:5], interpolation_grid=0.05, prediction_type="link")
-print("Linear predictors (link):")
-print(link_pred)
+Next, the probabilities:
 
-# Probabilities
-prob_pred = fit.predict(X_test[:5], interpolation_grid=0.05, prediction_type="response")
-print("\nFitted probabilities (response):")
-print(prob_pred)
+```{code-cell} ipython3
+fit_logistic.predict(X_test[:5], interpolation_grid=0.05, prediction_type="response")
+```
 
-# Class predictions
-class_pred = fit.predict(X_test[:5], interpolation_grid=0.05, prediction_type="class")
-print("\nClass predictions:")
-print(class_pred)
+And finally the class predictions
+
+```{code-cell} ipython3
+fit_logistic.predict(X_test[:5], interpolation_grid=0.05, prediction_type="class")
 ```
 
 For logistic regression, cross-validation has similar arguments and usage as Gaussian:
 
 ```{code-cell} ipython3
-# Perform cross-validation
-cvfit = LogNet().fit(X_binomial, y_binomial)
-_, cvpath = cvfit.cross_validation_path(X_binomial, y_binomial, cv=5)
+cvfit_logistic = LogNet().fit(X_binomial, y_binomial)
+_, cvpath = cvfit_logistic.cross_validation_path(X_binomial, y_binomial, cv=5)
 ax = cvpath.plot(score='Binomial Deviance');
 ax.set_title('Cross-validation Results for Logistic Regression');
 ```
@@ -384,40 +397,51 @@ $$
 
 We support two options for $q$: $q\in \{1,2\}$. When $q=1$, this is a lasso penalty on each of the parameters. When $q=2$, this is a grouped-lasso penalty on all the $K$ coefficients for a particular variable, which makes them all be zero or nonzero together.
 
+```{code-cell} ipython3
+from glmnet import MultiClassNet
+```
+
 For the `family = "multinomial"` case, usage is similar to that for `family = "binomial"`. We generate synthetic data:
 
 ```{code-cell} ipython3
-import numpy as np
-from glmnet import MultiClassNet
-import matplotlib.pyplot as plt
-from sklearn.datasets import make_classification
-
-# Generate multinomial data
-X_multinomial, y_multinomial = make_classification(n_samples=100, n_features=20, n_informative=5, 
-                          n_redundant=5, n_classes=3, n_clusters_per_class=1, 
-                          flip_y=0.2, random_state=42)
-
-# Fit multinomial regression with grouped lasso penalty
-fit = MultiClassNet().fit(X_multinomial, y_multinomial)
+X_multinomial, y_multinomial = make_classification(n_samples=100, 
+                                                   n_features=20, 
+                                                   n_informative=5, 
+                                                   n_redundant=5, 
+                                                   n_classes=3, 
+                                                   n_clusters_per_class=1, 
+                                                   flip_y=0.2, random_state=42)
 ```
 
-For the `plot` method, we can produce a figure showing the $\ell_2$-norm in one figure:
+Fitting is similar to all other `GLMNet` estimators:
 
 ```{code-cell} ipython3
-ax = fit.coef_path_.plot();
+fit_multinomial = MultiClassNet().fit(X_multinomial, y_multinomial)
+```
+
+For the plot, it will produce a figure showing the $\ell_2$-norm in one figure:
+
+```{code-cell} ipython3
+ax = fit_multinomial.coef_path_.plot();
 ax.set_title('Multinomial Regression Coefficient Paths');
 ```
 
 We can also do cross-validation:
 
 ```{code-cell} ipython3
-# Perform cross-validation
-cvfit = MultiClassNet().fit(X_multinomial, y_multinomial)
-_, cvpath = cvfit.cross_validation_path(X_multinomial, y_multinomial, cv=10);
+cvfit_multinomial = MultiClassNet().fit(X_multinomial, y_multinomial)
+_, cvpath = cvfit_multinomial.cross_validation_path(X_multinomial, y_multinomial, cv=10);
 ```
 
+There are several scores available:
+
 ```{code-cell} ipython3
-print("Available scores:", list(cvpath.scores.columns))
+cvpath.scores.columns
+```
+
+Let's plot the deviance:
+
+```{code-cell} ipython3
 cvpath.plot(score='Multinomial Deviance');
 ax.set_title('Cross-validation Results for Multinomial Regression');
 ```
@@ -425,11 +449,56 @@ ax.set_title('Cross-validation Results for Multinomial Regression');
 Users may wish to predict at the optimally selected $\lambda$:
 
 ```{code-cell} ipython3
-predictions = fit.predict(X_multinomial[:10], 
-                          interpolation_grid=cvpath.index_best['Multinomial Deviance'], 
+best_lambda = cvpath.index_best['Multinomial Deviance']
+predictions = fit_multinomial.predict(X_multinomial[:10], 
+                          interpolation_grid=best_lambda, 
                           prediction_type="class")
-print("Class predictions at lambda.min:")
+print("Class predictions at lambda_min:")
 print(predictions)
+```
+
+# Multi-Response Regression: MultiGaussNet
+
+The multi-response Gaussian family is useful when there are a number of (correlated) responses, also known as the "multi-task learning" problem. Here, a variable is either included in the model for all the responses, or excluded for all the responses.
+
+As the name suggests, the response $y$ is not a vector but a matrix of quantitative responses. As a result, the coefficients at each value of lambda are also a matrix.
+
+`glmnet` solves the problem
+$$
+\min_{(\beta_0, \beta) \in \mathbb{R}^{(p+1)\times K}}\frac{1}{2N} \sum_{i=1}^N \|y_i -\beta_0-\beta^T x_i\|^2_F+\lambda \left[ (1-\alpha)\|\beta\|_F^2/2 + \alpha\sum_{j=1}^p\|\beta_j\|_2\right].
+$$
+Here $\beta_j$ is the $j$th row of the $p\times K$ coefficient matrix $\beta$, and we replace the absolute penalty on each single coefficient by a group-lasso penalty on each coefficient $K$-vector $\beta_j$ for a single predictor.
+
+```{code-cell} ipython3
+from glmnet import MultiGaussNet
+```
+
+We use synthetic data for illustration:
+
+```{code-cell} ipython3
+n, p, K = 100, 20, 3
+X = rng.standard_normal((n, p))
+beta = np.zeros((p, K))
+beta[:5, :] = rng.standard_normal((5, K))  # First 5 variables are active
+y = X @ beta + rng.standard_normal((n, K))
+
+# Fit a regularized multi-response Gaussian model
+fit_multigaussian = MultiGaussNet().fit(X, y)
+```
+
+We can visualize the coefficients by plotting the $\ell_2$ norm of each variable's coefficient vector:
+
+```{code-cell} ipython3
+ax = fit_multigaussian.coef_path_.plot();
+ax.set_title('Multi-response Linear Regression Coefficient Paths');
+```
+
+We can similarly extract the coefficients and make predictions at requested values of $\lambda$:
+
+```{code-cell} ipython3
+lambda_vals = [0.1, 0.01]
+predictions = fit_multigaussian.predict(X[:5], interpolation_grid=lambda_vals)
+predictions.shape
 ```
 
 # Poisson Regression: FishNet
@@ -445,49 +514,49 @@ $$
 \min_{\beta_0,\beta} -\frac1N l(\beta|X, Y)  + \lambda \left((1-\alpha) \sum_{i=1}^N \beta_i^2/2 +\alpha \sum_{i=1}^N |\beta_i|\right).
 $$
 
+```{code-cell} ipython3
+from glmnet import FishNet
+```
+
 We generate Poisson data:
 
 ```{code-cell} ipython3
-import numpy as np
-from glmnet import FishNet
-import matplotlib.pyplot as plt
-
-# Generate Poisson data
-np.random.seed(42)
-n, p = 100, 20
-X_poisson = np.random.randn(n, p)
+X_poisson = rng.standard_normal((n, p))
 beta = np.zeros(p)
 beta[:5] = [0.5, 0.3, 0.2, 0, 0.8]
 log_means = X_poisson @ beta
 means = np.exp(log_means)
 y_poisson = np.random.poisson(means)
+```
 
-# Fit Poisson regression
-fit = FishNet().fit(X_poisson, y_poisson)
+Let's fit our model:
+
+```{code-cell} ipython3
+fit_poisson = FishNet().fit(X_poisson, y_poisson)
 ```
 
 We plot the coefficients to have a first sense of the result:
 
 ```{code-cell} ipython3
-fit.coef_path_.plot();
-plt.title('Poisson Regression Coefficient Paths');
+ax = fit_poisson.coef_path_.plot();
+ax.set_title('Poisson Regression Coefficient Paths');
 ```
 
 As before, we can extract the coefficients and make predictions at certain $\lambda$'s:
 
 ```{code-cell} ipython3
-fit.interpolate_coefs(interpolation_grid=1)
-predictions = fit.predict(X_poisson[:5], interpolation_grid=[1, 0.1], prediction_type="response")
+fit_poisson.interpolate_coefs(interpolation_grid=1)
+predictions = fit_poisson.predict(X_poisson[:5], interpolation_grid=[1, 0.1], prediction_type="response")
 ```
 
 We may also use cross-validation to find the optimal $\lambda$'s:
 
 ```{code-cell} ipython3
 # Perform cross-validation
-cvfit = FishNet().fit(X_poisson, y_poisson)
-_, cvpath = cvfit.cross_validation_path(X_poisson, y_poisson, cv=10)
-cvpath.plot(score='Poisson Deviance');
-plt.title('Cross-validation Results for Poisson Regression');
+cvfit_poisson = FishNet().fit(X_poisson, y_poisson)
+_, cvpath = cvfit_poisson.cross_validation_path(X_poisson, y_poisson, cv=10)
+ax = cvpath.plot(score='Poisson Deviance');
+ax.set_title('Cross-validation Results for Poisson Regression');
 ```
 
 # Cox Regression: CoxNet
@@ -503,22 +572,20 @@ Once we have fit a series of models using `glmnet`, we often assess their perfor
 We can compute performance measures on a validation or test dataset. Here's an example for logistic regression:
 
 ```{code-cell} ipython3
-from sklearn.model_selection import train_test_split
-from sklearn.datasets import make_classification
-
-# Generate binary classification data for testing
-X_test, y_test = make_classification(n_samples=200, n_features=20, n_informative=5, 
-                           n_redundant=5, n_clusters_per_class=1, 
-                           flip_y=0.3,
-                           random_state=42)
-
-X_train, X_test, y_train, y_test = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
-
-fit = LogNet().fit(X_train, y_train)
+X_train, X_test, y_train, y_test = train_test_split(X_binomial, y_binomial, test_size=0.5, random_state=42)
 ```
 
+We'll first fit on the training data:
+
 ```{code-cell} ipython3
-score_path = fit.score_path(X_test, y_test)
+fit_logistic = LogNet().fit(X_train, y_train)
+```
+
+Next, we compute the path of scores
+with the test data:
+
+```{code-cell} ipython3
+score_path = fit_logistic.score_path(X_test, y_test)
 ax = score_path.plot(score='Binomial Deviance');
 ax.set_title('Test Set Performance');
 ```
@@ -528,16 +595,20 @@ ax.set_title('Test Set Performance');
 In the special case of binomial models, users often would like to see the ROC curve for validation or test data:
 
 ```{code-cell} ipython3
-from sklearn.metrics import roc_curve, auc
-
-# Calculate ROC curve for the best lambda
 best_lambda = score_path.index_best['Binomial Deviance']
-pred_probs = fit.predict(X_test, interpolation_grid=best_lambda,
-                        prediction_type="response")
+pred_probs = fit_logistic.predict(X_test, 
+                                  interpolation_grid=best_lambda,
+                                  prediction_type="response")
+```
 
+Let's compute an ROC curve
+
+```{code-cell} ipython3
 fpr, tpr, _ = roc_curve(y_test, pred_probs)
 roc_auc = auc(fpr, tpr)
 ```
+
+Finally, we plot the curve:
 
 ```{code-cell} ipython3
 fig, ax = plt.subplots(figsize=(8, 6))
@@ -551,16 +622,19 @@ ax.set_title('Receiver Operating Characteristic (ROC) Curve')
 ax.legend(loc='lower right')
 ```
 
+For classification problems, one can also ask for `class`.
+
++++
+
 # Filtering variables
 
-Sometimes we want to filter variables before fitting the model. This can be done using the `exclude` argument:
+Sometimes we want to filter variables before fitting the model. This can be done using the `exclude` argument. Below, we exclude the first, third and sixth variable
 
 ```{code-cell} ipython3
-# Exclude variables 1, 3, and 5 from the model
-exclude_vars = [0,1,2] # 0-indexed
+exclude_vars = [0,2,5] # 0-indexed
 fit_excluded = GaussNet(exclude=exclude_vars).fit(X_gaussian, y_gaussian)
 fit_excluded.coef_path_.plot()
-np.allclose(fit_excluded.coefs_[:,exclude_vars], 0)
+assert np.allclose(fit_excluded.coefs_[:,exclude_vars], 0)
 ```
 
 # Other Package Features
@@ -570,32 +644,26 @@ np.allclose(fit_excluded.coefs_[:,exclude_vars], 0)
 Like other generalized linear models, `glmnet` allows for an "offset". This is a fixed vector of $N$ numbers that is added into the linear predictor. For example, you may have fitted some other logistic regression using other variables (and data), and now you want to see if the present variables can add further predictive power. To do this, you can use the predicted logit from the other model as an offset in the `glmnet` call.
 
 ```{code-cell} ipython3
-# Example with offset in logistic regression
-# Generate offset (e.g., from another model)
-offset = np.random.randn(len(X_gaussian))
+offset = np.random.randn(X_gaussian.shape[0])
+Df = pd.DataFrame({'response':y_gaussian,
+                   'offset': offset})
 
-# Fit with offset
-fit_with_offset = LogNet().fit(X_gaussian, y_gaussian, offset=offset)
+# Fit with response_id, offset_id, and weight_id
+fit_with_offset = GaussNet(response_id="response", 
+                           offset_id='offset').fit(X_gaussian, Df)
+
 
 # Compare with fit without offset
-fit_no_offset = LogNet().fit(X_gaussian, y_gaussian)
+fit_no_offset = GaussNet(response_id='response').fit(X_gaussian, Df)
 
 print("Intercept with offset:", fit_with_offset.intercepts_[0])
 print("Intercept without offset:", fit_no_offset.intercepts_[0])
 ```
 
-## Parallel computing
+Of course, weights can also be added as above with a `weight_id` argument
+to the `GLMNet` object.
 
-For large-scale problems, parallel computing can significantly speed up the computation process. The Python `glmnet` package supports parallel processing through joblib:
-
-```{code-cell} ipython3
-# Example of parallel cross-validation
-from joblib import parallel_backend
-
-# This would be used in practice for large datasets
-# with parallel_backend('threading', n_jobs=4):
-#     cv_results = fit.cross_validation_path(X, y, cv=10, n_jobs=4)
-```
++++
 
 # Appendix: Convergence Criteria and Internal Parameters
 
@@ -618,5 +686,3 @@ These parameters can be adjusted if needed, though the defaults work well for mo
 ---
 
 *This document adapts the R glmnet vignette for the Python glmnet package. The original R vignette was written by Trevor Hastie, Junyang Qian, and Kenneth Tay.*
-
-# Multi-response Linear Regression: MultiGaussNet
