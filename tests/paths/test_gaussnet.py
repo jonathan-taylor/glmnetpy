@@ -89,7 +89,10 @@ class RGLMNet(object):
                 rpy.r.assign('intercept', False)
             args['intercept'] = 'intercept'
 
-            rpy.r.assign('exclude', np.array(self.exclude))
+            if len(self.exclude) > 1:
+                rpy.r.assign('exclude', np.array(self.exclude) + 1)
+            else:
+                rpy.r.assign('exclude', np.array(self.exclude))
             args['exclude'] = 'exclude'
 
             self.args = args

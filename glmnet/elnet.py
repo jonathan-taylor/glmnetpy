@@ -354,7 +354,7 @@ def _check_and_set_vp(spec, nvars, exclude):
     Returns
     -------
     exclude : list
-        Updated exclude list.
+        Updated exclude list to 1-based for C++ code.
     """
     penalty_factor = spec.penalty_factor
     if penalty_factor is None:
@@ -371,6 +371,7 @@ def _check_and_set_vp(spec, nvars, exclude):
     vp = np.maximum(0, penalty_factor).reshape((-1,1))
     vp = (vp * nvars / vp.sum())
     spec.penalty_factor = vp
+    exclude = list(np.asarray(exclude, int) + 1)
     return exclude
 
 def _design_wrapper_args(design):
