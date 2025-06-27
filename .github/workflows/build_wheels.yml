@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         # Add windows-latest to the build matrix
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest] # , windows-latest]
 
     steps:
       - name: Checkout code
