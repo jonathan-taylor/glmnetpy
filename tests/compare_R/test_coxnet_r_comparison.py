@@ -199,8 +199,8 @@ def test_cross_validation_fraction_alignment_grouped(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 10 as in original)
-    assert np.allclose(GN3.cv_scores_['Cox Deviance (Difference)'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN3.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.cv_path_.scores['Cox Deviance (Difference)'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.cv_path_.scores['SD(Cox Deviance (Difference))'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_lambda_alignment_grouped(sample_data):
@@ -240,8 +240,8 @@ def test_cross_validation_lambda_alignment_grouped(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 10 as in original)
-    assert np.allclose(GN4.cv_scores_['Cox Deviance (Difference)'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN4.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.cv_path_.scores['Cox Deviance (Difference)'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.cv_path_.scores['SD(Cox Deviance (Difference))'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_fraction_alignment_ungrouped(sample_data):
@@ -281,8 +281,8 @@ def test_cross_validation_fraction_alignment_ungrouped(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 10 as in original)
-    assert np.allclose(GN3.cv_scores_['Cox Deviance'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.cv_path_.scores['Cox Deviance'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN3.cv_path_.scores['SD(Cox Deviance)'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3)
 
 
 def test_cross_validation_lambda_alignment_ungrouped(sample_data):
@@ -322,5 +322,5 @@ def test_cross_validation_lambda_alignment_ungrouped(sample_data):
     r_cvsd = np.array(r_gcv.rx2('cvsd'))
     
     # Compare results (using first 10 as in original)
-    assert np.allclose(GN4.cv_scores_['Cox Deviance'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN4.cv_scores_['SD(Cox Deviance)'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3) 
+    assert np.allclose(GN4.cv_path_.scores['Cox Deviance'].iloc[:10], r_cvm[:10], rtol=1e-3, atol=1e-3)
+    assert np.allclose(GN4.cv_path_.scores['SD(Cox Deviance)'].iloc[:10], r_cvsd[:10], rtol=1e-3, atol=1e-3) 
