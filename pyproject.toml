@@ -22,9 +22,9 @@ authors = [
 {name="Trevor Hastie", email="hastie@stanford.edu"},
 {name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
-dependencies = ["numpy>=1.7.1", # max version for numba
+dependencies = ["numpy", # max version for numba
                "scipy>=1.8,<1.16.0",
-               "pandas>=0.20",
+               "pandas",
                "scikit-learn>=1.2",
                "joblib",
                "statsmodels>=0.13",
