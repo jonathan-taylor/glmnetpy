@@ -52,7 +52,7 @@ y = X @ beta + np.random.randn(n)
 # Fit a Gaussian model (linear regression)
 fit = GaussNet().fit(X, y)
 
-fit.plot_coefficients();
+fit.coef_path_.plot();
 ```
 
 ---
@@ -81,7 +81,7 @@ fit = GaussNet().fit(X, y)
 `fit` is an object that contains all the relevant information of the fitted model for further use. We can visualize the coefficients by plotting the regularization paths:
 
 ```{code-cell} ipython3
-fit.plot_coefficients();
+fit.coef_path_.plot();
 ```
 
 Each curve corresponds to a variable. It shows the path of its coefficient against the $\ell_1$-norm of the whole coefficient vector as $\lambda$ varies.
@@ -170,7 +170,7 @@ weights[n//2:] = 2
 
 # Fit with alpha=0.2 and custom weights
 fit_ridge = GaussNet(alpha=0.2, nlambda=20).fit(X, y, sample_weight=weights)
-fit_ridge.plot_coefficients();
+fit_ridge.coef_path_.plot();
 ```
 
 ## Predicting and plotting with fitted objects
@@ -216,7 +216,7 @@ Suppose we want to fit our model but limit the coefficients to be bigger than -0
 ```{code-cell} ipython3
 # Fit with coefficient limits
 fit_limited = GaussNet(lower_limits=-0.1, upper_limits=1.2).fit(X, y)
-fit_limited.plot_coefficients();
+fit_limited.coef_path_.plot();
 ```
 
 Often we want the coefficients to be positive: to do so, we just need to specify `lower_limits = 0`:
@@ -224,7 +224,7 @@ Often we want the coefficients to be positive: to do so, we just need to specify
 ```{code-cell} ipython3
 # Fit with non-negative coefficients
 fit_positive = GaussNet(lower_limits=0).fit(X, y)
-fit_positive.plot_coefficients()
+fit_positive.coef_path_.plot()
 fit_positive.lower_limits
 ```
 
@@ -236,7 +236,7 @@ penalty_factor = np.ones(p)
 penalty_factor[[0, 2, 4]] = 0  # Variables 1, 3, 5 (0-indexed)
 
 fit_penalty = GaussNet(penalty_factor=penalty_factor).fit(X, y)
-fit_penalty.plot_coefficients();
+fit_penalty.coef_path_.plot();
 ```
 
 We see from the plot that the three variables with zero penalty factors always stay in the model, while the others follow typical regularization paths and are shrunk to zero eventually.
@@ -289,7 +289,7 @@ mfit = MultiGaussNet().fit(X, y)
 We can visualize the coefficients by plotting the $\ell_2$ norm of each variable's coefficient vector:
 
 ```{code-cell} ipython3
-mfit.plot_coefficients();
+mfit.coef_path_.plot();
 ```
 
 We can extract the coefficients and make predictions at requested values of $\lambda$:
@@ -340,7 +340,7 @@ fit = LogNet().fit(X, y)
 As before, we can print and plot the fitted object, extract the coefficients at specific $\lambda$'s and also make predictions:
 
 ```{code-cell} ipython3
-fit.plot_coefficients();
+fit.coef_path_.plot();
 ```
 
 Prediction is a little different for logistic regression, mainly in the function argument `type`:
@@ -416,7 +416,7 @@ fit = MultiClassNet().fit(X, y)
 For the `plot` method, we can produce a figure showing the $\ell_2$-norm in one figure:
 
 ```{code-cell} ipython3
-fit.plot_coefficients()
+fit.coef_path_.plot();
 ```
 
 We can also do cross-validation:
@@ -479,7 +479,7 @@ fit = FishNet().fit(X, y)
 We plot the coefficients to have a first sense of the result:
 
 ```{code-cell} ipython3
-fit.plot_coefficients();
+fit.coef_path_.plot();
 ```
 
 As before, we can extract the coefficients and make predictions at certain $\lambda$'s:
