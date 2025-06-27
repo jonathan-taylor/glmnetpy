@@ -404,12 +404,20 @@ class GLMNet(BaseEstimator,
         if interpolation_grid is not None:
             self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
            
+        self.coef_path_ = CoefPath(
+            coefs=self.coefs_,
+            intercepts=self.intercepts_,
+            lambda_values=self.lambda_values_,
+            feature_names=self.feature_names_in_,
+            fracdev=np.array(dev_ratios_)
+        )
+
         return self
     
     def predict(self,
                 X,
                 prediction_type='response',
-                lambda_values=None):
+                interpolation_grid=None):
         """
         Predict using the fitted GLMNet model.
 
@@ -430,11 +438,11 @@ class GLMNet(BaseEstimator,
             Predictions for each lambda value.
         """
         
-        if lambda_values is not None:
-            lambda_values = np.asarray(lambda_values)
-            coefs_, intercepts_ = self.interpolate_coefs(lambda_values)
+        if interpolation_grid is not None:
+            grid_ = np.asarray(interpolation_grid)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_)
         else:
-            lambda_values = self.lambda_values
+            grid_ = None
             coefs_, intercepts_ = self.coefs_, self.intercepts_
 
         intercepts_ = np.atleast_1d(intercepts_)
@@ -449,9 +457,10 @@ class GLMNet(BaseEstimator,
         # make return based on original
         # promised number of lambdas
         # pad with last value
-        if lambda_values is not None:
-            if lambda_values.shape:
-                nlambda = lambda_values.shape[0]
+
+        if grid_ is not None:
+            if grid_.shape:
+                nlambda = coefs_.shape[0]
                 squeeze = False
             else:
                 nlambda = 1
@@ -1000,3 +1009,104 @@ class GLMNet(BaseEstimator,
         cls = self.state_.__class__
         state = cls(coefs[0], intercepts[0])
         return estimator, state
+
+
+@dataclass
+class CoefPath(object):
+    """
+    Container for coefficient paths along the regularization path.
+
+    Stores the coefficients, intercepts, lambda values, and feature names for each step in the path.
+    Provides a plot method to visualize the coefficient trajectories as a function of lambda, norm, or deviance explained.
+
+    Attributes
+    ----------
+    coefs : np.ndarray
+        Array of coefficients for each lambda value (n_lambdas, n_features).
+    intercepts : np.ndarray
+        Array of intercepts for each lambda value (n_lambdas,).
+    lambda_values : np.ndarray
+        Array of lambda values along the path.
+    feature_names : list or np.ndarray
+        Names of the features (columns).
+    fracdev : np.ndarray, optional
+        Fraction of deviance explained at each lambda value.
+    """
+    coefs: np.ndarray
+    intercepts: np.ndarray
+    lambda_values: np.ndarray
+    feature_names: list | np.ndarray
+    fracdev: np.ndarray | None = None
+
+    def plot(self,
+             xvar='-lambda',
+             ax=None,
+             legend=False,
+             drop=None,
+             keep=None):
+        """
+        Plot coefficient paths.
+
+        Parameters
+        ----------
+        xvar: str
+            Variable to plot on x-axis. One of 'lambda', '-lambda', 'norm', 'dev'.
+        ax: matplotlib.axes.Axes, optional
+            Axes to plot on.
+        legend: bool
+            Whether to show legend.
+        drop: list, optional
+            Features to drop from the plot.
+        keep: list, optional
+            Features to keep in the plot.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes object.
+        """
+        if xvar == '-lambda':
+            index = pd.Index(-np.log(self.lambda_values))
+            index.name = r'$-\log(\lambda)$'
+        elif xvar == 'lambda':
+            index = pd.Index(np.log(self.lambda_values))
+            index.name = r'$\log(\lambda)$'
+        elif xvar == 'norm':
+            index = pd.Index(np.fabs(self.coefs).sum(1))
+            index.name = r'$\|\beta(\lambda)\|_1$'
+        elif xvar == 'dev':
+            if self.fracdev is None:
+                raise ValueError("fracdev must be set to use xvar='dev'")
+            index = pd.Index(self.fracdev)
+            index.name = 'Fraction Deviance Explained'
+        else:
+            raise ValueError("xvar should be one of 'lambda', '-lambda', 'norm', 'dev'")
+
+        coefs_ = self.coefs
+        if coefs_.ndim > 2:
+            # compute the l2 norm
+            coefs_ = np.sqrt((coefs_**2).sum(-1))
+            label = r'Coefficient norms ($\|\beta\|_2$)'
+        else:
+            label = r'Coefficients ($\beta$)'
+        soln_path = pd.DataFrame(coefs_,
+                                 columns=self.feature_names,
+                                 index=index)
+        if drop is not None:
+            soln_path = soln_path.drop(columns=drop)
+        if keep is not None:
+            soln_path = soln_path.loc[:, keep]
+        ax = soln_path.plot(ax=ax, legend=False)
+        ax.set_xlabel(index.name)
+        ax.set_ylabel(label)
+        ax.axhline(0, c='k', ls='--')
+
+        if legend:
+            fig = ax.figure
+            if hasattr(fig, 'get_layout_engine') and fig.get_layout_engine() is not None:
+                import warnings
+                warnings.warn('If plotting a legend, layout of figure will be set to "constrained".')
+            if hasattr(fig, 'set_layout_engine'):
+                fig.set_layout_engine('constrained')
+            fig.legend(loc='outside right upper')
+        return ax

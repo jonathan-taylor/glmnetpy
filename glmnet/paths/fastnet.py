@@ -10,11 +10,12 @@ import scipy.sparse
 from tqdm import tqdm
 
 from ..base import _get_design
-from ..glmnet import GLMNet
 from ..glm import GLMState
 from ..elnet import (_check_and_set_limits,
                     _check_and_set_vp,
                     _design_wrapper_args)
+from ..glmnet import (GLMNet,
+                      CoefPath)
 from ..family import GLMFamilySpec
 
 from .._utils import _jerr_elnetfit
@@ -238,6 +239,14 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if interpolation_grid is not None:
             self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
 
+        self.coef_path_ = CoefPath(
+            coefs=self.coefs_,
+            intercepts=self.intercepts_,
+            lambda_values=self.lambda_values_,
+            feature_names=self.feature_names_in_,
+            fracdev=np.array(dev_ratios_)
+        )
+
         return self
 
     # private methods
@@ -424,7 +433,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
     def predict(self,
                 X,
                 prediction_type='link', # ignored except checking valid
-                lambda_values=None,
+                interpolation_grid=None,
                 ):
         """
         Predict using the fitted model for multiple responses.
@@ -442,13 +451,13 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             Predicted values.
         """
 
-        if lambda_values is not None:
-            lambda_values = np.asarray(lambda_values)
-            squeeze = lambda_values.ndim == 0
-            lambda_values = np.atleast_1d(lambda_values)
-            coefs_, intercepts_ = self.interpolate_coefs(lambda_values)
+        if interpolation_grid is not None:
+            grid_ = np.asarray(interpolation_grid)
+            squeeze = grid_.ndim == 0
+            grid_ = np.atleast_1d(grid_)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_)
         else:
-            lambda_values = self.lambda_values
+            grid_ = None
             squeeze = False
             coefs_, intercepts_ = self.coefs_, self.intercepts_
 
@@ -468,8 +477,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
         # if possible we might want to do less than `self.nlambda`
         
-        if lambda_values is not None:
-            nlambda = lambda_values.shape[0]
+        if interpolation_grid is not None:
+            nlambda = coefs_.shape[0]
         else:
             nlambda = self.nlambda
 
