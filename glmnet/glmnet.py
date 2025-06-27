@@ -32,6 +32,7 @@ from .scorer import (PathScorer,
                      ScorePath)
 
 
+
 @dataclass
 class GLMNetControl(RegGLMControl):
     """
