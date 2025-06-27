@@ -199,8 +199,8 @@ def test_CV(offset,
                             D,
                             alignment=alignment,
                             cv=cv)
-    CVM_ = L.cv_scores_['Multinomial Deviance']
-    CVSD_ = L.cv_scores_['SD(Multinomial Deviance)']
+    CVM_ = L.score_path_.scores['Multinomial Deviance']
+    CVSD_ = L.score_path_.scores['SD(Multinomial Deviance)']
     C, CVM, CVSD = get_glmnet_soln(RMultiClassNet,
                                    X,
                                    Y.copy(),

@@ -443,8 +443,8 @@ def test_CV(offset,
                             D,
                             alignment=alignment,
                             cv=cv)
-    CVM_ = L.cv_scores_['Mean Squared Error']
-    CVSD_ = L.cv_scores_['SD(Mean Squared Error)']
+    CVM_ = L.score_path_.scores['Mean Squared Error']
+    CVSD_ = L.score_path_.scores['SD(Mean Squared Error)']
     C, CVM, CVSD = get_glmnet_soln(RGaussNet,
                                    X,
                                    Y.copy(),

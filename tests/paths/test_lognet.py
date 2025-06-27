@@ -158,8 +158,8 @@ def test_CV(offset,
                             D,
                             alignment=alignment,
                             cv=cv)
-    CVM_ = L.cv_scores_['Binomial Deviance']
-    CVSD_ = L.cv_scores_['SD(Binomial Deviance)']
+    CVM_ = L.score_path_.scores['Binomial Deviance']
+    CVSD_ = L.score_path_.scores['SD(Binomial Deviance)']
     C, CVM, CVSD = get_glmnet_soln(RLogNet,
                                    X,
                                    Y.copy(),

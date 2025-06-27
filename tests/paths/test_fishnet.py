@@ -142,8 +142,8 @@ def test_CV(offset,
                             D,
                             alignment=alignment,
                             cv=cv)
-    CVM_ = L.cv_scores_['Poisson Deviance']
-    CVSD_ = L.cv_scores_['SD(Poisson Deviance)']
+    CVM_ = L.score_path_.scores['Poisson Deviance']
+    CVSD_ = L.score_path_.scores['SD(Poisson Deviance)']
     C, CVM, CVSD = get_glmnet_soln(RFishNet,
                                    X,
                                    Y.copy(),
