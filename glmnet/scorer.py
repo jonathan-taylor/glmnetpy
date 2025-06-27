@@ -372,7 +372,7 @@ def _tune(index,
     return index_best_, index_1se_
 
 @dataclass
-class ValidationPath(object):
+class ScorePath(object):
     """
     Container for cross-validation results along the regularization path.
 

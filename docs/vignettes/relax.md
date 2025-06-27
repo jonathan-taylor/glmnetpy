@@ -1,11 +1,11 @@
 ---
-title: "The Relaxed Lasso"
-authors:
-  - Trevor Hastie
-  - Junyang Qian
-  - Kenneth Tay
-  - Adapted for Python by [Your Name]
-date: "{date}"
+jupytext:
+  text_representation:
+    extension: .md
+    format_name: myst
+    format_version: 0.13
+    jupytext_version: 1.17.2
+  formats: ipynb,md:myst
 ---
 
 # Introduction
@@ -537,4 +537,4 @@ print(f"Best CV score: {best_score:.4f}")
 
 ---
 
-*This document adapts the R glmnet relax vignette for the Python glmnet package. The original R vignette was written by Trevor Hastie, Junyang Qian, and Kenneth Tay.* 
+*This document adapts the R glmnet relax vignette for the Python glmnet package. The original R vignette was written by Trevor Hastie, Junyang Qian, and Kenneth Tay.*

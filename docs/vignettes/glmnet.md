@@ -141,7 +141,7 @@ We can get the model coefficients at these optimal values:
 
 ```{code-cell} ipython3
 # Get coefficients at lambda.min
-lambda_min = cvfit.index_best_['Gaussian Deviance']
+lambda_min = cvpath.index_best['Gaussian Deviance']
 coef_min, intercept_min = cvfit.interpolate_coefs(lambda_min)
 print("Coefficients at lambda.min:")
 print(coef_min)
@@ -436,7 +436,7 @@ Users may wish to predict at the optimally selected $\lambda$:
 
 ```{code-cell} ipython3
 predictions = fit.predict(X[:10], 
-                          lambda_values=cvfit.index_best_['Accuracy'], 
+                          lambda_values=cvpath.index_best['Accuracy'], 
                           prediction_type="class")
 print("Class predictions at lambda.min:")
 print(predictions)

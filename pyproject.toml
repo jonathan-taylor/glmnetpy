@@ -3,7 +3,7 @@ requires = ["setuptools>=42",
             "wheel",
             "pybind11",
             "numpy",
-            "scipy",
+            "scipy<1.16.0",
             "pandas",
             "matplotlib",
             "versioneer",
@@ -22,14 +22,15 @@ authors = [
 {name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 dependencies = ["numpy>=1.7.1", # max version for numba
-               "scipy>=1.8",
+               "scipy>=1.8,<1.16.0",
                "pandas>=0.20",
                "scikit-learn>=1.2",
                "joblib",
                "statsmodels>=0.13",
 	       "coxdev",
 	       "pybind11",
-	       "tqdm"]
+	       "tqdm",
+	       "mpmath"]
 classifiers = ["Development Status :: 3 - Alpha",
                "Environment :: Console",
                "Intended Audience :: Science/Research",

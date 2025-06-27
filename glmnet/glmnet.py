@@ -29,7 +29,7 @@ from .glm import (GLM,
                   GLMFamilySpec)
 from ._utils import _get_data
 from .scorer import (PathScorer,
-                     ValidationPath)
+                     ScorePath)
 
 
 @dataclass
@@ -551,13 +551,13 @@ class GLMNet(BaseEstimator,
         Returns
         -------
         tuple
-            (predictions, cv_path_)
+            (predictions, score_path_)
             predictions: np.ndarray
                 Cross-validated predictions for each sample and lambda value.
-            cv_path_: ValidationPath
+            score_path_: ScorePath
                 An object containing cross-validation results, including scores (as a DataFrame),
                 standard errors, best/1se indices, lambda values, and more. Access scores via
-                cv_path_.scores, e.g. cv_path_.scores['Mean Squared Error'].
+                score_path_.scores, e.g. score_path_.scores['Mean Squared Error'].
         """
         check_is_fitted(self, ["coefs_"])
 
@@ -614,15 +614,15 @@ class GLMNet(BaseEstimator,
          index_best_,
          index_1se_) = scorer.compute_scores(scorers=scorers)
 
-        self.cv_path_ = ValidationPath(scores=cv_scores_,
-                                       index_best=index_best_,
-                                       index_1se=index_1se_,
-                                       lambda_values=self.lambda_values_,
-                                       norm=np.fabs(self.coefs_).sum(1),
-                                       fracdev=self.summary_['Fraction Deviance Explained'],
-                                       family=self._family)
+        self.score_path_ = ScorePath(scores=cv_scores_,
+                                     index_best=index_best_,
+                                     index_1se=index_1se_,
+                                     lambda_values=self.lambda_values_,
+                                     norm=np.fabs(self.coefs_).sum(1),
+                                     fracdev=self.summary_['Fraction Deviance Explained'],
+                                     family=self._family)
 
-        return predictions, self.cv_path_
+        return predictions, self.score_path_
     
     def score_path(self,
                    X,
@@ -678,13 +678,13 @@ class GLMNet(BaseEstimator,
          index_best_,
          index_1se_) = scorer.compute_scores(scorers=scorers)
 
-        return ValidationPath(scores=scores_,
-                              index_best=index_best_,
-                              index_1se=index_1se_,
-                              lambda_values=self.lambda_values_,
-                              norm=np.fabs(self.coefs_).sum(1),
-                              fracdev=self.summary_['Fraction Deviance Explained'],
-                              family=self._family)
+        return ScorePath(scores=scores_,
+                          index_best=index_best_,
+                          index_1se=index_1se_,
+                          lambda_values=self.lambda_values_,
+                          norm=np.fabs(self.coefs_).sum(1),
+                          fracdev=self.summary_['Fraction Deviance Explained'],
+                          family=self._family)
 
     # def plot_cross_validation(self,
     #                           xvar='-lambda',
