@@ -5,3 +5,6 @@ sphinx-book-theme
 rpy2
 sphinx_rtd_theme
 jupytext
+jupyter-book
+sphinx
+myst-parser

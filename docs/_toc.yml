@@ -1,0 +1,12 @@
+# Table of contents for GLMStar documentation
+# See https://jupyterbook.org/en/stable/customize/toc.html
+
+format: jb-book
+root: index
+chapters:
+  - file: vignettes/glmnet.md
+  - file: examples/Test_design.md
+  - file: examples/cross_validation.md
+  - file: examples/diabetes_logistic.md
+  - file: examples/elnet_compare.md
+  - file: api_reference.md
