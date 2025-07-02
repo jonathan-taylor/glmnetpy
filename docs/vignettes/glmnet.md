@@ -7,9 +7,9 @@ jupytext:
     format_version: 0.13
     jupytext_version: 1.17.2
 kernelspec:
-  name: python3
   display_name: Python 3 (ipykernel)
   language: python
+  name: python3
 ---
 
 # Introduction
@@ -23,7 +23,7 @@ The original authors of glmnet are Jerome Friedman, Trevor Hastie, Rob Tibshiran
 You can install the Python `glmnet` package using pip:
 
 ```{code-cell} ipython3
-#!pip install glmnetpy
+%pip install glmstar
 ```
 
 ---
@@ -36,7 +36,8 @@ Below is a quick demonstration of the main functions and outputs using the Pytho
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.datasets import make_regression, make_classification
+from sklearn.datasets import (make_regression, 
+                              make_classification)
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, auc
 ```
