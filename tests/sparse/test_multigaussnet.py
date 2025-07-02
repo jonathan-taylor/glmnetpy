@@ -9,7 +9,8 @@ rng = np.random.default_rng(0)
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('fit_intercept', [True, False])
 @pytest.mark.parametrize('q', [2, 3])  # number of response variables
-def test_dense_vs_sparse_path_multigaussnet(standardize, fit_intercept, q, n=100, p=10):
+@pytest.mark.parametrize('fit_type', ['dense', 'sparse'])  # fit type
+def test_dense_vs_sparse_path_multigaussnet(standardize, fit_intercept, q, fit_type, n=100, p=10):
     """
     Compare path fits for dense vs. sparse X for MultiGaussNet.
     """
