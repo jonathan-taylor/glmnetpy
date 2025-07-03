@@ -8,8 +8,6 @@ from sklearn.metrics import (mean_squared_error,
                              roc_auc_score,
                              average_precision_score)
 
-from .docstrings import add_dataclass_docstring
-
 @dataclass(frozen=True)
 class Scorer(object):
 

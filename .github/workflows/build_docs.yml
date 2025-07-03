@@ -21,6 +21,9 @@ jobs: # This workflow contains a single
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
