@@ -1,0 +1,25 @@
+# MultiClassNet
+
+The `MultiClassNet` class fits a multinomial logistic regression model with elastic net regularization (multinomial family). It is suitable for multi-class classification problems.
+
+## Example Usage
+
+```{code-cell} ipython3
+from glmnet.data import make_dataset
+from glmnet.paths.multiclassnet import MultiClassNet
+
+X, y, coef, intercept = make_dataset(MultiClassNet, n_samples=100, n_features=10, 
+                                    n_classes=3, snr=5)
+model = MultiClassNet()
+model.fit(X, y)
+print(model.coef_)
+```
+
+## API Reference
+
+```{eval-rst}
+.. autoclass:: glmnet.paths.multiclassnet.MultiClassNet
+    :members:
+    :inherited-members:
+    :show-inheritance:
+``` 

@@ -36,10 +36,9 @@ Below is a quick demonstration of the main functions and outputs using the Pytho
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.datasets import (make_regression, 
-                              make_classification)
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, auc
+from glmnet.data import make_dataset
 ```
 
 The following are the `GLMNet` estimators:
@@ -55,11 +54,11 @@ from glmnet import (GaussNet,
 Let's generate some synthetic regression data:
 
 ```{code-cell} ipython3
-X_gaussian, y_gaussian = make_regression(n_samples=100, 
-                                         n_features=20, 
-                                         n_informative=5, 
-                                         noise=3.0, 
-                                         random_state=42)
+X_gaussian, y_gaussian, coef_gaussian, intercept_gaussian = make_dataset(GaussNet, n_samples=100, 
+                                                                         n_features=20, 
+                                                                         n_informative=5, 
+                                                                         snr=5.0, 
+                                                                         random_state=42)
 ```
 
 All of the `GLMNet` objects are `sklearn` estimators
@@ -124,11 +123,11 @@ from glmnet import GaussNet
 We'll demonstrate this using synthetic data for illustration:
 
 ```{code-cell} ipython3
-X_gaussian, y_gaussian = make_regression(n_samples=100, 
-                                         n_features=20, 
-                                         n_informative=5, 
-                                         noise=3.0, 
-                                         random_state=42)
+X_gaussian, y_gaussian, coef_gaussian, intercept_gaussian = make_dataset(GaussNet, n_samples=100, 
+                                                                         n_features=20, 
+                                                                         n_informative=5, 
+                                                                         snr=5.0, 
+                                                                         random_state=42)
 ```
 
 Fit the model using the basic call:
@@ -157,8 +156,8 @@ coefs
 Users can also make predictions at specific $\lambda$ values with new input data:
 
 ```{code-cell} ipython3
-rng = np.random.default_rng(0)
-new_X = rng.standard_normal((5, X_gaussian.shape[1]))
+np.random.seed(0)
+new_X = np.random.standard_normal((5, X_gaussian.shape[1]))
 ```
 
 We can of course make predictions at specific $\lambda$ values:
@@ -264,9 +263,10 @@ Suppose we want to fit our model but limit the coefficients to be bigger than -0
 
 ```{code-cell} ipython3
 # Fit with coefficient limits
-fit_limited_gaussian = GaussNet(lower_limits=-0.1, upper_limits=1.2).fit(X_gaussian, y_gaussian)
+lower, upper = -1, 0.5
+fit_limited_gaussian = GaussNet(lower_limits=lower, upper_limits=upper).fit(X_gaussian, y_gaussian)
 fit_limited_gaussian.coef_path_.plot();
-plt.title('Coefficient Paths with Limits [-0.1, 1.2]');
+plt.title(f'Coefficient Paths with Limits [{lower:.1f}, {upper:.1f}]');
 ```
 
 Often we want the coefficients to be positive: to do so, we just need to specify `lower_limits = 0`:
@@ -317,9 +317,11 @@ $$\mbox{Pr}(G=2|X=x)=\frac{e^{\beta_0+\beta^Tx}}{1+e^{\beta_0+\beta^Tx}},$$
 which can be written in the following form:
 
 $$\log\frac{\mbox{Pr}(G=2|X=x)}{\mbox{Pr}(G=1|X=x)}=\beta_0+\beta^Tx,$$
+
 the so-called "logistic" or log-odds transformation.
 
 The objective function for logistic regression is the penalized negative binomial log-likelihood:
+
 $$
 \min_{(\beta_0, \beta) \in \mathbb{R}^{p+1}} -\left[\frac{1}{N} \sum_{i=1}^N y_i \cdot (\beta_0 + x_i^T \beta) - \log (1+e^{(\beta_0+x_i^T \beta)})\right] + \lambda \big[ (1-\alpha)\|\beta\|_2^2/2 + \alpha\|\beta\|_1\big].
 $$
@@ -331,10 +333,12 @@ from glmnet import LogNet
 For illustration purposes, we generate synthetic data:
 
 ```{code-cell} ipython3
-X_binomial, y_binomial = make_classification(n_samples=200, n_features=20, n_informative=5, 
-                           n_redundant=5, n_clusters_per_class=1, 
-                           flip_y=0.3,
-                           random_state=42)
+X_binomial, y_binomial, coef_binomial, intercept_binomial = make_dataset(LogNet, n_samples=200, 
+                                                                         n_features=20, 
+                                                                         n_informative=5, 
+                                                                         snr=3.0, 
+                                                                         random_state=42)
+```
 
 # Use the existing binomial data for testing
 X_train, X_test, y_train, y_test = train_test_split(X_binomial, y_binomial, test_size=0.5, random_state=42)
@@ -388,10 +392,13 @@ ax.set_title('Cross-validation Results for Logistic Regression');
 # Multinomial Regression: MultiClassNet
 
 The multinomial model extends the binomial when the number of classes is more than two. Suppose the response variable has $K$ levels ${\cal G}=\{1,2,\ldots,K\}$. Here we model
+
 $$\mbox{Pr}(G=k|X=x)=\frac{e^{\beta_{0k}+\beta_k^Tx}}{\sum_{\ell=1}^Ke^{\beta_{0\ell}+\beta_\ell^Tx}}.$$
+
 There is a linear predictor for each class!
 
 Let ${Y}$ be the $N \times K$ indicator response matrix, with elements $y_{i\ell} = I(g_i=\ell)$. Then the elastic net penalized negative log-likelihood function becomes
+
 $$
 \ell(\{\beta_{0k},\beta_{k}\}_1^K) = -\left[\frac{1}{N} \sum_{i=1}^N \Big(\sum_{k=1}^Ky_{il} (\beta_{0k} + x_i^T \beta_k)- \log \big(\sum_{\ell=1}^K e^{\beta_{0\ell}+x_i^T \beta_\ell}\big)\Big)\right] +\lambda \left[ (1-\alpha)\|\beta\|_F^2/2 + \alpha\sum_{j=1}^p\|\beta_j\|_q\right].
 $$
@@ -405,13 +412,12 @@ from glmnet import MultiClassNet
 For the `family = "multinomial"` case, usage is similar to that for `family = "binomial"`. We generate synthetic data:
 
 ```{code-cell} ipython3
-X_multinomial, y_multinomial = make_classification(n_samples=100, 
-                                                   n_features=20, 
-                                                   n_informative=5, 
-                                                   n_redundant=5, 
-                                                   n_classes=3, 
-                                                   n_clusters_per_class=1, 
-                                                   flip_y=0.2, random_state=42)
+X_multinomial, y_multinomial, coef_multinomial, intercept_multinomial = make_dataset(MultiClassNet, n_samples=100, 
+                                                                                     n_features=20, 
+                                                                                     n_informative=5, 
+                                                                                     n_classes=3, 
+                                                                                     snr=3.0, 
+                                                                                     random_state=42)
 ```
 
 Fitting is similar to all other `GLMNet` estimators:
@@ -465,9 +471,11 @@ The multi-response Gaussian family is useful when there are a number of (correla
 As the name suggests, the response $y$ is not a vector but a matrix of quantitative responses. As a result, the coefficients at each value of lambda are also a matrix.
 
 `glmnet` solves the problem
+
 $$
 \min_{(\beta_0, \beta) \in \mathbb{R}^{(p+1)\times K}}\frac{1}{2N} \sum_{i=1}^N \|y_i -\beta_0-\beta^T x_i\|^2_F+\lambda \left[ (1-\alpha)\|\beta\|_F^2/2 + \alpha\sum_{j=1}^p\|\beta_j\|_2\right].
 $$
+
 Here $\beta_j$ is the $j$th row of the $p\times K$ coefficient matrix $\beta$, and we replace the absolute penalty on each single coefficient by a group-lasso penalty on each coefficient $K$-vector $\beta_j$ for a single predictor.
 
 ```{code-cell} ipython3
@@ -477,11 +485,13 @@ from glmnet import MultiGaussNet
 We use synthetic data for illustration:
 
 ```{code-cell} ipython3
-n, p, K = 100, 20, 3
-X = rng.standard_normal((n, p))
-beta = np.zeros((p, K))
-beta[:5, :] = rng.standard_normal((5, K))  # First 5 variables are active
-y = X @ beta + rng.standard_normal((n, K))
+X, y, coef_multigauss, intercept_multigauss = make_dataset(MultiGaussNet, n_samples=100, 
+                                                           n_features=20, 
+                                                           n_informative=5, 
+                                                           n_targets=3, 
+                                                           snr=5.0, 
+                                                           random_state=42)
+```
 
 # Fit a regularized multi-response Gaussian model
 fit_multigaussian = MultiGaussNet().fit(X, y)
@@ -507,10 +517,13 @@ predictions.shape
 Poisson regression is used to model count data under the assumption of Poisson error, or otherwise non-negative data where the mean and variance are proportional. Like the Gaussian and binomial models, the Poisson distribution is a member of the exponential family of distributions. We usually model its positive mean on the log scale: $\log \mu(x) = \beta_0+\beta' x$.
 
 The log-likelihood for observations $\{x_i,y_i\}_1^N$ is given by
+
 $$
 l(\beta|X, Y) = \sum_{i=1}^N \left(y_i (\beta_0+\beta^T x_i) - e^{\beta_0+\beta^Tx_i}\right).
 $$
+
 As before, we optimize the penalized log-likelihood:
+
 $$
 \min_{\beta_0,\beta} -\frac1N l(\beta|X, Y)  + \lambda \left((1-\alpha) \sum_{i=1}^N \beta_i^2/2 +\alpha \sum_{i=1}^N |\beta_i|\right).
 $$
@@ -522,12 +535,12 @@ from glmnet import FishNet
 We generate Poisson data:
 
 ```{code-cell} ipython3
-X_poisson = rng.standard_normal((n, p))
-beta = np.zeros(p)
-beta[:5] = [0.5, 0.3, 0.2, 0, 0.8]
-log_means = X_poisson @ beta
-means = np.exp(log_means)
-y_poisson = np.random.poisson(means)
+X_poisson, y_poisson, coef_poisson, intercept_poisson = make_dataset(FishNet, n_samples=100, 
+                                                                     n_features=20, 
+                                                                     n_informative=5, 
+                                                                     snr=3.0, 
+                                                                     random_state=42)
+```
 ```
 
 Let's fit our model:
