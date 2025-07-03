@@ -303,8 +303,6 @@ class AffineConstraint(object):
 
         """
 
-        print('compute_weight', estimate, variance, covariance)
-
         if np.linalg.norm(covariance) > 1e-8 * variance:
 
             soln = self.solver(covariance)
@@ -340,7 +338,6 @@ class AffineConstraint(object):
                                 upper_bound=upper_bound,
                                 noisy_estimate=unbiased_estimate,
                                 factor=factor)
-        print(tg)
         return tg
 
 
@@ -504,7 +501,6 @@ class GLMNetInference(object):
                           Df_full,
                           dispersion=self.dispersion)
 
-            print(self.dispersion, unreg_GLM.dispersion_, 'dispersion')
             # quadratic approximation
 
             self.D_active = _get_design(X_full[:,active_set],
