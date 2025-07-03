@@ -22,7 +22,18 @@ from ._utils import _get_data
 
 @dataclass
 class CoxState(GLMState):
-
+    """
+    State for Cox regression models.
+    
+    Parameters
+    ----------
+    coef : np.ndarray
+        Coefficient vector.
+    obj_val : float, default=np.inf
+        Objective function value.
+    intercept : float, default=0
+        Intercept term (always 0 for Cox models).
+    """
     coef: np.ndarray
     obj_val: float = np.inf
     intercept: float = 0
@@ -37,8 +48,20 @@ class CoxState(GLMState):
                family,
                offset,
                objective=None):
-        '''pin the mu/eta values to coef/intercept'''
-
+        """
+        Update the state with new design matrix and family.
+        
+        Parameters
+        ----------
+        design : np.ndarray
+            Design matrix.
+        family : CoxFamilySpec
+            Cox family specification.
+        offset : np.ndarray, optional
+            Offset values.
+        objective : callable, optional
+            Objective function to evaluate.
+        """
         self.linear_predictor = design @ self._stack
         if offset is None:
             self.link_parameter = self.linear_predictor
@@ -57,7 +80,23 @@ class CoxState(GLMState):
                    family,
                    y,
                    sample_weight):
-
+        """
+        Compute the log-likelihood score.
+        
+        Parameters
+        ----------
+        family : CoxFamilySpec
+            Cox family specification.
+        y : np.ndarray
+            Response variable.
+        sample_weight : np.ndarray
+            Sample weights.
+            
+        Returns
+        -------
+        np.ndarray
+            Log-likelihood score.
+        """
         link_parameter = self.link_parameter
         family._result = family._coxdev(link_parameter,
                                         sample_weight)
@@ -67,7 +106,20 @@ class CoxState(GLMState):
 
 @dataclass
 class CoxFamily(object):
-
+    """
+    Cox family specification for basic configuration.
+    
+    Parameters
+    ----------
+    tie_breaking : {'breslow', 'efron'}, default='efron'
+        Method for handling ties in survival times.
+    event_id : str, optional, default='event'
+        Column name for event times.
+    status_id : str, optional, default='status'
+        Column name for event status (0=censored, 1=event).
+    start_id : str, optional, default=None
+        Column name for start times (for start-stop data).
+    """
     tie_breaking: Literal['breslow', 'efron'] = 'efron'
     event_id: Optional[str] = 'event'
     status_id: Optional[str] = 'status'
@@ -75,7 +127,24 @@ class CoxFamily(object):
 
 @dataclass
 class CoxFamilySpec(object):
-
+    """
+    Cox family specification for survival analysis.
+    
+    Parameters
+    ----------
+    event_data : InitVar[np.ndarray]
+        Survival data containing event times, status, and optionally start times.
+    tie_breaking : {'breslow', 'efron'}, default='efron'
+        Method for handling ties in survival times.
+    event_id : str, optional, default='event'
+        Column name for event times.
+    status_id : str, optional, default='status'
+        Column name for event status (0=censored, 1=event).
+    start_id : str, optional, default=None
+        Column name for start times (for start-stop data).
+    name : str, default='Cox'
+        Family name.
+    """
     event_data: InitVar[np.ndarray]
     tie_breaking: Literal['breslow', 'efron'] = 'efron'
     event_id: Optional[str] = 'event'
@@ -105,13 +174,17 @@ class CoxFamilySpec(object):
         
         if self.start_id is not None:
             start = event_data[self.start_id]
+            self._coxdev = CoxDeviance(np.asarray(event, float),
+                                       status,
+                                       start=np.asarray(start, float),
+                                       tie_breaking=self.tie_breaking)
         else:
             start = None
+            self._coxdev = CoxDeviance(np.asarray(event, float),
+                                       status,
+                                       start=None,
+                                       tie_breaking=self.tie_breaking)
 
-        self._coxdev = CoxDeviance(np.asarray(event, float),
-                                   status,
-                                   start=np.asarray(start, float),
-                                   tie_breaking=self.tie_breaking)
 
     # GLMFamilySpec API
     def link(self, mu):
@@ -182,7 +255,17 @@ class CoxFamilySpec(object):
 
 @dataclass
 class CoxLM(GLM):
+    """
+    Cox Linear Model for survival analysis.
     
+    Fits a Cox proportional hazards model without regularization.
+    
+    Parameters
+    ----------
+    fit_intercept : Literal[False], default=False
+        Whether to fit an intercept. For Cox models, this is always False
+        as the intercept is absorbed into the baseline hazard.
+    """
     fit_intercept: Literal[False] = False
 
     def _finalize_family(self,
@@ -244,7 +327,17 @@ class CoxLM(GLM):
 
 @dataclass
 class RegCoxLM(RegGLM):
+    """
+    Regularized Cox Linear Model for survival analysis.
     
+    Fits a Cox proportional hazards model with regularization (lasso, ridge, or elastic net).
+    
+    Parameters
+    ----------
+    fit_intercept : Literal[False], default=False
+        Whether to fit an intercept. For Cox models, this is always False
+        as the intercept is absorbed into the baseline hazard.
+    """
     fit_intercept: Literal[False] = False
 
     def get_data_arrays(self,
@@ -270,7 +363,20 @@ class RegCoxLM(RegGLM):
 
 @dataclass
 class CoxNet(GLMNet):
+    """
+    CoxNet: Cox Proportional Hazards Model with Elastic Net regularization.
     
+    Fits a Cox proportional hazards model with regularization along a path of lambda values.
+    Supports both right-censored and start-stop survival data with Breslow or Efron tie-breaking.
+    
+    Parameters
+    ----------
+    fit_intercept : Literal[False], default=False
+        Whether to fit an intercept. For Cox models, this is always False
+        as the intercept is absorbed into the baseline hazard.
+    regularized_estimator : BaseEstimator, default=RegCoxLM
+        The regularized estimator class to use for fitting.
+    """
     fit_intercept: Literal[False] = False
     regularized_estimator: BaseEstimator = RegCoxLM
     
@@ -323,22 +429,68 @@ class CoxNet(GLMNet):
         return CoxState(coef_, intercept_), keep.astype(float)
 
     def predict(self,
-                X):
-        
-        linear_pred_ = self.coefs_ @ X.T + self.intercepts_[:, None]
+                X,
+                prediction_type='response',
+                interpolation_grid=None):
+        """
+        Predict using the fitted CoxNet model.
+
+        Parameters
+        ----------
+        X : Union[np.ndarray, scipy.sparse, DesignSpec]
+            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            vector. If it is a sparse matrix, it is assumed to be
+            unstandardized. If it is not a sparse matrix, a copy is made and
+            standardized.
+        prediction_type : str, default='response'
+            Type of prediction to return. For Cox models, this is always the
+            linear predictor (risk score), so this parameter is ignored.
+        interpolation_grid : np.ndarray, optional
+            Grid of lambda values for interpolation. If provided, coefficients are 
+            interpolated to these values before prediction.
+
+        Returns
+        -------
+        np.ndarray
+            Predictions for each lambda value. Shape is (n_samples, n_lambdas)
+            where n_lambdas is the number of lambda values in the fitted path
+            or the length of interpolation_grid if provided.
+        """
+        if interpolation_grid is not None:
+            grid_ = np.asarray(interpolation_grid)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_)
+        else:
+            grid_ = None
+            coefs_, intercepts_ = self.coefs_, self.intercepts_
+
+        intercepts_ = np.atleast_1d(intercepts_)
+        coefs_ = np.atleast_2d(coefs_)
+        linear_pred_ = coefs_ @ X.T + intercepts_[:, None]
         linear_pred_ = linear_pred_.T
 
         # make return based on original
         # promised number of lambdas
         # pad with last value
-        if self.lambda_values is not None:
-            nlambda = self.lambda_values.shape[0]
+        if grid_ is not None:
+            if grid_.shape:
+                nlambda = coefs_.shape[0]
+                squeeze = False
+            else:
+                nlambda = 1
+                squeeze = True
         else:
-            nlambda = self.nlambda
+            if self.lambda_values is not None:
+                nlambda = self.lambda_values.shape[0]
+            else:
+                nlambda = self.nlambda
+            squeeze = False
 
         value = np.zeros((linear_pred_.shape[0], nlambda), float) * np.nan
         value[:,:linear_pred_.shape[1]] = linear_pred_
         value[:,linear_pred_.shape[1]:] = linear_pred_[:,-1][:,None]
+        
+        if squeeze:
+            value = np.squeeze(value)
         return value
 
     

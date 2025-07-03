@@ -3,8 +3,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse
 from glmnet import GaussNet
-
-rng = np.random.default_rng(0)
+from glmnet.data import make_dataset
 
 @pytest.mark.parametrize('standardize', [True, False])
 @pytest.mark.parametrize('fit_intercept', [True, False])
@@ -12,14 +11,9 @@ def test_dense_vs_sparse_path_gaussnet(standardize, fit_intercept, n=100, p=10):
     """
     Compare path fits for dense vs. sparse X for GaussNet.
     """
-    X = rng.standard_normal((n, p))
-    X[:, 4] *= 2.5
-    X[:, 2] *= 1.2
-    X[:, 0] *= 0.7
-    X[:, 1] *= 0.9
-    beta = np.zeros(p)
-    beta[:2] = [1, 2]
-    y = 2 * rng.standard_normal(n) + X @ beta
+    # Use make_dataset for consistent test data
+    X, y, coef, intercept = make_dataset(GaussNet, n_samples=n, n_features=p, 
+                                        n_informative=3, snr=2.0, random_state=42)
     df = pd.DataFrame({'response': y})
     
     # Dense fit
