@@ -18,7 +18,8 @@ from ..glmnet import (GLMNet,
                       CoefPath)
 from ..family import GLMFamilySpec
 
-from .._utils import _jerr_elnetfit
+from .._utils import (_jerr_elnetfit,
+                      _validate_cpp_args)
 from ..docstrings import (make_docstring,
                           add_dataclass_docstring)
 
@@ -176,8 +177,14 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                                         offset=offset,
                                         exclude=self.exclude)
 
-        self._args.update(**_design_wrapper_args(design))
+        design_args = _design_wrapper_args(design)
+        # 'xm' and 'xs' are used by the elnet / flex CPP code but not the paths
+        for k in ['xm', 'xs']:
+            if k in design_args:
+                del(design_args[k])
 
+        self._args.update(**design_args)
+        
         # set control args
         D = asdict(self.control)
         del(D['maxit']) # maxit is not in glmnet.control
@@ -187,14 +194,18 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         if scipy.sparse.issparse(design.X):
             fit_method = getattr(self, "_sparse", None)
+
             if fit_method is None:
                 raise AttributeError(f"{self.__class__.__name__} has no method '_sparse' required for sparse input.")
-            self._fit = fit_method(**self._args)
         else:
             fit_method = getattr(self, "_dense", None)
             if fit_method is None:
                 raise AttributeError(f"{self.__class__.__name__} has no method '_dense' required for dense input.")
-            self._fit = fit_method(**self._args)
+        msg = _validate_cpp_args(self._args,
+                                  fit_method.__name__)
+        if msg is not None:
+            raise ValueError(msg)
+        self._fit = fit_method(**self._args)
 
         # if error code > 0, fatal error occurred: stop immediately
         # if error code < 0, non-fatal error occurred: return error code
@@ -394,7 +405,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         _args = {'parm':float(self.alpha),
                  'ni':nvars,
                  'no':nobs,
-                 'y':response,
+                 'y':np.asfortranarray(response),
                  'w': np.asarray(sample_weight).reshape((-1, 1)),
                  'jd': jd,
                  'vp': np.asarray(self.penalty_factor).reshape((-1, 1)),
