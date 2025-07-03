@@ -29,7 +29,6 @@ jobs: # This workflow contains a single
       # Install
       - name: Install dependencies 
         run: |
-          sudo apt-get install r-base
           pip install -r docs/requirements.txt
           pip install .
 
