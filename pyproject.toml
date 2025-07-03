@@ -19,8 +19,9 @@ requires-python = ">=3.9"
 description  = "GlmNet for Python"
 authors = [
 {name="Trevor Hastie", email="hastie@stanford.edu"},
-{name="Balasubramanian Narasimhan", email="naras@stanford.edu"},
-{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
+{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},
+{name="James Yang", email="jamesyang916@gmail.com"},
+{name="Balasubramanian Narasimhan", email="naras@stanford.edu"}]
 maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 dependencies = ["numpy", # max version for numba
                "scipy>=1.8,<1.16.0",
